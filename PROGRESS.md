@@ -1,153 +1,136 @@
 # PROGRESS.md — Implementation Tracker
 
-> **Read this first every session.** Find the first unchecked item — that's where we are.
+> **Read this first every session.** Find the first 🟡 or ⬜ item — that's where we are. Do only that step, test it, then stop and confirm before the next.
+>
+> **Source of truth for detail:** `IBKR_MIGRATION_PLAN_v2.md` (phases + test criteria) and `CLAUDE.md` (specs, interfaces, wrapper guide).
 >
 > **Rules:**
 > - One step = one commit = one testable change
 > - Mark ✅ only after the test passes
 > - Never skip ahead
-> - If a step fails, add a note and fix before moving on
+> - Order-placing paths stay manual / human-in-the-loop
+> - Paper only (port 4002) until Phase 6
+>
+> **Legend:** ✅ done · 🟡 in progress / awaiting verification · ⬜ not started
 
 ---
 
-## Phase 1: Claude Code CLI Swap
+## Where we are right now
 
-Replace OpenCode CLI with Claude Code (`claude -p` headless mode). All changes tested against the existing Alpaca backend — no broker changes yet.
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 1.1 | Create branch `feature/ibkr-porting`, add `CLAUDE.md` and `PROGRESS.md` to repo | ✅ | 2026-03-22 | 2149d18 |
-| 1.2 | Create `.mcp.json` (replaces `opencode.jsonc`) | ⬜ | | |
-| 1.3 | Update `harness.js` — spawn command only (`opencode run` → `claude -p`, argument mapping) | ⬜ | | |
-| 1.4 | Update `harness.js` — session handling (`--session` → `--resume`, capture `session_id`) | ⬜ | | |
-| 1.5 | Update `harness.js` — system prompt piping (stdin, first-beat-only optimization) | ⬜ | | |
-| 1.6 | Update `server.js` — SSE event parser (OpenCode JSON → Claude Code `stream-json`) | ⬜ | | |
-| 1.7 | End-to-end test: dashboard → Start → full beat cycle with Alpaca backend | ⬜ | | |
-
-**Test criteria per step:**
-- **1.1:** Branch exists, both `.md` files render on GitHub
-- **1.2:** `claude` CLI picks up MCP server config (run `claude` interactively, verify tools listed)
-- **1.3:** Subprocess spawns, connects to MCP server, exits cleanly (check process output)
-- **1.4:** First beat returns `session_id`, second beat resumes same session (check logs)
-- **1.5:** Agent receives system prompt on beat 1, beat 2 skips it (check token count in logs)
-- **1.6:** Dashboard Terminal tab shows agent text, tool calls, and tool results streaming
-- **1.7:** Full autonomous cycle: agent wakes → calls tools → results stream → sleeps → next beat
+**Phase 0.3.** `cmd/twscheck` is written and verified in isolation (builds in the repo module; handshake framing proven against a mock Gateway). **Next action:** run it against your paper IB Gateway on 4002 and record the server version, then start Phase 1 (the broker seam). Nothing from Phase 1 onward exists yet — the broker layer is still concrete Alpaca, no `BrokerService` interface, no `tws/` package.
 
 ---
 
-## Phase 2: IBKR TWS Adapter
-
-Custom Go TWS API wrapper from scratch. Tested against IB Gateway paper (port 4002).
-
-### Phase 2A: TWS Wire Protocol (pure data types, no I/O)
+## Phase 0 — Baseline & socket sanity
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 2A.1 | Create `tws/constants.go` — message IDs (incoming/outgoing), tick types | ⬜ | | |
-| 2A.2 | Create `tws/contract.go` — TWS Contract struct + Instrument↔Contract mapping | ⬜ | | |
-| 2A.3 | Create `tws/order.go` — TWS Order + OrderCancel structs | ⬜ | | |
-| 2A.4 | Unit tests for Contract↔Instrument round-trip (all instrument types) | ⬜ | | |
+| 0.1 | Branch `feature/ibkr-porting` off `main`; planning docs in repo | ✅ | 2026-03-22 | 2149d18 |
+| 0.2 | IB Gateway paper running on 4002; API socket clients enabled, 127.0.0.1 trusted; record server version | ⬜ | | |
+| 0.3 | `cmd/twscheck` — TCP connect + v100+ handshake, print server version (no `startApi`, no orders) | 🟡 | | |
 
-### Phase 2B: Encoder (outbound messages)
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2B.1 | Create `tws/encoder.go` — message framing (length prefix + null-delimited fields) | ⬜ | | |
-| 2B.2 | Add `ReqMktData`, `CancelMktData` encoders | ⬜ | | |
-| 2B.3 | Add `PlaceOrder`, `CancelOrder` encoders | ⬜ | | |
-| 2B.4 | Add `ReqAccountSummary`, `ReqPositions` encoders | ⬜ | | |
-| 2B.5 | Add `ReqContractDetails`, `ReqSecDefOptParams` encoders | ⬜ | | |
-| 2B.6 | Add `ReqHistoricalData`, `ReqAllOpenOrders` encoders | ⬜ | | |
-| 2B.7 | Unit tests for all encoders (byte-level comparison with expected output) | ⬜ | | |
-
-### Phase 2C: Client + Decoder (TCP connection, inbound messages)
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2C.1 | Create `tws/client.go` — TCP dial, handshake (`API\0` + version negotiation) | ⬜ | | |
-| 2C.2 | Create `tws/decoder.go` — message reader + dispatch by message ID | ⬜ | | |
-| 2C.3 | Create `tws/wrapper.go` — EWrapper callback interface | ⬜ | | |
-| 2C.4 | Add decoders: `nextValidId`, `error`, `connectionClosed` | ⬜ | | |
-| 2C.5 | Integration test: connect to IB Gateway paper, receive `nextValidId` | ⬜ | | |
-| 2C.6 | Add decoders: `tickPrice`, `tickSize`, `tickOptionComputation` | ⬜ | | |
-| 2C.7 | Integration test: `reqMktData` for any instrument, verify tick callbacks | ⬜ | | |
-| 2C.8 | Add decoders: `orderStatus`, `openOrder`, `openOrderEnd` | ⬜ | | |
-| 2C.9 | Add decoders: `position`, `positionEnd`, `accountSummary`, `accountSummaryEnd` | ⬜ | | |
-| 2C.10 | Add decoders: `contractDetails`, `contractDetailsEnd` | ⬜ | | |
-| 2C.11 | Add decoders: `historicalData`, `historicalDataEnd` | ⬜ | | |
-| 2C.12 | Add decoders: `securityDefinitionOptionParameter`, `securityDefinitionOptionParameterEnd` | ⬜ | | |
-
-### Phase 2D: Dispatcher (reqId→channel bridge)
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2D.1 | Create `tws/dispatcher.go` — Register, Dispatch, Complete | ⬜ | | |
-| 2D.2 | Create `tws/order_id_manager.go` — Seed + atomic Next | ⬜ | | |
-| 2D.3 | Unit tests for dispatcher (concurrent register/dispatch/complete) | ⬜ | | |
-| 2D.4 | Wire dispatcher into client: wrapper callbacks → dispatcher.Dispatch | ⬜ | | |
-| 2D.5 | Integration test: full request→channel→response for `reqContractDetails` | ⬜ | | |
-
-### Phase 2E: Go Interface Implementations
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2E.1 | Create `interfaces/instrument.go` — Instrument struct + type constants | ⬜ | | |
-| 2E.2 | Create `interfaces/broker.go` — BrokerService interface | ⬜ | | |
-| 2E.3 | Create `interfaces/market_data.go` — MarketDataService interface | ⬜ | | |
-| 2E.4 | Create `services/ibkr_broker.go` — Connect, Disconnect, IsConnected, GetAccount | ⬜ | | |
-| 2E.5 | Integration test: connect → GetAccount → verify account data from paper | ⬜ | | |
-| 2E.6 | Add `services/ibkr_broker.go` — GetPositions, GetOrders, GetOpenOrders | ⬜ | | |
-| 2E.7 | Add `services/ibkr_broker.go` — PlaceOrder, CancelOrder | ⬜ | | |
-| 2E.8 | Integration test: place limit order far from market → verify → cancel → verify | ⬜ | | |
-| 2E.9 | Add `services/ibkr_broker.go` — SearchContracts | ⬜ | | |
-| 2E.10 | Create `services/ibkr_market_data.go` — GetQuote | ⬜ | | |
-| 2E.11 | Integration test: GetQuote for ESTX50 index → verify bid/ask | ⬜ | | |
-| 2E.12 | Add `services/ibkr_market_data.go` — GetOptionChain, GetOptionSnapshot | ⬜ | | |
-| 2E.13 | Add `services/ibkr_market_data.go` — GetHistoricalBars, GetLatestBar | ⬜ | | |
-| 2E.14 | Add `services/ibkr_market_data.go` — GetOptionExpiries, GetOptionStrikes | ⬜ | | |
-| 2E.15 | Integration test: full option chain fetch for OESX → verify expiries, strikes, greeks | ⬜ | | |
-
-### Phase 2F: Controller + MCP Wiring
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2F.1 | Update `config/config.go` — add IBKR env vars, remove Alpaca vars | ⬜ | | |
-| 2F.2 | Update `cmd/bot/main.go` — wire IbkrBrokerService + IbkrMarketDataService | ⬜ | | |
-| 2F.3 | Update `controllers/order_controller.go` — use BrokerService interface | ⬜ | | |
-| 2F.4 | Update `controllers/position_controller.go` — use BrokerService interface | ⬜ | | |
-| 2F.5 | Update remaining controllers to use interfaces | ⬜ | | |
-| 2F.6 | Delete `services/alpaca_trading.go`, `alpaca_data.go`, `alpaca_options_data.go` | ⬜ | | |
-| 2F.7 | Update `.env.example` — IBKR vars | ⬜ | | |
-| 2F.8 | End-to-end test: MCP tool `get_account` via Claude Code → IBKR paper data | ⬜ | | |
-| 2F.9 | End-to-end test: MCP tool `get_options_chain` → OESX chain from IBKR | ⬜ | | |
-| 2F.10 | End-to-end test: MCP tool `place_options_order` → limit order on paper | ⬜ | | |
-| 2F.11 | Full autonomous beat test: dashboard → agent → IBKR paper | ⬜ | | |
-
-### Phase 2G: Trading Rules
-
-| Step | Description | Status | Date | Commit |
-|------|-------------|--------|------|--------|
-| 2G.1 | Update `TRADING_RULES.md` — adapt from US options to OESX / European strategy | ⬜ | | |
+**Test criteria**
+- **0.2:** Gateway logs in; API > Settings shows socket clients enabled, port 4002, trusted IP 127.0.0.1.
+- **0.3:** `go run ./cmd/twscheck` prints `handshake succeeded` + a server version from your Gateway. *(Code complete + sandbox-tested; awaiting this real-Gateway run.)*
 
 ---
 
-## Phase 3: European News Sources
+## Phase 1 — Broker abstraction seam (no behaviour change)
+
+Introduce the interface, make existing Alpaca satisfy it, select with `BROKER=`. Proves the seam with zero regression before any IBKR code.
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 3.1 | Create `interfaces/news.go` — NewsService interface | ⬜ | | |
-| 3.2 | Update `services/news_service.go` — ECB RSS feed integration | ⬜ | | |
-| 3.3 | Add Eurex bulletins/circulars feed | ⬜ | | |
-| 3.4 | Add Reuters Europe / FT headlines via Google News RSS | ⬜ | | |
-| 3.5 | Update `services/gemini_service.go` — European market context prompts | ⬜ | | |
-| 3.6 | Update MCP tools: `get_ecb_news`, `get_eurex_bulletins` | ⬜ | | |
-| 3.7 | End-to-end test: `get_quick_market_intelligence` returns European content | ⬜ | | |
+| 1.1 | Define `BrokerService` + `MarketDataService` in `interfaces/` from the methods controllers actually call (drafts in CLAUDE.md) | ⬜ | | |
+| 1.2 | Make existing Alpaca code satisfy the interfaces — thin adapter, no logic change | ⬜ | | |
+| 1.3 | Wire controllers + MCP to the interface, selected by `BROKER=alpaca` | ⬜ | | |
+
+**Test criteria**
+- **1.1:** Compiles; interfaces cover every call site.
+- **1.2:** App still trades on Alpaca paper; endpoints behave identically.
+- **1.3:** Full autonomous beat on Alpaca, now routed through the interface — zero regression.
+
+---
+
+## Phase 2 — TWS wrapper (`tws/`), protocol only, NO orders
+
+Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per CLAUDE.md). Builds on the `cmd/twscheck` handshake.
+
+| Step | Description | Status | Date | Commit |
+|------|-------------|--------|------|--------|
+| 2.1 | `tws/client.go` — promote the twscheck handshake; add `startApi`, capture `nextValidId` | ⬜ | | |
+| 2.2 | `tws/encoder.go` + `tws/decoder.go` + `tws/constants.go` — framing both ways; round-trip `reqCurrentTimeInMillis()` | ⬜ | | |
+| 2.3 | `tws/dispatcher.go` (reqId→chan) + `tws/order_id_manager.go` (seed + atomic next) | ⬜ | | |
+| 2.4 | `tws/contract.go` + `reqContractDetails` for OESX (ESTX50) | ⬜ | | |
+| 2.5 | Market-data subscribe; parse ticks incl. **Decimal** sizes (types 5, 71) | ⬜ | | |
+
+**Test criteria**
+- **2.1:** Handshake returns server version + first valid order id.
+- **2.2:** `reqCurrentTimeInMillis()` round-trips to epoch ms; table-driven encoder/decoder unit tests pass.
+- **2.3:** Two concurrent requests resolve to the right callers.
+- **2.4:** Returns conId, multiplier, expiries for a real OESX contract.
+- **2.5:** Live OESX bid/ask/last ticks print; sizes decode as decimals.
+
+---
+
+## Phase 3 — IBKR read-only services
+
+| Step | Description | Status | Date | Commit |
+|------|-------------|--------|------|--------|
+| 3.1 | `services/ibkr_market_data.go` implements `MarketDataService` over `tws/` | ⬜ | | |
+| 3.2 | `services/ibkr_broker.go` read paths: account, positions, open orders (filter de-activated) | ⬜ | | |
+
+**Test criteria**
+- **3.1:** Quotes/Greeks for OESX match the TWS UI.
+- **3.2:** Account/positions match the TWS paper account exactly; **no order placed.**
+
+---
+
+## Phase 4 — Order execution (paper, manual, tightly gated)
+
+Human-in-the-loop. Not a candidate for autonomous orchestration — this path can send orders.
+
+| Step | Description | Status | Date | Commit |
+|------|-------------|--------|------|--------|
+| 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ⬜ | | |
+| 4.2 | Bracket orders (parent + TP + SL, OCA) | ⬜ | | |
+| 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper | ⬜ | | |
+
+**Test criteria**
+- **4.1:** 1-lot OESX **paper** order places, fills, reconciles.
+- **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill.
+- **4.3:** Agent wakes → assesses → places/manages a paper trade → sleeps.
+
+---
+
+## Phase 5 — Cutover & instrument-agnostic polish
+
+| Step | Description | Status | Date | Commit |
+|------|-------------|--------|------|--------|
+| 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options | ⬜ | | |
+| 5.2 | News/feeds → European sources; remove the dead `reqFundamentalData` path | ⬜ | | |
+| 5.3 | Default `BROKER=ibkr`; demote Alpaca to fallback | ⬜ | | |
+
+**Test criteria**
+- **5.1:** Each instrument type round-trips contractDetails + a paper order.
+- **5.2:** `news_service` returns EU sources; no calls to removed fundamentals APIs.
+- **5.3:** Clean autonomous run on IBKR paper from a cold start.
+
+---
+
+## Phase 6 — Later / optional
+
+| Step | Description | Status | Date | Commit |
+|------|-------------|--------|------|--------|
+| 6.1 | Live (port 4001) behind an explicit double-confirm guard | ⬜ | | |
+| 6.2 | Java backend migration (optional, separate effort) | ⬜ | | |
+| 6.3 | Merge the Claude Code CLI swap track | ⬜ | | |
 
 ---
 
 ## Notes
 
-_Add dated notes here when something unexpected happens, a step needs rework, or a design decision changes._
+_Add dated notes when something unexpected happens, a step needs rework, or a design decision changes._
 
 ```
 YYYY-MM-DD | Step X.X | Note text here

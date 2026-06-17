@@ -5,13 +5,29 @@
 
 ## Project Overview
 
-This is a fork of [OpenProphet](https://github.com/natslash/OpenProphet), an autonomous AI trading agent. We are making three changes:
+This is a fork of [OpenProphet](https://github.com/natslash/OpenProphet), an autonomous AI trading agent. The goal of this fork is one thing: **port the broker layer from Alpaca to Interactive Brokers (IBKR), in Go.**
 
-1. **Replace OpenCode CLI with Claude Code** (`claude -p` headless mode)
-2. **Replace Alpaca broker with IBKR** via a custom Go TWS API wrapper (from scratch, no third-party library)
-3. **Instrument-agnostic design** — OESX index options, US/EU stocks, futures, all through one broker interface
+**Primary changes**
 
-The Go backend (Gin, port 4534) is the execution engine. The Node.js agent server, MCP server, and dashboard are largely unchanged.
+1. **Replace Alpaca with IBKR** via a custom Go TWS API wrapper (from scratch, no third-party library), talking to IB Gateway over the TWS socket protocol.
+2. **Instrument-agnostic design** — OESX index options, US/EU stocks, futures, all through one broker interface.
+3. **Seam first, switch by flag** — introduce a `BrokerService`/`MarketDataService` interface, make the *existing Alpaca code* implement it with no behaviour change, then build IBKR alongside and select with a `BROKER=alpaca|ibkr` flag. Alpaca stays as a working fallback and is deleted only at final cutover — nothing is ripped out until IBKR paper trading is proven.
+
+The Go backend (Gin, port 4534) is the execution engine. The Node.js agent server, MCP server, and dashboard are unchanged by this work.
+
+**Detailed plan:** `IBKR_MIGRATION_PLAN_v2.md` is the phase-by-phase source of truth. `PROGRESS.md` tracks which step we are on.
+
+> **Current state — read before acting.** We are at **Phase 0.3 only.** The socket sanity check `cmd/twscheck` is written and verified in isolation. Everything from Phase 1 onward is **not started**: the broker layer is still concrete Alpaca, with **no `BrokerService` interface and no `tws/` package yet.** The detailed sections below are the **spec to build toward, not the current state** — do not assume code exists because it is described here.
+
+---
+
+## Decisions already made (do not relitigate)
+
+- **Language: Go.** This is a port, not a rewrite. Do **not** convert the backend to Java — a Java migration is an optional, separate, later effort (Phase 6), never bundled with the broker swap. Goroutines + channels are the right fit for the TWS socket model.
+- **Transport: TWS socket via IB Gateway**, not the Client Portal / Web REST API. The REST path's ~6-minute session timeout, 10 req/s cap, and single-session constraint fight an always-on agent; the socket avoids daily re-auth and coexists via client IDs.
+- **Wrapper: from scratch, stdlib only.** No third-party Go TWS library.
+- **Fabro Dark Factory: scoped to the Phase 2 codec only** (encoder/decoder/constants — spec-driven, unit-testable against recorded bytes, no money at risk). Everything that can place an order stays manual and human-in-the-loop.
+- **Paper only** (port 4002) until an explicit, guarded Phase 6. Live is 4001.
 
 ---
 
@@ -19,8 +35,20 @@ The Go backend (Gin, port 4534) is the execution engine. The Node.js agent serve
 
 - **Branch:** `feature/ibkr-porting`
 - **Base:** `main` (from natslash/OpenProphet fork)
-- **Paper trading first:** IB Gateway port 4002 (paper), 4001 (live)
-- **TWS API version:** 10.37.02 (matches the Java jar already installed locally)
+- **Paper trading first:** IB Gateway port 4002 (paper), 4001 (live). Paper is the only target until Phase 6.
+- **TWS API version:** 10.44+ (current production line). Pin the local jar to the 10.44 line. The negotiated server version printed by `cmd/twscheck` reflects your running Gateway build.
+
+---
+
+## TWS API 10.44+ — changes that affect our code
+
+These landed in the 2026 production release and differ from the older 10.37 line the spring draft assumed:
+
+- **Decimal tick sizes.** On 10.44+, `Last_Size` (tick type 5) and `Delayed_Last_Size` (71) are returned to `tickSize` as **Decimal**, not Integer. The decoder and the `Wrapper.TickSize` signature must use a decimal/float type, not `int64`.
+- **Fundamentals removed.** `reqFundamentalData` / `cancelFundamentalData` (and the ProtoBuf variants) were removed. Any fundamentals path cannot use TWS — source it elsewhere or drop it (Phase 5.2).
+- **`reqCurrentTimeInMillis()` added.** Use it as the Phase-2 liveness / round-trip probe.
+- **`reqOpenOrders` now includes de-activated orders.** Open-order reconciliation must filter de-activated entries.
+- **CME tag compliance.** `ManualOrderIndicator` / `ExtOperator` exist for CME Rule 576 — not needed on paper, but be aware before live.
 
 ---
 
@@ -71,7 +99,7 @@ The TWS API uses a **length-prefixed, null-delimited text protocol** over TCP:
 - **Message body:** Null-delimited (`\0`) text fields parsed sequentially
 - **No formal spec exists** — reverse-engineer from Java source (`EClient.java`, `EDecoder.java`)
 
-Reference: TWS API 10.37.02 Java source at `~/IBJts/source/JavaClient/`
+Reference: the installed TWS API 10.44 Java source at `~/IBJts/source/JavaClient/` (`EClient.java`, `EDecoder.java`)
 
 ### 2. Callback → Channel Pattern (Go Dispatcher)
 
@@ -129,13 +157,15 @@ func (m *OrderIdManager) Seed(id int64) { m.nextId.Store(id) }
 func (m *OrderIdManager) Next() int64    { return m.nextId.Add(1) - 1 }
 ```
 
-### 4. Known TWS API 10.37.02 Quirks
+### 4. Known TWS API 10.44+ Quirks
 
-- `cancelOrder` requires `OrderCancel` struct (not just orderId) — changed in recent versions
-- Use `reqAllOpenOrders()` for order status polling, not `reqOrderStatus()`
-- Streaming market data (reqMktData) preferred over snapshots for Greeks
+- `cancelOrder` requires the `OrderCancel` struct (not just orderId)
+- `reqOpenOrders` / `reqAllOpenOrders` now return **de-activated** orders too — filter them in status logic
+- Tick types 5 (`Last_Size`) and 71 (`Delayed_Last_Size`) arrive as **Decimal** — decode to a float/decimal type, not int
+- Streaming market data (`reqMktData`) preferred over snapshots for Greeks
 - `nextValidId` callback fires on connect — must wait for it before placing orders
-- Pacing: max 50 messages/second to TWS, historical data has 60-req-per-10-min limit
+- `reqCurrentTimeInMillis()` is the cheapest connectivity / liveness probe
+- Pacing: max 50 messages/second to TWS; historical data has a 60-req-per-10-min limit
 
 ---
 
@@ -420,7 +450,7 @@ This is a from-scratch Go implementation of the TWS API TCP socket protocol. Ref
 **`tws/order.go`** — TWS Order struct
 - OrderId, Action (BUY/SELL), TotalQuantity, OrderType, LmtPrice, AuxPrice, Tif
 - Maps to/from our `interfaces.OrderRequest`
-- **IMPORTANT:** Include `OrderCancel` struct for TWS 10.37.02 `cancelOrder` signature
+- **IMPORTANT:** Include `OrderCancel` struct for the 10.44+ `cancelOrder` signature
 
 **`tws/client.go`** — TCP connection and message I/O
 ```go
@@ -470,7 +500,7 @@ type Wrapper interface {
     NextValidId(orderId int64)
     Error(reqId int64, code int64, msg string, advancedOrderReject string)
     TickPrice(reqId int64, tickType int64, price float64, attribs TickAttrib)
-    TickSize(reqId int64, tickType int64, size int64)
+    TickSize(reqId int64, tickType int64, size float64) // 10.44+: tick types 5 & 71 arrive as Decimal on the wire — decode to float64 (was int64)
     TickOptionComputation(reqId int64, tickType int64, tickAttrib int64,
         impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64)
     OrderStatus(orderId int64, status string, filled, remaining, avgFillPrice float64,
@@ -502,7 +532,9 @@ type Wrapper interface {
 
 ---
 
-## Phase 1: Claude Code CLI Swap
+## Optional Independent Track: Claude Code CLI Swap
+
+> **Off the IBKR critical path.** The OpenCode → `claude -p` swap can be done anytime against the Alpaca backend and merged later (Phase 6). It is *not* a prerequisite for the broker port. Skip this section unless you are specifically working that track.
 
 ### Changes in `agent/harness.js`
 
@@ -620,6 +652,8 @@ Keep the Gemini AI cleaning layer — swap the prompt to European market context
 
 ## File Change Summary
 
+> Phase labels below are indicative; **`PROGRESS.md` and `IBKR_MIGRATION_PLAN_v2.md` are authoritative** for sequencing. In the current plan the seam (interfaces + wiring) is Phase 1, the `tws/` wrapper is Phase 2, and the Alpaca files are retained behind the interface until cutover.
+
 | File | Change | Priority |
 |------|--------|----------|
 | `agent/harness.js` | OpenCode → `claude -p` subprocess | Phase 1 |
@@ -631,7 +665,7 @@ Keep the Gemini AI cleaning layer — swap the prompt to European market context
 | `interfaces/market_data.go` | NEW: MarketDataService interface | Phase 2 |
 | `services/ibkr_broker.go` | NEW: BrokerService implementation | Phase 2 |
 | `services/ibkr_market_data.go` | NEW: MarketDataService implementation | Phase 2 |
-| `services/alpaca_*.go` | DELETE (3 files) | Phase 2 |
+| `services/alpaca_*.go` | KEEP behind the interface as fallback; delete only at cutover | Phase 5/6 |
 | `controllers/*.go` | Rewire to use BrokerService/MarketDataService | Phase 2 |
 | `config/config.go` | Add IBKR env vars | Phase 2 |
 | `cmd/bot/main.go` | Wire IBKR services instead of Alpaca | Phase 2 |
@@ -643,6 +677,8 @@ Keep the Gemini AI cleaning layer — swap the prompt to European market context
 
 ## Do NOT
 
+- Do not convert the backend to Java — Go is the decided execution language; a Java migration is a separate optional Phase 6, never bundled here
+- Do not delete the Alpaca services until final cutover — they are the fallback while IBKR is proven
 - Do not use any third-party Go TWS API library (hadrianl/ibapi, scmhub/ibapi, etc.)
 - Do not use Lombok or code generation — explicit code only
 - Do not use the IBKR Client Portal REST API (we chose TWS API for full autonomous operation)
@@ -652,6 +688,7 @@ Keep the Gemini AI cleaning layer — swap the prompt to European market context
 
 ## Do
 
+- Use Fabro Dark Factory only for the Phase 2 codec (encoder/decoder/constants) behind a `go test` gate; keep all order paths manual
 - Write table-driven unit tests for encoder/decoder
 - Test every TWS interaction against IB Gateway paper (port 4002) before proceeding
 - Keep the Go wrapper minimal — only implement message types we actually need
