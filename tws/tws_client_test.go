@@ -103,12 +103,11 @@ func TestWriteFrame(t *testing.T) {
 	}
 }
 
-func TestHandleMessage_AsyncError(t *testing.T) {
+func TestClient_AsyncError(t *testing.T) {
 	c := NewClient("localhost", 4002, 1)
 	
 	// Test 1: Not connected -> goes to errCh
-	f := []string{"4", "2", "123", "504", "Not connected"}
-	c.handleMessage(f)
+	c.Error(123, 504, "Not connected")
 	
 	select {
 	case err := <-c.errCh:
@@ -132,8 +131,7 @@ func TestHandleMessage_AsyncError(t *testing.T) {
 		cbCalled <- true
 	}
 
-	f2 := []string{"4", "2", "124", "10162", "Order rejected"}
-	c.handleMessage(f2)
+	c.Error(124, 10162, "Order rejected")
 
 	select {
 	case <-cbCalled:

@@ -28,17 +28,6 @@ const (
 	maxClientVer = 187
 )
 
-// Inbound message IDs handled in this phase.
-const (
-	inErrMsg       = 4
-	inNextValidID  = 9
-	inManagedAccts = 15
-)
-
-// Outbound message IDs.
-const (
-	outStartAPI = 71
-)
 
 // Client is a single TWS socket connection.
 type Client struct {
@@ -60,6 +49,7 @@ type Client struct {
 	connected   bool
 
 	AsyncErrorCallback func(reqID, code int, msg string)
+	appWrapper         Wrapper
 
 	nextIDCh  chan int64 // first nextValidId is delivered here
 	acctCh    chan string
@@ -175,69 +165,78 @@ func (c *Client) handshake() error {
 
 // startAPI sends the startApi message: msgId, version(2), clientId, optCaps.
 func (c *Client) startAPI() error {
-	return c.sendFields(strconv.Itoa(outStartAPI), "2", strconv.Itoa(c.clientID), "")
+	return c.SendFields(strconv.Itoa(outStartAPI), "2", strconv.Itoa(c.clientID), "")
 }
 
 func (c *Client) readLoop() {
+	decoder := NewDecoder(c)
 	for {
 		payload, err := c.readFrame()
 		if err != nil {
 			c.signalClosed()
 			return
 		}
-		c.handleMessage(splitFields(payload))
+		decoder.Decode(splitFields(payload))
 	}
 }
 
-func (c *Client) handleMessage(f []string) {
-	if len(f) == 0 {
+// Wrapper implementation for internal lifecycle routing.
+
+func (c *Client) NextValidId(orderId int64) {
+	select {
+	case c.nextIDCh <- orderId:
+	default: // first one already delivered
+	}
+	if c.appWrapper != nil {
+		c.appWrapper.NextValidId(orderId)
+	}
+}
+
+func (c *Client) ManagedAccounts(accountsList string) {
+	select {
+	case c.acctCh <- accountsList:
+	default:
+	}
+	c.mu.Lock()
+	c.accounts = accountsList
+	c.mu.Unlock()
+	
+	if c.appWrapper != nil {
+		c.appWrapper.ManagedAccounts(accountsList)
+	}
+}
+
+func (c *Client) Error(reqID int, code int, msg string) {
+	if isInfoCode(code) {
+		// Just proxy info messages, they are not fatal
+		if c.appWrapper != nil {
+			c.appWrapper.Error(reqID, code, msg)
+		}
 		return
 	}
-	id, _ := strconv.Atoi(f[0])
-	switch id {
-	case inNextValidID: // [9, version, orderId]
-		if len(f) >= 3 {
-			if oid, err := strconv.ParseInt(f[2], 10, 64); err == nil {
-				select {
-				case c.nextIDCh <- oid:
-				default: // first one already delivered
-				}
-			}
-		}
-	case inManagedAccts: // [15, version, accountsCSV]
-		if len(f) >= 3 {
-			select {
-			case c.acctCh <- f[2]:
-			default:
-			}
-			c.mu.Lock()
-			c.accounts = f[2]
-			c.mu.Unlock()
-		}
-	case inErrMsg: // [4, version, id, code, msg, ...] — many are informational
-		if len(f) >= 5 {
-			code, _ := strconv.Atoi(f[3])
-			if isInfoCode(code) {
-				return // e.g. 2104/2106/2158 data-farm "OK" notices
-			}
-			reqID, _ := strconv.Atoi(f[2])
-			
-			c.mu.Lock()
-			isConnected := c.connected
-			cb := c.AsyncErrorCallback
-			c.mu.Unlock()
+	
+	c.mu.Lock()
+	isConnected := c.connected
+	cb := c.AsyncErrorCallback
+	c.mu.Unlock()
 
-			if !isConnected {
-				select {
-				case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqID, code, f[4]):
-				default:
-				}
-			} else if cb != nil {
-				cb(reqID, code, f[4])
-			}
+	if !isConnected {
+		select {
+		case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqID, code, msg):
+		default:
 		}
-	default:
-		// Unhandled in this phase.
+	} else if cb != nil {
+		cb(reqID, code, msg)
+	}
+
+	if c.appWrapper != nil {
+		c.appWrapper.Error(reqID, code, msg)
+	}
+}
+
+func (c *Client) CurrentTime(timeInMillis int64) {
+	if c.appWrapper != nil {
+		c.appWrapper.CurrentTime(timeInMillis)
 	}
 }
 
@@ -280,9 +279,19 @@ func (c *Client) signalClosed() {
 
 // sendFields writes one TWS message: each field null-terminated, the whole
 // body length-prefixed with a 4-byte big-endian length.
-func (c *Client) sendFields(fields ...string) error {
+func (c *Client) SendFields(fields ...string) error {
 	body := []byte(strings.Join(fields, "\x00") + "\x00")
 	return c.writeFrame(body)
+}
+
+func (c *Client) Encoder() *Encoder {
+	return NewEncoder(c)
+}
+
+func (c *Client) SetWrapper(w Wrapper) {
+	c.mu.Lock()
+	c.appWrapper = w
+	c.mu.Unlock()
 }
 
 func (c *Client) writeFrame(payload []byte) error {

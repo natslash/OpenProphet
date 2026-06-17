@@ -1,6 +1,6 @@
 # OpenProphet → IBKR Migration Plan v2
 
-> Supersedes the spring plan in `CLAUDE.md` / `PROGRESS.md`. Refreshed against the **actual repo tree** (only step 1.1 was ever completed) and **TWS API 10.44+** (the repo still pins 10.37.02).
+> Supersedes the spring plan in `CLAUDE.md` / `PROGRESS.md`. Refreshed against the **actual repo tree** and **TWS API 10.44+**. Live step-by-step status lives in `PROGRESS.md`; as of 2026-06-18, Phase 0 and Phase 2.1 are done and Phase 1 is satisfied by the pre-existing seam (see Phase 1 below).
 >
 > **Working rules (unchanged):** one step = one commit = one testable change · never skip ahead · mark ✅ only after the test passes · Claude confirms the full plan before writing code · no file modifications without explicit instruction · wait for confirmation before the next step.
 
@@ -15,7 +15,7 @@
 | Fundamentals | assumed available | `reqFundamentalData` / `cancelFundamentalData` (+ProtoBuf variants) were **removed** in the 2026 release. Any fundamentals path can't use TWS — source it elsewhere (or drop it). |
 | Heartbeat smoke test | `reqCurrentTime` | New `reqCurrentTimeInMillis()` available — use it as the Phase-2 liveness probe. |
 | Open-order reconciliation | — | `reqOpenOrders` now **includes de-activated orders**; status logic must filter them. |
-| Broker seam | assumed exists | **Does not exist.** `services/alpaca_*.go` are concrete; there's no `BrokerService` interface. Building the seam is the real first code step. |
+| Broker seam | assumed exists | **Already exists.** `interfaces.TradingService` / `interfaces.DataService` (in `interfaces/trading.go`) are consumed by the controllers and managers; the Alpaca services already implement them. **Option 1 adopted:** IBKR implements these *existing* interfaces — no new `BrokerService`/`MarketDataService` types. |
 | Transport choice | TWS via IB Gateway | **Unchanged and still correct.** The Web/Client-Portal REST API has a ~6-min session timeout, a 10 req/s cap, and a single-session constraint that fights an always-on agent. IB Gateway + TWS socket avoids daily re-auth and coexists via client IDs. IBKR explicitly supports a custom wrapper in any language — TWS is just a TCP message protocol. |
 
 ---
@@ -27,14 +27,14 @@ Dashboard (Node, 3737)
   ├── Agent Harness (harness.js) ── claude -p  (CLI swap = independent track, see Appendix B)
   └── MCP Server ── HTTP ──► Go Backend (Gin, 4534)
                                 ├── controllers/      (unchanged HTTP handlers)
+                                ├── interfaces/
+                                │     └── trading.go           EXISTING  TradingService / DataService (the seam)
                                 ├── services/
-                                │     ├── broker.go            NEW  BrokerService interface
-                                │     ├── market_data.go       NEW  MarketDataService interface
-                                │     ├── alpaca_*.go          becomes one impl behind the interface
-                                │     ├── ibkr_broker.go       NEW
-                                │     └── ibkr_market_data.go  NEW
+                                │     ├── alpaca_*.go          EXISTING  impl of the interfaces (deleted at cutover)
+                                │     ├── ibkr_trading.go      NEW  implements interfaces.TradingService
+                                │     └── ibkr_data.go         NEW  implements interfaces.DataService
                                 └── tws/                       NEW  custom Go TWS wrapper (from scratch)
-                                      ├── client.go      TCP connect, handshake, framed I/O
+                                      ├── tws_client.go  TCP connect, handshake, startApi, framed I/O
                                       ├── encoder.go     outbound message builder
                                       ├── decoder.go     inbound message parser
                                       ├── constants.go   msg IDs, tick types (note Decimal change)
@@ -43,7 +43,7 @@ Dashboard (Node, 3737)
                                       └── dispatcher.go  reqId/orderId → channel registry
 ```
 
-Design spine: **build IBKR alongside Alpaca behind one interface, switch via a `BROKER=` flag.** Nothing is ripped out until IBKR paper trading is proven.
+Design spine: **build IBKR alongside Alpaca behind the existing interface, switch via a temporary `BROKER=` flag.** Nothing is ripped out until IBKR paper trading is proven — then Alpaca is **deleted**. End state is IBKR-only; the flag is a build-time A/B aid, not a permanent fallback.
 
 ---
 
@@ -56,17 +56,22 @@ Design spine: **build IBKR alongside Alpaca behind one interface, switch via a `
 | 0.2 | IB Gateway paper running on **4002**; record build + API version. | Login succeeds; version logged in `CLAUDE.md`. |
 | 0.3 | Raw socket sanity: connect to 4002, send the API handshake prefix, read server version. | A throwaway Go `main` prints server version + connection time. **Proves the socket path before any wrapper code.** |
 
-### Phase 1 — Broker abstraction seam (no behaviour change)
-| # | Step | Test / workable result |
+### Phase 1 — Broker abstraction seam — ALREADY EXISTS (no work needed)
+
+The seam was built upstream: `interfaces.TradingService` and `interfaces.DataService` (in `interfaces/trading.go`) are consumed by the controllers and managers, and the Alpaca services already implement them. **Option 1:** IBKR implements these *existing* interfaces; no new types are introduced.
+
+| # | Step | Status |
 |---|---|---|
-| 1.1 | Define `BrokerService` + `MarketDataService` interfaces in `services/` from the methods the controllers actually call. | Compiles; interfaces capture every call site. |
-| 1.2 | Make existing Alpaca code satisfy the interfaces (thin adapter, no logic change). | App still trades on **Alpaca paper**; all controller endpoints behave identically. |
-| 1.3 | Wire controllers/MCP to the interface, selected by `BROKER=alpaca`. | Full autonomous beat on Alpaca, now routed through the interface. **Seam proven with zero regression.** |
+| ~~1.1~~ | ~~Define `BrokerService` + `MarketDataService`~~ | ✅ n/a — `interfaces.TradingService`/`DataService` already exist |
+| ~~1.2~~ | ~~Make Alpaca satisfy the interfaces~~ | ✅ n/a — Alpaca already implements them (app compiles & runs) |
+| ~~1.3~~ | ~~Wire controllers/MCP to the interface~~ | ✅ n/a — controllers already depend on the interfaces |
+
+Optional close-out: add `var _ interfaces.TradingService = (*…)(nil)` assertions in `services/interface_guard.go` when the IBKR structs land (Phase 3) — the build then fails fast on an incomplete implementation.
 
 ### Phase 2 — TWS wrapper (`tws/`), protocol only, **no orders**
 | # | Step | Test / workable result |
 |---|---|---|
-| 2.1 | `client.go`: connect, v100+ handshake, `nextValidId` seed, framed read loop. | Handshake returns server version + first valid order id. |
+| 2.1 | `tws/tws_client.go`: connect, v100+ handshake, `startApi`, `nextValidId` seed, framed read loop. **(✅ done)** | Handshake returns server version + first valid order id. |
 | 2.2 | `encoder.go` + `decoder.go` + `constants.go`: message framing both ways. | Round-trip `reqCurrentTimeInMillis()` → epoch ms. |
 | 2.3 | `dispatcher.go`: `reqId → chan` registry (Go equivalent of your `ConcurrentHashMap<orderId, CompletableFuture>`). | Two concurrent requests resolve to the right callers. |
 | 2.4 | `contract.go` + `reqContractDetails` for **OESX**. | Returns conId, multiplier, expiries for a real OESX contract. |
@@ -77,8 +82,8 @@ Design spine: **build IBKR alongside Alpaca behind one interface, switch via a `
 ### Phase 3 — IBKR read-only services
 | # | Step | Test / workable result |
 |---|---|---|
-| 3.1 | `ibkr_market_data.go` implements `MarketDataService` over `tws/`. | Quotes/Greeks for OESX match TWS UI. |
-| 3.2 | `ibkr_broker.go` read paths: account summary, positions, open orders (filter de-activated). | Values match TWS paper account exactly; **no order placed.** |
+| 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/`. | Quotes/Greeks for OESX match TWS UI. |
+| 3.2 | `services/ibkr_trading.go` read paths: account summary, positions, open orders (filter de-activated). | Values match TWS paper account exactly; **no order placed.** |
 
 ### Phase 4 — Order execution (paper, manual, tightly gated)
 | # | Step | Test / workable result |
@@ -89,12 +94,12 @@ Design spine: **build IBKR alongside Alpaca behind one interface, switch via a `
 
 > Phase 4 stays **human-in-the-loop, confirm-each-step**. Not a candidate for autonomous orchestration — this is the path that can send money.
 
-### Phase 5 — Cutover & instrument-agnostic polish
+### Phase 5 — Cutover to IBKR-only
 | # | Step | Test / workable result |
 |---|---|---|
 | 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options. | Each instrument type round-trips contractDetails + a paper order. |
 | 5.2 | News/feeds → European sources; remove dead fundamentals path. | `news_service` returns EU sources; no calls to removed `reqFundamentalData`. |
-| 5.3 | Default `BROKER=ibkr`; Alpaca demoted to fallback. | Clean autonomous run on IBKR paper from a cold start. |
+| 5.3 | Switch wiring to IBKR and **delete the Alpaca services**. | Clean autonomous run on IBKR paper from a cold start, Alpaca code gone. |
 
 ### Phase 6 — Later / optional
 Live (port **4001**) behind an explicit double-confirm guard · Java backend migration · merge the Claude Code CLI swap track (Appendix B).
@@ -144,7 +149,7 @@ Stylesheet idea: a strong model on `impl`/`spec`, a cheap fast model on the fix-
 
 ## Appendix A — Verification quicklist
 - Phase 0 done = raw socket prints server version from 4002.
-- Phase 1 done = unchanged Alpaca behaviour through the new interface.
+- Phase 1 = seam already exists upstream (no work; IBKR implements `interfaces.TradingService`/`DataService`).
 - Phase 2 done = live OESX ticks decode (Decimal sizes), no orders.
 - Phase 3 done = paper account/positions match TWS exactly, no orders.
 - Phase 4 done = 1-lot OESX paper order + bracket fills and reconciles.
