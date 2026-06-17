@@ -57,8 +57,12 @@ type Client struct {
 	accounts    string
 	nextOrderID int64
 	haveNextID  bool
+	connected   bool
+
+	AsyncErrorCallback func(reqID, code int, msg string)
 
 	nextIDCh  chan int64 // first nextValidId is delivered here
+	acctCh    chan string
 	errCh     chan error // a fatal error seen during connect
 	closed    chan struct{}
 	closeOnce sync.Once
@@ -72,6 +76,7 @@ func NewClient(host string, port, clientID int) *Client {
 		port:     port,
 		clientID: clientID,
 		nextIDCh: make(chan int64, 1),
+		acctCh:   make(chan string, 1),
 		errCh:    make(chan error, 1),
 		closed:   make(chan struct{}),
 	}
@@ -80,11 +85,17 @@ func NewClient(host string, port, clientID int) *Client {
 // Connect dials the Gateway, performs the handshake and startApi, starts the
 // reader, and blocks until the first nextValidId arrives, a fatal error is
 // reported, or ctx is done. Pass a ctx with a timeout.
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context) (err error) {
+	defer func() {
+		if err != nil {
+			c.Close()
+		}
+	}()
+
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", c.host, c.port))
-	if err != nil {
-		return fmt.Errorf("dial %s:%d: %w", c.host, c.port, err)
+	conn, dialErr := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", c.host, c.port))
+	if dialErr != nil {
+		return fmt.Errorf("dial %s:%d: %w", c.host, c.port, dialErr)
 	}
 	c.conn = conn
 	c.reader = bufio.NewReader(conn)
@@ -96,12 +107,10 @@ func (c *Client) Connect(ctx context.Context) error {
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	}
 
-	if err := c.handshake(); err != nil {
-		conn.Close()
+	if err = c.handshake(); err != nil {
 		return err
 	}
-	if err := c.startAPI(); err != nil {
-		conn.Close()
+	if err = c.startAPI(); err != nil {
 		return err
 	}
 
@@ -109,22 +118,33 @@ func (c *Client) Connect(ctx context.Context) error {
 	_ = conn.SetDeadline(time.Time{})
 	go c.readLoop()
 
-	select {
-	case id := <-c.nextIDCh:
-		c.mu.Lock()
-		c.nextOrderID = id
-		c.haveNextID = true
-		c.mu.Unlock()
-		return nil
-	case err := <-c.errCh:
-		c.Close()
-		return err
-	case <-ctx.Done():
-		c.Close()
-		return fmt.Errorf("connected but no nextValidId before deadline: %w", ctx.Err())
-	case <-c.closed:
-		return fmt.Errorf("connection closed before nextValidId")
+	var gotNextID, gotAccounts bool
+	for !gotNextID || !gotAccounts {
+		select {
+		case id := <-c.nextIDCh:
+			c.mu.Lock()
+			c.nextOrderID = id
+			c.haveNextID = true
+			c.mu.Unlock()
+			gotNextID = true
+		case acct := <-c.acctCh:
+			c.mu.Lock()
+			c.accounts = acct
+			c.mu.Unlock()
+			gotAccounts = true
+		case loopErr := <-c.errCh:
+			return loopErr
+		case <-ctx.Done():
+			return fmt.Errorf("connected but missing initialization before deadline: %w", ctx.Err())
+		case <-c.closed:
+			return fmt.Errorf("connection closed before initialization finished")
+		}
 	}
+
+	c.mu.Lock()
+	c.connected = true
+	c.mu.Unlock()
+	return nil
 }
 
 // handshake performs the v100+ greeting and reads the server version + time.
@@ -186,6 +206,10 @@ func (c *Client) handleMessage(f []string) {
 		}
 	case inManagedAccts: // [15, version, accountsCSV]
 		if len(f) >= 3 {
+			select {
+			case c.acctCh <- f[2]:
+			default:
+			}
 			c.mu.Lock()
 			c.accounts = f[2]
 			c.mu.Unlock()
@@ -197,9 +221,19 @@ func (c *Client) handleMessage(f []string) {
 				return // e.g. 2104/2106/2158 data-farm "OK" notices
 			}
 			reqID, _ := strconv.Atoi(f[2])
-			select {
-			case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqID, code, f[4]):
-			default: // only surface the first; ignored once connected
+			
+			c.mu.Lock()
+			isConnected := c.connected
+			cb := c.AsyncErrorCallback
+			c.mu.Unlock()
+
+			if !isConnected {
+				select {
+				case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqID, code, f[4]):
+				default:
+				}
+			} else if cb != nil {
+				cb(reqID, code, f[4])
 			}
 		}
 	default:
@@ -254,12 +288,10 @@ func (c *Client) sendFields(fields ...string) error {
 func (c *Client) writeFrame(payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	var hdr [4]byte
-	binary.BigEndian.PutUint32(hdr[:], uint32(len(payload)))
-	if _, err := c.conn.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := c.conn.Write(payload)
+	buf := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(buf[:4], uint32(len(payload)))
+	copy(buf[4:], payload)
+	_, err := c.conn.Write(buf)
 	return err
 }
 
@@ -280,9 +312,15 @@ func (c *Client) readFrame() ([]byte, error) {
 }
 
 func splitFields(payload []byte) []string {
-	s := strings.TrimRight(string(payload), "\x00")
-	if s == "" {
+	if len(payload) == 0 {
 		return nil
+	}
+	s := string(payload)
+	if strings.HasSuffix(s, "\x00") {
+		s = s[:len(s)-1]
+	}
+	if s == "" {
+		return []string{""}
 	}
 	return strings.Split(s, "\x00")
 }

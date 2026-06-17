@@ -71,7 +71,11 @@ func main() {
 		fail("no handshake response: %v\n   The socket opened but the Gateway did not reply. Usually 'Enable ActiveX and Socket Clients' is off, or 127.0.0.1 is not a Trusted IP.", err)
 	}
 
-	fields := strings.Split(strings.TrimRight(string(payload), "\x00"), "\x00")
+	s := string(payload)
+	if strings.HasSuffix(s, "\x00") {
+		s = s[:len(s)-1]
+	}
+	fields := strings.Split(s, "\x00")
 	if len(fields) < 2 {
 		fail("malformed handshake payload: %q", string(payload))
 	}

@@ -17,7 +17,7 @@
 
 ## Where we are right now
 
-**Phase 0.3.** `cmd/twscheck` is written and verified in isolation (builds in the repo module; handshake framing proven against a mock Gateway). **Next action:** run it against your paper IB Gateway on 4002 and record the server version, then start Phase 1 (the broker seam). Nothing from Phase 1 onward exists yet — the broker layer is still concrete Alpaca, no `BrokerService` interface, no `tws/` package.
+**Phase 1.1.** Phase 0 is complete (socket sanity verified against IB Gateway v187, code review fixes applied). **Next action:** Define `BrokerService` + `MarketDataService` in `interfaces/` from the methods controllers actually call (drafts in CLAUDE.md).
 
 ---
 
@@ -26,8 +26,8 @@
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
 | 0.1 | Branch `feature/ibkr-porting` off `main`; planning docs in repo | ✅ | 2026-03-22 | 2149d18 |
-| 0.2 | IB Gateway paper running on 4002; API socket clients enabled, 127.0.0.1 trusted; record server version | ⬜ | | |
-| 0.3 | `cmd/twscheck` — TCP connect + v100+ handshake, print server version (no `startApi`, no orders) | 🟡 | | |
+| 0.2 | IB Gateway paper running on 4002; API socket clients enabled, 127.0.0.1 trusted; record server version | ✅ | 2026-06-18 | Verified v187 |
+| 0.3 | `cmd/twscheck` — TCP connect + v100+ handshake, print server version (no `startApi`, no orders) | ✅ | 2026-06-18 | Handshake OK |
 
 **Test criteria**
 - **0.2:** Gateway logs in; API > Settings shows socket clients enabled, port 4002, trusted IP 127.0.0.1.
