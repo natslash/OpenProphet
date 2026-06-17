@@ -29,9 +29,9 @@ func (d *Dispatcher) Register(reqId int64) <-chan any {
 // Dispatch sends a message to the channel registered under reqId.
 func (d *Dispatcher) Dispatch(reqId int64, msg any) {
 	d.mu.RLock()
+	defer d.mu.RUnlock()
+	
 	ch, ok := d.pending[reqId]
-	d.mu.RUnlock()
-
 	if ok {
 		select {
 		case ch <- msg:

@@ -12,8 +12,8 @@ type smokeTestWrapper struct {
 	timeReceived chan int64
 }
 
-func (s *smokeTestWrapper) CurrentTime(timeInMillis int64) {
-	s.timeReceived <- timeInMillis
+func (s *smokeTestWrapper) CurrentTime(timeInSeconds int64) {
+	s.timeReceived <- timeInSeconds
 }
 func (s *smokeTestWrapper) NextValidId(orderId int64) {}
 func (s *smokeTestWrapper) ManagedAccounts(accountsList string) {}

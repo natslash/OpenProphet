@@ -5,12 +5,12 @@ import (
 )
 
 type mockWrapper struct {
-	nextValidId   int64
-	managedAccts  string
-	errReqId      int
-	errCode       int
-	errMsg        string
-	currentTimeMs int64
+	nextValidId     int64
+	managedAccts    string
+	errReqId        int
+	errCode         int
+	errMsg          string
+	currentTimeSecs int64
 }
 
 func (m *mockWrapper) NextValidId(orderId int64) {
@@ -27,8 +27,8 @@ func (m *mockWrapper) Error(reqId int, code int, msg string) {
 	m.errMsg = msg
 }
 
-func (m *mockWrapper) CurrentTime(timeInMillis int64) {
-	m.currentTimeMs = timeInMillis
+func (m *mockWrapper) CurrentTime(timeInSeconds int64) {
+	m.currentTimeSecs = timeInSeconds
 }
 
 func TestDecoder_Decode(t *testing.T) {
@@ -71,8 +71,8 @@ func TestDecoder_Decode(t *testing.T) {
 			name:   "current time",
 			fields: []string{"49", "1", "1680000000"},
 			validation: func(t *testing.T, m *mockWrapper) {
-				if m.currentTimeMs != 1680000000 {
-					t.Errorf("Expected CurrentTime 1680000000, got %d", m.currentTimeMs)
+				if m.currentTimeSecs != 1680000000 {
+					t.Errorf("Expected time 1680000000, got %v", m.currentTimeSecs)
 				}
 			},
 		},

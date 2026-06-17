@@ -6,5 +6,5 @@ type Wrapper interface {
 	NextValidId(orderId int64)
 	ManagedAccounts(accountsList string)
 	Error(reqId int, code int, msg string)
-	CurrentTime(timeInMillis int64)
+	CurrentTime(timeInSeconds int64)
 }

@@ -2,10 +2,8 @@
 // socket protocol. It talks to IB Gateway / TWS over TCP using the v100+
 // length-prefixed, null-delimited message framing — no third-party library.
 //
-// Phase 2.1 scope: dial, handshake, startApi, and capture of the nextValidId
-// callback. It does not yet place orders or request market data. Later phases
-// add the encoder/decoder, the reqId→channel dispatcher, and the IBKR service
-// implementations of interfaces.TradingService / interfaces.DataService.
+// It provides connection lifecycle management (handshake, startApi) and
+// natively integrates the encoder, decoder, and dispatcher components.
 package tws
 
 import (
@@ -15,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +27,6 @@ const (
 	maxClientVer = 187
 )
 
-
 // Client is a single TWS socket connection.
 type Client struct {
 	host     string
@@ -38,14 +36,15 @@ type Client struct {
 	conn    net.Conn
 	reader  *bufio.Reader
 	writeMu sync.Mutex
+	decoder *Decoder
 
 	serverVersion int
 	connTime      string
 
-	mu       sync.Mutex
-	accounts string
-	orderIDs OrderIdManager
-	connected   bool
+	mu        sync.RWMutex
+	accounts  string
+	orderIDs  OrderIdManager
+	connected bool
 
 	AsyncErrorCallback func(reqID, code int, msg string)
 	appWrapper         Wrapper
@@ -60,7 +59,7 @@ type Client struct {
 // NewClient builds a client. clientID must be unique across concurrent API
 // connections to the same Gateway, or the Gateway rejects it (error 326).
 func NewClient(host string, port, clientID int) *Client {
-	return &Client{
+	c := &Client{
 		host:     host,
 		port:     port,
 		clientID: clientID,
@@ -69,6 +68,8 @@ func NewClient(host string, port, clientID int) *Client {
 		errCh:    make(chan error, 1),
 		closed:   make(chan struct{}),
 	}
+	c.decoder = NewDecoder(c)
+	return c
 }
 
 // Connect dials the Gateway, performs the handshake and startApi, starts the
@@ -164,14 +165,15 @@ func (c *Client) startAPI() error {
 }
 
 func (c *Client) readLoop() {
-	decoder := NewDecoder(c)
 	for {
 		payload, err := c.readFrame()
 		if err != nil {
 			c.signalClosed()
 			return
 		}
-		decoder.Decode(splitFields(payload))
+		if err := c.decoder.Decode(splitFields(payload)); err != nil {
+			fmt.Fprintf(os.Stderr, "tws_client: decode error: %v\n", err)
+		}
 	}
 }
 
@@ -183,8 +185,11 @@ func (c *Client) NextValidId(orderId int64) {
 	case c.nextIDCh <- orderId:
 	default: // first one already delivered
 	}
-	if c.appWrapper != nil {
-		c.appWrapper.NextValidId(orderId)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.NextValidId(orderId)
 	}
 }
 
@@ -202,42 +207,52 @@ func (c *Client) ManagedAccounts(accountsList string) {
 	c.accounts = accountsList
 	c.mu.Unlock()
 	
-	if c.appWrapper != nil {
-		c.appWrapper.ManagedAccounts(accountsList)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.ManagedAccounts(accountsList)
 	}
 }
 
-func (c *Client) Error(reqID int, code int, msg string) {
+func (c *Client) Error(reqId int, code int, msg string) {
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+
 	if isInfoCode(code) {
-		// Just proxy info messages, they are not fatal
-		if c.appWrapper != nil {
-			c.appWrapper.Error(reqID, code, msg)
+		if appWrapper != nil {
+			appWrapper.Error(reqId, code, msg)
 		}
 		return
 	}
-	
-	c.mu.Lock()
+
+	c.mu.RLock()
 	isConnected := c.connected
 	cb := c.AsyncErrorCallback
-	c.mu.Unlock()
+	c.mu.RUnlock()
+
+	if cb != nil {
+		cb(reqId, code, msg)
+	}
+	if appWrapper != nil {
+		appWrapper.Error(reqId, code, msg)
+	}
 
 	if !isConnected {
 		select {
-		case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqID, code, msg):
+		case c.errCh <- fmt.Errorf("TWS error (id %d, code %d): %s", reqId, code, msg):
 		default:
 		}
-	} else if cb != nil {
-		cb(reqID, code, msg)
-	}
-
-	if c.appWrapper != nil {
-		c.appWrapper.Error(reqID, code, msg)
 	}
 }
 
-func (c *Client) CurrentTime(timeInMillis int64) {
-	if c.appWrapper != nil {
-		c.appWrapper.CurrentTime(timeInMillis)
+func (c *Client) CurrentTime(timeInSeconds int64) {
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.CurrentTime(timeInSeconds)
 	}
 }
 

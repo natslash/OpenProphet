@@ -133,4 +133,5 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Step 2.2  | Codec layer built (constants, wrapper interface, encoder, decoder) on the fix/tws-client-improvements branch. Integrated directly into tws_client.go. Verified against IB Gateway.
 2026-06-18 | Branching | Merged fix/tws-client-improvements (containing both Phase 2.1 fixes and Phase 2.2 feature work) back into the main migration branch feature/ibkr-porting, and deleted the fix branch to maintain clean semantics moving forward.
 2026-06-18 | Step 2.3  | Implemented Dispatcher and OrderIdManager. Integrated OrderIdManager into tws_client.go to replace manual nextOrderID fields. Unit tests passed, manual test verified NextOrderId() seeding works.
+2026-06-18 | Step 2.3.1| Hardening pass: fixed Dispatcher RLock race condition and added interleaving race test. Renamed CurrentTime millis variables to seconds and acknowledged usage of classic message ID 49 (seconds) instead of 10.44 millis. Added routing strategy to CLAUDE.md.
 ```

@@ -88,3 +88,29 @@ func TestDispatcher_Concurrency(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestDispatcher_DispatchCompleteRace(t *testing.T) {
+	d := NewDispatcher()
+	const reqId int64 = 42
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	d.Register(reqId)
+
+	// One goroutine dispatches
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			d.Dispatch(reqId, "data")
+		}
+	}()
+
+	// Another goroutine completes
+	go func() {
+		defer wg.Done()
+		d.Complete(reqId)
+	}()
+
+	wg.Wait()
+}

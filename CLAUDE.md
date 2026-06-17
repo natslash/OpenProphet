@@ -246,6 +246,10 @@ type Wrapper interface {
 ```
 
 **`tws/dispatcher.go`** — reqId→channel registry (above).
+**Routing Strategy:**
+1. **Global / lifecycle** (nextValidId, managedAccounts, error, currentTime) → `Wrapper` callbacks.
+2. **One-shot reqId requests** (contractDetails+End, historicalData+End) → `dispatcher` channels. Call `Complete` on the End message.
+3. **Streaming subscriptions** (reqMktData) → `Wrapper` callbacks or dedicated non-closing channels. Do not use the `dispatcher` Register/Complete model, as its buffer drops messages on full and there is no "End" sentinel.
 
 ### Build & test order
 1. `constants.go` + `contract.go` + `order.go` — pure data types
