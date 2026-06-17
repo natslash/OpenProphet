@@ -58,7 +58,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 2.1 | `tws/client.go` — promote the twscheck handshake; add `startApi`, capture `nextValidId` | ⬜ | | |
+| 2.1 | `tws/client.go` — promote the twscheck handshake; add `startApi`, capture `nextValidId` | ✔︎ | | | ## DU5894187 / first order id 1
 | 2.2 | `tws/encoder.go` + `tws/decoder.go` + `tws/constants.go` — framing both ways; round-trip `reqCurrentTimeInMillis()` | ⬜ | | |
 | 2.3 | `tws/dispatcher.go` (reqId→chan) + `tws/order_id_manager.go` (seed + atomic next) | ⬜ | | |
 | 2.4 | `tws/contract.go` + `reqContractDetails` for OESX (ESTX50) | ⬜ | | |
