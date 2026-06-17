@@ -130,5 +130,6 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Phase 1   | Reconciled: broker seam already existed upstream (interfaces.TradingService/DataService, consumed by controllers). Option 1 adopted — IBKR implements existing interfaces, no new BrokerService/MarketDataService. Phase 1 steps struck as not-applicable.
 2026-06-18 | Step 2.1  | Code-review fixes on fix/tws-client-improvements (commit 1486683): wait for nextValidId+managedAccounts, AsyncErrorCallback, single-write framing, splitFields trailing-empty fix; added unit tests.
 2026-06-18 | Docs      | IBKR_MIGRATION_PLAN_v2.md still describes Phase 1 as "define the seam / seam does not exist" — stale; needs the same Option-1 reconciliation. File naming: actual files are tws/tws_client.go and cmd/twsconnect/twsconnect_main.go (plan/CLAUDE say tws/client.go); harmless.
-2026-06-18 | Step 2.2  | Codec layer built: constants, wrapper interface, encoder, decoder. Integrated directly into tws_client.go. Verified against IB Gateway with cmd/tws_smoke_test reqCurrentTime round-trip.
+2026-06-18 | Step 2.2  | Codec layer built (constants, wrapper interface, encoder, decoder) on the fix/tws-client-improvements branch. Integrated directly into tws_client.go. Verified against IB Gateway.
+2026-06-18 | Branching | Merged fix/tws-client-improvements (containing both Phase 2.1 fixes and Phase 2.2 feature work) back into the main migration branch feature/ibkr-porting, and deleted the fix branch to maintain clean semantics moving forward.
 ```
