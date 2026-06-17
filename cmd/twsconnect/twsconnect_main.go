@@ -38,7 +38,7 @@ func main() {
 	}
 	defer c.Close()
 
-	oid, _ := c.NextOrderID()
+	oid := c.NextOrderId()
 	fmt.Println("OK  API session started")
 	fmt.Printf("    server version : %d\n", c.ServerVersion())
 	fmt.Printf("    connection time: %s\n", c.ConnectionTime())

@@ -18,7 +18,7 @@
 
 ## Where we are right now
 
-**Phase 2.3.** Phase 2.2 codec layer complete (encoder/decoder/constants unit tested and live round-tripped `reqCurrentTimeInMillis`). **Next action:** `tws/dispatcher.go` (reqId→chan registry) + `tws/order_id_manager.go` (seed + atomic next).
+**Phase 2.4.** Phase 2.3 complete (dispatcher and order ID manager implemented and tested). **Next action:** `tws/contract.go` + `reqContractDetails` for OESX (ESTX50).
 
 ---
 
@@ -54,7 +54,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 |------|-------------|--------|------|--------|
 | 2.1 | `tws/tws_client.go` — handshake, `startApi`, capture `nextValidId` (+ `managedAccounts`) | ✅ | 2026-06-18 | f174446, 1486683 |
 | 2.2 | `tws/encoder.go` + `tws/decoder.go` + `tws/constants.go` — framing both ways; round-trip `reqCurrentTimeInMillis()` | ✅ | 2026-06-18 | pending |
-| 2.3 | `tws/dispatcher.go` (reqId→chan) + `tws/order_id_manager.go` (seed + atomic next) | ⬜ | | |
+| 2.3 | `tws/dispatcher.go` (reqId→chan) + `tws/order_id_manager.go` (seed + atomic next) | ✅ | 2026-06-18 | pending |
 | 2.4 | `tws/contract.go` + `reqContractDetails` for OESX (ESTX50) | ⬜ | | |
 | 2.5 | Market-data subscribe; parse ticks incl. **Decimal** sizes (types 5, 71) | ⬜ | | |
 
@@ -132,4 +132,5 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Docs      | IBKR_MIGRATION_PLAN_v2.md still describes Phase 1 as "define the seam / seam does not exist" — stale; needs the same Option-1 reconciliation. File naming: actual files are tws/tws_client.go and cmd/twsconnect/twsconnect_main.go (plan/CLAUDE say tws/client.go); harmless.
 2026-06-18 | Step 2.2  | Codec layer built (constants, wrapper interface, encoder, decoder) on the fix/tws-client-improvements branch. Integrated directly into tws_client.go. Verified against IB Gateway.
 2026-06-18 | Branching | Merged fix/tws-client-improvements (containing both Phase 2.1 fixes and Phase 2.2 feature work) back into the main migration branch feature/ibkr-porting, and deleted the fix branch to maintain clean semantics moving forward.
+2026-06-18 | Step 2.3  | Implemented Dispatcher and OrderIdManager. Integrated OrderIdManager into tws_client.go to replace manual nextOrderID fields. Unit tests passed, manual test verified NextOrderId() seeding works.
 ```

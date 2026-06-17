@@ -42,10 +42,9 @@ type Client struct {
 	serverVersion int
 	connTime      string
 
-	mu          sync.Mutex
-	accounts    string
-	nextOrderID int64
-	haveNextID  bool
+	mu       sync.Mutex
+	accounts string
+	orderIDs OrderIdManager
 	connected   bool
 
 	AsyncErrorCallback func(reqID, code int, msg string)
@@ -111,11 +110,7 @@ func (c *Client) Connect(ctx context.Context) (err error) {
 	var gotNextID, gotAccounts bool
 	for !gotNextID || !gotAccounts {
 		select {
-		case id := <-c.nextIDCh:
-			c.mu.Lock()
-			c.nextOrderID = id
-			c.haveNextID = true
-			c.mu.Unlock()
+		case <-c.nextIDCh:
 			gotNextID = true
 		case acct := <-c.acctCh:
 			c.mu.Lock()
@@ -183,6 +178,7 @@ func (c *Client) readLoop() {
 // Wrapper implementation for internal lifecycle routing.
 
 func (c *Client) NextValidId(orderId int64) {
+	c.orderIDs.Seed(orderId)
 	select {
 	case c.nextIDCh <- orderId:
 	default: // first one already delivered
@@ -190,6 +186,11 @@ func (c *Client) NextValidId(orderId int64) {
 	if c.appWrapper != nil {
 		c.appWrapper.NextValidId(orderId)
 	}
+}
+
+// NextOrderId atomically acquires the next valid order ID from the client's manager.
+func (c *Client) NextOrderId() int64 {
+	return c.orderIDs.Next()
 }
 
 func (c *Client) ManagedAccounts(accountsList string) {
@@ -251,11 +252,7 @@ func isInfoCode(code int) bool {
 func (c *Client) ServerVersion() int    { return c.serverVersion }
 func (c *Client) ConnectionTime() string { return c.connTime }
 
-func (c *Client) NextOrderID() (int64, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.nextOrderID, c.haveNextID
-}
+
 
 func (c *Client) Accounts() string {
 	c.mu.Lock()
