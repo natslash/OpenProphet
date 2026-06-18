@@ -180,8 +180,6 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 	fields := []string{
 		strconv.Itoa(outPlaceOrder),
 		strconv.FormatInt(reqId, 10),
-		
-		// Contract fields
 		strconv.FormatInt(contract.ConId, 10),
 		contract.Symbol,
 		string(contract.SecType),
@@ -196,8 +194,6 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		contract.TradingClass,
 		"", // secIdType
 		"", // secId
-
-		// Order fields
 		order.Action,
 		order.TotalQuantity.String(),
 		order.OrderType,
@@ -206,9 +202,9 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		order.Tif,
 		order.OcaGroup,
 		order.Account,
-		"", // openClose
-		"", // origin
-		"", // orderRef
+		"",  // openClose
+		"0", // origin
+		"",  // orderRef
 		"1", // transmit
 		"0", // parentId
 		"0", // blockOrder
@@ -218,10 +214,79 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		"0", // outsideRth
 		"0", // hidden
 		"",  // goodAfterTime
+		"0", // sharesAllocation
+		"",  // faGroup
+		"",  // faMethod
+		"",  // faPercentage
+		"",  // faProfile
+		"",  // modelCode
 		"",  // goodTillDate
 		"",  // rule80A
 		"0", // percentOffset
-		"0", // trailingPercent
+		"",  // settlingFirm
+		"-1",// shortSaleSlot
+		"0", // designatedLocation
+		"",  // exemptCode
+		"",  // auctionStrategy
+		"0", // startingPrice
+		"",  // stockRefPrice
+		"",  // delta
+		"1", // stockRangeLower
+		"1", // stockRangeUpper
+		"",  // overridePercentageConstraints
+		"0", // volatility
+		"",  // volatilityType
+		"",  // deltaNeutralOrderType
+		"",  // deltaNeutralAuxPrice
+		"",  // deltaNeutralConId
+		"",  // deltaNeutralSettlingFirm
+		"0", // continuousUpdate
+		"",  // referencePriceType
+		"",  // trailStopPrice
+		"",  // trailingPercent
+		"",  // scaleInitLevelSize
+		"0", // scaleSubsLevelSize
+		"",  // scalePriceIncrement
+		"",  // scalePriceAdjustValue
+		"",  // scalePriceAdjustInterval
+		"",  // scaleProfitOffset
+		"",  // scaleAutoReset
+		"",  // scaleInitPosition
+		"",  // scaleInitFillQty
+		"",  // scaleRandomPercent
+		"",  // scaleTable
+		"0", // activeStartTime
+		"",  // activeStopTime
+		"",  // hedgeType
+		"0", // hedgeParam
+		"0", // optOutSmartRouting
+		"",  // clearingAccount
+		"",  // clearingIntent
+		"0", // notHeld
+		"",  // deltaNeutralContract
+		"0", // algoStrategy
+		"0", // algoParamsCount
+		"0", // solicited
+		"0", // whatIf
+		"",  // orderState
+		"1.7976931348623157e+308", // randomizeSize
+		"1.7976931348623157e+308", // randomizePrice
+		"1.7976931348623157e+308", // referenceContractId
+		"1.7976931348623157e+308", // peggedChangeAmount
+		"1.7976931348623157e+308", // referenceChangeAmount
+		"0", // referenceExchangeId
+		"",  // conditions
+		"",  // adjustedOrderType
+		"",  // triggerPrice
+		"1.7976931348623157e+308", // lmtPriceOffset
+		"",  // adjustedStopPrice
+		"",  // adjustedStopLimitPrice
+		"",  // adjustedTrailingAmount
+		"",  // adjustableTrailingUnit
+		"0", // softDollarTier
+		"0", // cashQty
+		"0", // dontUseAutoPriceForHedge
+		"",  // isOmsContainer
 	}
 
 	return e.writer.SendFields(fields...)
