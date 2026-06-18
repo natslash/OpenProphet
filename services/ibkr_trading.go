@@ -53,20 +53,9 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 	
 	for {
 		select {
-		case msg := <-ch:
-			switch t := msg.(type) {
-			case tws.OpenOrderMsg:
-				o := &interfaces.Order{
-					ID:     strconv.FormatInt(t.OrderId, 10),
-					Symbol: t.Contract.Symbol,
-					Qty:    t.Order.TotalQuantity.InexactFloat64(),
-					Side:   t.Order.Action,
-					Type:   t.Order.OrderType,
-					Status: t.OrderState.Status,
-				}
-				orders = append(orders, o)
-			case tws.OpenOrderEndMsg:
-				// Filter if status is provided
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel closed by dispatcher.Complete(0) upon receiving OpenOrderEndMsg
 				if status != "" {
 					var filtered []*interfaces.Order
 					for _, o := range orders {
@@ -87,6 +76,21 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 					return filtered, nil
 				}
 				return orders, nil
+			}
+			
+			switch t := msg.(type) {
+			case tws.OpenOrderMsg:
+				o := &interfaces.Order{
+					ID:     strconv.FormatInt(t.OrderId, 10),
+					Symbol: t.Contract.Symbol,
+					Qty:    t.Order.TotalQuantity.InexactFloat64(),
+					Side:   t.Order.Action,
+					Type:   t.Order.OrderType,
+					Status: t.OrderState.Status,
+				}
+				orders = append(orders, o)
+			case tws.OpenOrderEndMsg:
+				// Ignored, handled by channel close
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}
@@ -108,7 +112,12 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel closed by dispatcher.Complete(0) upon receiving PositionEndMsg
+				return positions, nil
+			}
+			
 			switch t := msg.(type) {
 			case tws.PositionMsg:
 				// Filter out zero-positions
@@ -123,7 +132,7 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 				}
 				positions = append(positions, p)
 			case tws.PositionEndMsg:
-				return positions, nil
+				// Ignored, handled by channel close
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}
@@ -149,15 +158,20 @@ func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 	
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel closed by dispatcher.Complete(reqId) upon receiving AccountSummaryEndMsg
+				return acc, nil
+			}
+			
 			switch t := msg.(type) {
 			case tws.AccountSummaryMsg:
 				acc.ID = t.Account
-				if t.Tag == "NetLiquidation" {
+				if t.Tag == "NetLiquidationByCurrency" {
 					if val, err := strconv.ParseFloat(t.Value, 64); err == nil {
 						acc.PortfolioValue = val
 					}
-				} else if t.Tag == "TotalCashValue" {
+				} else if t.Tag == "TotalCashBalance" || t.Tag == "CashBalance" {
 					if val, err := strconv.ParseFloat(t.Value, 64); err == nil {
 						acc.Cash = val
 					}
@@ -171,7 +185,7 @@ func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 					}
 				}
 			case tws.AccountSummaryEndMsg:
-				return acc, nil
+				// Ignored, handled by channel close
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}
