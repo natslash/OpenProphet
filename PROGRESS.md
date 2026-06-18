@@ -16,9 +16,7 @@
 
 ---
 
-## Where we are right now
-
-**Phase 3.1.** Phase 2 complete. **Next action:** `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert).
+**Phase 3.2.** Phase 3.1 complete. **Next action:** `services/ibkr_trading.go` read paths (account summary, positions).
 
 ---
 
@@ -72,7 +70,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert) | ⬜ | | |
+| 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert) | ✅ | 2026-06-18 | pending |
 | 3.2 | `services/ibkr_trading.go` read paths: account, positions, open orders (filter de-activated) | ⬜ | | |
 
 **Test criteria**

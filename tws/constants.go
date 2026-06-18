@@ -34,3 +34,17 @@ const (
 	inPosition        = 61
 	inAccountSummary  = 63
 )
+
+// Tick types
+const (
+	TickBidSize   = 0
+	TickBidPrice  = 1
+	TickAskPrice  = 2
+	TickAskSize   = 3
+	TickLastPrice = 4
+	TickLastSize  = 5
+	TickHigh      = 6
+	TickLow       = 7
+	TickVolume    = 8
+	TickClose     = 9
+)

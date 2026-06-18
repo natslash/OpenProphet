@@ -312,6 +312,16 @@ func (c *Client) Encoder() *Encoder {
 	return NewEncoder(c)
 }
 
+// Register assigns a channel to a request ID for receiving dispatched messages.
+func (c *Client) Register(reqId int64) <-chan interface{} {
+	return c.dispatcher.Register(reqId)
+}
+
+// Complete removes a request ID from the dispatcher.
+func (c *Client) Complete(reqId int64) {
+	c.dispatcher.Complete(reqId)
+}
+
 func (c *Client) SetWrapper(w Wrapper) {
 	c.mu.Lock()
 	c.appWrapper = w
