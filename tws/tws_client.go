@@ -170,15 +170,26 @@ func (c *Client) startAPI() error {
 
 func (c *Client) readLoop() {
 	for {
-		payload, err := c.readFrame()
+		err := func() error {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "tws_client: recovered from panic in readLoop: %v\n", r)
+				}
+			}()
+			payload, readErr := c.readFrame()
+			if readErr != nil {
+				return readErr
+			}
+			fields := splitFields(payload)
+			debugLogFrame("RECV", fields)
+			if decodeErr := c.decoder.Decode(fields); decodeErr != nil {
+				fmt.Fprintf(os.Stderr, "tws_client: decode error: %v\n", decodeErr)
+			}
+			return nil
+		}()
 		if err != nil {
 			c.signalClosed()
 			return
-		}
-		fields := splitFields(payload)
-		fmt.Printf("RECV: %q\n", fields)
-		if err := c.decoder.Decode(fields); err != nil {
-			fmt.Fprintf(os.Stderr, "tws_client: decode error: %v\n", err)
 		}
 	}
 }
@@ -235,7 +246,8 @@ func (c *Client) Error(reqId int, code int, msg string) {
 
 	if reqId > 0 {
 		c.dispatcher.Dispatch(int64(reqId), fmt.Errorf("TWS Error %d: %s", code, msg))
-		c.dispatcher.Complete(int64(reqId))
+		// We do NOT complete the channel here. Not all errors are terminal, 
+		// and it is the caller's responsibility to defer Complete() on the request channel.
 	}
 
 	c.mu.RLock()
@@ -300,10 +312,22 @@ func (c *Client) signalClosed() {
 
 // --- framing helpers ---
 
+func debugLogFrame(prefix string, fields []string) {
+	masked := make([]string, len(fields))
+	for i, f := range fields {
+		if strings.HasPrefix(f, "DU") && len(f) >= 8 {
+			masked[i] = f[:2] + "***" + f[len(f)-4:]
+		} else {
+			masked[i] = f
+		}
+	}
+	fmt.Printf("%s: %q\n", prefix, masked)
+}
+
 // sendFields writes one TWS message: each field null-terminated, the whole
 // body length-prefixed with a 4-byte big-endian length.
 func (c *Client) SendFields(fields ...string) error {
-	fmt.Printf("SEND: %q\n", fields)
+	debugLogFrame("SEND", fields)
 	body := []byte(strings.Join(fields, "\x00") + "\x00")
 	return c.writeFrame(body)
 }
@@ -372,9 +396,9 @@ func splitFields(payload []byte) []string {
 func (c *Client) ReqContractDetails(ctx context.Context, contract Contract) ([]ContractDetails, error) {
 	reqId := c.NextOrderId()
 	ch := c.dispatcher.Register(reqId)
+	defer c.dispatcher.Complete(reqId)
 	
 	if err := c.Encoder().ReqContractDetails(reqId, contract); err != nil {
-		c.dispatcher.Complete(reqId)
 		return nil, err
 	}
 	
@@ -391,7 +415,6 @@ func (c *Client) ReqContractDetails(ctx context.Context, contract Contract) ([]C
 				return results, errWrapper
 			}
 		case <-ctx.Done():
-			c.dispatcher.Complete(reqId)
 			return nil, ctx.Err()
 		}
 	}

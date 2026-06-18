@@ -73,7 +73,7 @@ func (d *Decoder) Decode(fields []string) error {
 		}
 
 	case inAccountSummary:
-		if len(fields) >= 6 {
+		if len(fields) >= 7 {
 			reqId, _ := strconv.ParseInt(fields[2], 10, 64)
 			d.wrapper.AccountSummary(reqId, fields[3], fields[4], fields[5], fields[6])
 		}
@@ -85,7 +85,7 @@ func (d *Decoder) Decode(fields []string) error {
 		}
 
 	case inPosition:
-		if len(fields) >= 8 {
+		if len(fields) >= 16 {
 			account := fields[2]
 			var c Contract
 			c.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
@@ -110,12 +110,15 @@ func (d *Decoder) Decode(fields []string) error {
 		d.wrapper.PositionEnd()
 
 	case inOpenOrder:
-		// Basic parsing for OpenOrder
+		// Safe sequential parsing for OpenOrder
 		if len(fields) >= 22 {
 			var orderId int64
-			offset := 1
-			if fields[1] != "" { // version check
-				// simpler parsing skipping version specific offset rules if not strict, but basic:
+			
+			// Handle version prefix (in newer v100+ servers, it's often omitted if not legacy, 
+			// but if it's there it's usually an integer version). 
+			// We check if fields[1] is the orderId or version. 
+			// TWS OpenOrder message typically has orderId at index 2 if version is at 1.
+			if fields[1] != "" {
 				orderId, _ = strconv.ParseInt(fields[2], 10, 64)
 				var c Contract
 				c.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
@@ -142,7 +145,15 @@ func (d *Decoder) Decode(fields []string) error {
 				o.Account = fields[21]
 
 				var os OrderState
-				os.Status = fields[offset+84] // approximation, usually order state fields are further down
+				// Robust search for OrderState.Status to avoid panic and handle varying layouts
+				// Status is typically one of these predefined strings
+				for i := len(fields) - 1; i >= 22; i-- {
+					s := fields[i]
+					if s == "PendingSubmit" || s == "PendingCancel" || s == "PreSubmitted" || s == "Submitted" || s == "Cancelled" || s == "Filled" || s == "Inactive" {
+						os.Status = s
+						break
+					}
+				}
 				
 				d.wrapper.OpenOrder(orderId, c, o, os)
 			}

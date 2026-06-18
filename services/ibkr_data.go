@@ -5,18 +5,92 @@ import (
 	"fmt"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
+	"sync"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 type IBKRDataService struct {
-	client *tws.Client
+	tws.DefaultWrapper
+	client  *tws.Client
+	mu      sync.RWMutex
+	streams map[int64]chan any
 }
 
 // Ensure IBKRDataService implements interfaces.DataService
 var _ interfaces.DataService = (*IBKRDataService)(nil)
 
 func NewIBKRDataService(client *tws.Client) *IBKRDataService {
-	return &IBKRDataService{client: client}
+	s := &IBKRDataService{
+		client:  client,
+		streams: make(map[int64]chan any),
+	}
+	client.SetWrapper(s)
+	return s
+}
+
+func symbolToContract(symbol string) tws.Contract {
+	// For OESX index options, we'll later expand this. For now, stock fallback.
+	return tws.Contract{
+		Symbol:   symbol,
+		SecType:  tws.Stock,
+		Exchange: "SMART",
+		Currency: "USD",
+	}
+}
+
+func (s *IBKRDataService) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr tws.TickAttrib) {
+	s.mu.RLock()
+	ch, ok := s.streams[reqId]
+	s.mu.RUnlock()
+	if ok {
+		select {
+		case ch <- tws.TickPriceMsg{TickType: tickType, Price: price, Size: size, Attr: attr}:
+		default:
+		}
+	}
+}
+
+func (s *IBKRDataService) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+	s.mu.RLock()
+	ch, ok := s.streams[reqId]
+	s.mu.RUnlock()
+	if ok {
+		select {
+		case ch <- tws.TickSizeMsg{TickType: tickType, Size: size}:
+		default:
+		}
+	}
+}
+
+func (s *IBKRDataService) Error(reqId int, code int, msg string) {
+	s.mu.RLock()
+	ch, ok := s.streams[int64(reqId)]
+	s.mu.RUnlock()
+	if ok {
+		select {
+		case ch <- fmt.Errorf("tws error: %d %s", code, msg):
+		default:
+		}
+	}
+}
+
+func (s *IBKRDataService) subscribe(reqId int64) chan any {
+	ch := make(chan any, 1024)
+	s.mu.Lock()
+	s.streams[reqId] = ch
+	s.mu.Unlock()
+	return ch
+}
+
+func (s *IBKRDataService) unsubscribe(reqId int64) {
+	s.mu.Lock()
+	if ch, ok := s.streams[reqId]; ok {
+		close(ch)
+		delete(s.streams, reqId)
+	}
+	s.mu.Unlock()
 }
 
 func (s *IBKRDataService) GetHistoricalBars(ctx context.Context, symbol string, start, end time.Time, timeframe string) ([]*interfaces.Bar, error) {
@@ -32,17 +106,11 @@ func (s *IBKRDataService) StreamBars(ctx context.Context, symbols []string) (<-c
 }
 
 func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*interfaces.Quote, error) {
-	// Simplified mapping for stocks
-	contract := tws.Contract{
-		Symbol:   symbol,
-		SecType:  tws.Stock,
-		Exchange: "SMART",
-		Currency: "USD",
-	}
+	contract := symbolToContract(symbol)
 
 	reqId := s.client.NextOrderId()
-	ch := s.client.Register(reqId)
-	defer s.client.Complete(reqId)
+	ch := s.subscribe(reqId)
+	defer s.unsubscribe(reqId)
 
 	// Subscribe to live market data (snapshot = false since we want to wait for streams if needed,
 	// though a snapshot might be cleaner, let's use continuous to get real ticks)
@@ -97,16 +165,11 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 }
 
 func (s *IBKRDataService) GetLatestTrade(ctx context.Context, symbol string) (*interfaces.Trade, error) {
-	contract := tws.Contract{
-		Symbol:   symbol,
-		SecType:  tws.Stock,
-		Exchange: "SMART",
-		Currency: "USD",
-	}
+	contract := symbolToContract(symbol)
 
 	reqId := s.client.NextOrderId()
-	ch := s.client.Register(reqId)
-	defer s.client.Complete(reqId)
+	ch := s.subscribe(reqId)
+	defer s.unsubscribe(reqId)
 
 	if err := s.client.Encoder().ReqMktData(reqId, contract, "", false, false); err != nil {
 		return nil, fmt.Errorf("ReqMktData error: %w", err)

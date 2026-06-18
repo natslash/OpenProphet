@@ -6,9 +6,8 @@
 
 ## Current state (read before acting)
 
-- **Done:** Phase 0 (socket sanity, `cmd/twscheck`, verified against IB Gateway **v187**, account `DU5894187`) and **Phase 2.1** (`tws/tws_client.go` — handshake, `startApi`, `nextValidId`, with review fixes + unit tests).
-- **Phase 1 is satisfied, not pending** — the broker seam already exists upstream (see "The broker seam" below).
-- **Next:** Phase 2.2 — `tws/encoder.go` + `tws/decoder.go` + `tws/constants.go`, with `reqCurrentTimeInMillis()` as the round-trip smoke test.
+- **Done:** Phase 0, Phase 1 (seam already exists), Phase 2 (TWS wrapper), and Phase 3 (read-only services).
+- **Next:** Phase 4.1 — `placeOrder` / `cancelOrder` + `orderStatus`/`openOrder` callbacks via the dispatcher.
 - The code in this repo today: Alpaca services (live), `interfaces/` (the seam), `cmd/twscheck`, `cmd/twsconnect`, `tws/tws_client.go` (+ test). Everything else described below is **spec to build toward, not existing code** — do not assume a file exists because it is documented here.
 
 ---

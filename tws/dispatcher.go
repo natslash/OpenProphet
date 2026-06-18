@@ -1,6 +1,9 @@
 package tws
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Dispatcher manages the routing of asynchronous TWS responses
 // to the waiting callers using a reqId -> channel registry.
@@ -17,10 +20,14 @@ func NewDispatcher() *Dispatcher {
 }
 
 // Register creates a new buffered channel for the given reqId, stores it,
-// and returns it to the caller to wait on.
+// and returns it to the caller to wait on. Panics if reqId is already registered.
 func (d *Dispatcher) Register(reqId int64) <-chan any {
 	ch := make(chan any, 16) // Buffered to prevent blocking the decoder
 	d.mu.Lock()
+	if _, exists := d.pending[reqId]; exists {
+		d.mu.Unlock()
+		panic(fmt.Sprintf("tws/dispatcher: reqId %d is already registered", reqId))
+	}
 	d.pending[reqId] = ch
 	d.mu.Unlock()
 	return ch
@@ -36,7 +43,7 @@ func (d *Dispatcher) Dispatch(reqId int64, msg any) {
 		select {
 		case ch <- msg:
 		default:
-			// Buffer full, drop or log
+			fmt.Printf("tws/dispatcher: buffer full, dropped message for reqId %d\n", reqId)
 		}
 	}
 }

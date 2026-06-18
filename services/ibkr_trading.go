@@ -6,11 +6,14 @@ import (
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 	"strconv"
+	"sync"
 	"time"
 )
 
 type IBKRTradingService struct {
-	client *tws.Client
+	client      *tws.Client
+	positionsMu sync.Mutex
+	ordersMu    sync.Mutex
 }
 
 // Ensure IBKRTradingService implements interfaces.TradingService
@@ -42,6 +45,9 @@ func (s *IBKRTradingService) GetOrder(ctx context.Context, orderID string) (*int
 }
 
 func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*interfaces.Order, error) {
+	s.ordersMu.Lock()
+	defer s.ordersMu.Unlock()
+
 	ch := s.client.Register(0) // Dispatcher uses 0 for global events like OpenOrders
 	defer s.client.Complete(0)
 
@@ -101,6 +107,9 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 }
 
 func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
+	s.positionsMu.Lock()
+	defer s.positionsMu.Unlock()
+
 	ch := s.client.Register(0)
 	defer s.client.Complete(0)
 
@@ -147,7 +156,7 @@ func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 	ch := s.client.Register(reqId)
 	defer s.client.Complete(reqId)
 
-	if err := s.client.Encoder().ReqAccountSummary(reqId, "All", "$LEDGER"); err != nil {
+	if err := s.client.Encoder().ReqAccountSummary(reqId, "All", "NetLiquidation,TotalCashValue,BuyingPower,DayTradesRemaining"); err != nil {
 		return nil, fmt.Errorf("ReqAccountSummary error: %w", err)
 	}
 	defer s.client.Encoder().CancelAccountSummary(reqId)
