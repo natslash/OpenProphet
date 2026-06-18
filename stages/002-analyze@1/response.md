@@ -1,0 +1,3 @@
+Phase 3.2 is complete. I have implemented `services/ibkr_trading.go` with the required read-only interface methods (`GetAccount`, `GetPositions`, `ListOrders`, `GetOrder`) stubbed out, along with stubs for `PlaceOrder`, `CancelOrder`, and all options trading methods to satisfy the `interfaces.TradingService` interface requirement.
+
+The codebase now has a structured `IBKRTradingService` that implements the `interfaces.TradingService` seam, consistent with the `IBKR_MIGRATION_PLAN_v2.md` and `PROGRESS.md`.
