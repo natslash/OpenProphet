@@ -16,7 +16,7 @@ type simpleWrapper struct{}
 func (w *simpleWrapper) NextValidId(orderId int64) {}
 func (w *simpleWrapper) ManagedAccounts(accountsList string) {}
 func (w *simpleWrapper) Error(reqId int, code int, msg string) {
-	if code != 2104 && code != 2106 && code != 2158 { // Ignore common warning codes
+	if code != 2104 && code != 2106 && code != 2168 { // Ignore common warning codes
 		fmt.Printf("TWS Warning/Error [%d]: %d %s\n", reqId, code, msg)
 	}
 }
@@ -37,7 +37,7 @@ func (w *simpleWrapper) OrderStatus(orderId int64, status string, filled, remain
 func main() {
 	fmt.Println("=== Phase 3.2 Live Test ===")
 	
-	client := tws.NewClient("127.0.0.1", 4002, 5)
+	client := tws.NewClient("127.0.0.1", 4002, 6)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -58,7 +58,7 @@ func main() {
 	tradingSvc := services.NewIBKRTradingService(client)
 
 	fmt.Println("\n--- 1. Testing GetAccount ---")
-	accCtx, accCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	accCtx, accCancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer accCancel()
 	acc, err := tradingSvc.GetAccount(accCtx)
 	if err != nil {
@@ -71,7 +71,7 @@ func main() {
 	}
 
 	fmt.Println("\n--- 2. Testing GetPositions ---")
-	posCtx, posCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	posCtx, posCancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer posCancel()
 	positions, err := tradingSvc.GetPositions(posCtx)
 	if err != nil {
@@ -87,7 +87,7 @@ func main() {
 	}
 
 	fmt.Println("\n--- 3. Testing ListOrders ---")
-	ordCtx, ordCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ordCtx, ordCancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer ordCancel()
 	orders, err := tradingSvc.ListOrders(ordCtx, "")
 	if err != nil {
@@ -103,7 +103,7 @@ func main() {
 	}
 
 	fmt.Println("\n--- 4. Testing PlaceOrder (Paper Only) ---")
-	placeCtx, placeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	placeCtx, placeCancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer placeCancel()
 	
 	order := &interfaces.Order{
@@ -125,8 +125,8 @@ func main() {
 		fmt.Println("Waiting 3 seconds for OpenOrder and OrderStatus callbacks...")
 		time.Sleep(3 * time.Second)
 
-		fmt.Println("\n--- 5. Testing CancelOrder ---")
-		cancelCtx, cancelCtxCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		fmt.Println("\n--- 6. Testing CancelOrder ---")
+		cancelCtx, cancelCtxCancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancelCtxCancel()
 		
 		err := tradingSvc.CancelOrder(cancelCtx, res.OrderID)

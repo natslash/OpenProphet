@@ -1,6 +1,10 @@
 package tws
 
-import "strconv"
+import (
+	"math"
+	"strconv"
+	"strings"
+)
 
 // FieldWriter represents a transport that can send length-prefixed,
 // null-delimited TWS messages.
@@ -159,147 +163,232 @@ func (e *Encoder) ReqOpenOrders() error {
 	return e.writer.SendFields(fields...)
 }
 
-// PlaceOrder places a new order or updates an existing order.
-
-func formatPrice(p float64) string {
-	if p == 0.0 { // TWS usually treats 0.0 or 1.79e308 as unset. We'll use empty string for unset.
-		return ""
+// fmtFloat renders a float the way the TWS reference clients do (Java
+// String.valueOf / Python str): a whole number keeps a trailing ".0".
+func fmtFloat(f float64) string {
+	s := strconv.FormatFloat(f, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eEnN") {
+		s += ".0"
 	}
-	return strconv.FormatFloat(p, 'f', -1, 64)
+	return s
 }
 
-func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error {
-	// Send place order message. v145+ servers do NOT expect the version string.
-	// Since we assume TWS v187, we omit the version field entirely.
+// UnsetFloat is the sentinel for an unset double order field. Fields holding
+// this value are emitted as "" (the handle-empty convention).
+const UnsetFloat = math.MaxFloat64
 
-	strikeStr := strconv.FormatFloat(contract.Strike, 'f', -1, 64)
-	if contract.Strike == 0.0 {
-		strikeStr = "0"
+// encFloatMax emits "" for an unset double, else the formatted value.
+func encFloatMax(f float64) string {
+	if f == UnsetFloat {
+		return ""
+	}
+	return fmtFloat(f)
+}
+
+func encBool(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// PlaceOrder builds the placeOrder message for the negotiated serverVersion,
+// gating each field block exactly as the reference TWS clients do
+// (EClient.placeOrder). Only the fields needed for the order types we support
+// are populated; everything else is sent as its unset/default sentinel.
+func (e *Encoder) PlaceOrder(serverVersion int, reqId int64, contract Contract, order Order) error {
+	f := []string{strconv.Itoa(outPlaceOrder)}
+	add := func(v ...string) { f = append(f, v...) }
+
+	// version field is omitted once the server speaks the order-container protocol
+	if serverVersion < minServerVerOrderContainer {
+		add("45")
+	}
+	add(strconv.FormatInt(reqId, 10))
+
+	// --- contract ---
+	if serverVersion >= minServerVerPlaceOrderConId {
+		add(strconv.FormatInt(contract.ConId, 10))
+	}
+	add(contract.Symbol, string(contract.SecType), contract.LastTradeDateOrContractMonth,
+		fmtFloat(contract.Strike), contract.Right, contract.Multiplier, contract.Exchange,
+		contract.PrimaryExch, contract.Currency, contract.LocalSymbol)
+	if serverVersion >= minServerVerTradingClass {
+		add(contract.TradingClass)
+	}
+	if serverVersion >= minServerVerSecIdType {
+		add("", "") // secIdType, secId
 	}
 
-	fields := []string{
-		strconv.Itoa(outPlaceOrder),           // 0
-		strconv.FormatInt(reqId, 10),          // 1
-		strconv.FormatInt(contract.ConId, 10), // 2
-		contract.Symbol,                       // 3
-		string(contract.SecType),              // 4
-		contract.LastTradeDateOrContractMonth, // 5
-		strikeStr,                             // 6
-		contract.Right,                        // 7
-		contract.Multiplier,                   // 8
-		contract.Exchange,                     // 9
-		contract.PrimaryExch,                  // 10
-		contract.Currency,                     // 11
-		contract.LocalSymbol,                  // 12
-		contract.TradingClass,                 // 13
-		"",                                    // secIdType // 14
-		"",                                    // secId // 15
-		order.Action,                          // 16
-		order.TotalQuantity.String(),          // 17
-		order.OrderType,                       // 18
-		formatPrice(order.LmtPrice),           // 19
-		formatPrice(order.AuxPrice),           // 20
-		order.Tif,                             // 21
-		order.OcaGroup,                        // 22
-		order.Account,                         // 23
-		"",                                    // 24
-		"0",                                   // 25
-		"",                                    // 26
-		"1",                                   // 27
-		"0",                                   // 28
-		"0",                                   // 29
-		"0",                                   // 30
-		"0",                                   // 31
-		"0",                                   // 32
-		"0",                                   // 33
-		"0",                                   // 34
-		"",                                    // 35
-		"0",                                   // 36
-		"",                                    // 37
-		"",                                    // 38
-		"",                                    // 39
-		"",                                    // 40
-		"",                                    // 41
-		"",                                    // 42
-		"",                                    // 43
-		"0",                                   // 44
-		"",                                    // 45
-		"-1",                                  // 46
-		"0",                                   // 47
-		"",                                    // 48
-		"",                                    // 49
-		"0",                                   // 50
-		"",                                    // 51
-		"",                                    // 52
-		"0",                                   // 53
-		"0",                                   // 54
-		"",                                    // 55
-		"0",                                   // 56
-		"",                                    // 57
-		"",                                    // 58
-		"",                                    // 59
-		"",                                    // 60
-		"",                                    // 61
-		"0",                                   // 62
-		"",                                    // 63
-		"",                                    // 64
-		"",                                    // 65
-		"",                                    // 66
-		"0",                                   // 67
-		"",                                    // 68
-		"",                                    // 69
-		"",                                    // 70
-		"",                                    // 71
-		"",                                    // 72
-		"",                                    // 73
-		"",                                    // 74
-		"",                                    // 75
-		"",                                    // 76
-		"",                                    // 77
-		"0",                                   // 78
-		"",                                    // 79
-		"",                                    // 80
-		"0",                                   // 81
-		"0",                                   // 82
-		"",                                    // 83
-		"",                                    // 84
-		"0",                                   // 85
-		"",                                    // 86
-		"0",                                   // 87
-		"0",                                   // 88
-		"0",                                   // 89
-		"0",                                   // 90
-		"",                                    // 91
-		"1.7976931348623157e+308",             // 92
-		"1.7976931348623157e+308",             // 93
-		"1.7976931348623157e+308",             // 94
-		"1.7976931348623157e+308",             // 95
-		"1.7976931348623157e+308",             // 96
-		"0",                                   // 97
-		"",                                    // 98
-		"",                                    // 99
-		"",                                    // 100
-		"1.7976931348623157e+308",             // 101
-		"",                                    // 102
-		"",                                    // 103
-		"",                                    // 104
-		"",                                    // 105
-		"0",                                   // 106
-		"0",                                   // 107
-		"0",                                   // 108
-		"",                                    // 109
+	// --- main order ---
+	add(order.Action, order.TotalQuantity.String(), order.OrderType,
+		encFloatMax(order.LmtPrice), encFloatMax(order.AuxPrice))
+
+	// --- extended order ---
+	add(order.Tif, order.OcaGroup, order.Account, order.OpenClose,
+		strconv.Itoa(order.Origin), order.OrderRef, encBool(order.Transmit),
+		strconv.FormatInt(order.ParentId, 10),
+		encBool(order.BlockOrder), encBool(order.SweepToFill),
+		strconv.Itoa(order.DisplaySize), strconv.Itoa(order.TriggerMethod),
+		encBool(order.OutsideRth), encBool(order.Hidden))
+
+	// combo legs (BAG only) — not supported yet; nothing emitted for non-BAG.
+
+	// deprecated sharesAllocation, then discretionaryAmt
+	add("", "0.0")
+	add("", "")                 // goodAfterTime, goodTillDate
+	add("", "", "")             // faGroup, faMethod, faPercentage
+	if serverVersion < minServerVerFaProfileDesupport {
+		add("") // deprecated faProfile
+	}
+	if serverVersion >= minServerVerModelsSupport {
+		add("") // modelCode
+	}
+	add("0", "")                // shortSaleSlot, designatedLocation
+	if serverVersion >= minServerVerSshortxOld {
+		add("-1") // exemptCode
+	}
+	add("0")                    // ocaType
+	add("", "", "0", "", "")    // rule80A, settlingFirm, allOrNone, minQty, percentOffset
+	add("0", "0", "")           // eTradeOnly, firmQuoteOnly, nbboPriceCap
+	add("0")                    // auctionStrategy
+	add("", "", "", "", "")     // startingPrice, stockRefPrice, delta, stockRangeLower, stockRangeUpper
+	add("0")                    // overridePercentageConstraints
+	add("", "", "", "")         // volatility, volatilityType, deltaNeutralOrderType, deltaNeutralAuxPrice
+	add("0", "", "")            // continuousUpdate, referencePriceType, trailStopPrice
+	if serverVersion >= minServerVerTrailingPercent {
+		add("") // trailingPercent
+	}
+	// scale orders
+	if serverVersion >= minServerVerScaleOrders2 {
+		add("", "") // scaleInitLevelSize, scaleSubsLevelSize
+	}
+	add("") // scalePriceIncrement (unset → no scaleOrders3 block)
+	if serverVersion >= minServerVerScaleTable {
+		add("", "", "") // scaleTable, activeStartTime, activeStopTime
+	}
+	if serverVersion >= minServerVerHedgeOrders {
+		add("") // hedgeType (empty → no hedgeParam)
+	}
+	if serverVersion >= minServerVerOptOutSmartRouting {
+		add("0")
+	}
+	if serverVersion >= minServerVerPtaOrders {
+		add("", "") // clearingAccount, clearingIntent
+	}
+	if serverVersion >= minServerVerNotHeld {
+		add("0")
+	}
+	if serverVersion >= minServerVerDeltaNeutral {
+		add("0") // no deltaNeutralContract
+	}
+	if serverVersion >= minServerVerAlgoOrders {
+		add("") // algoStrategy (empty → no params)
+	}
+	if serverVersion >= minServerVerAlgoId {
+		add("")
+	}
+	add(encBool(order.WhatIf))
+	if serverVersion >= minServerVerLinking {
+		add("") // orderMiscOptions
+	}
+	if serverVersion >= minServerVerOrderSolicited {
+		add("0")
+	}
+	if serverVersion >= minServerVerRandomizeSizeAndPrice {
+		add("0", "0")
+	}
+	if serverVersion >= minServerVerPeggedToBenchmark {
+		add("0") // conditions count (none)
+		// adjustedOrderType, triggerPrice, lmtPriceOffset, adjustedStopPrice,
+		// adjustedStopLimitPrice, adjustedTrailingAmount (unset doubles), adjustableTrailingUnit
+		add("", unsetDoubleStr, unsetDoubleStr, unsetDoubleStr, unsetDoubleStr, unsetDoubleStr, "0")
+	}
+	if serverVersion >= minServerVerExtOperator {
+		add("")
+	}
+	if serverVersion >= minServerVerSoftDollarTier {
+		add("", "") // softDollarTier name, value
+	}
+	if serverVersion >= minServerVerCashQty {
+		add(unsetDoubleStr)
+	}
+	if serverVersion >= minServerVerDecisionMaker {
+		add("", "")
+	}
+	if serverVersion >= minServerVerMifidExecution {
+		add("", "")
+	}
+	if serverVersion >= minServerVerAutoPriceForHedge {
+		add("0")
+	}
+	if serverVersion >= minServerVerOrderContainer {
+		add("0") // isOmsContainer
+	}
+	if serverVersion >= minServerVerDPegOrders {
+		add("0")
+	}
+	if serverVersion >= minServerVerPriceMgmtAlgo {
+		add("") // usePriceMgmtAlgo (None → empty)
+	}
+	if serverVersion >= minServerVerDuration {
+		add(unsetIntStr)
+	}
+	if serverVersion >= minServerVerPostToAts {
+		add(unsetIntStr)
+	}
+	if serverVersion >= minServerVerAutoCancelParent {
+		add("0")
+	}
+	if serverVersion >= minServerVerAdvancedOrderReject {
+		add("")
+	}
+	if serverVersion >= minServerVerManualOrderTime {
+		add("")
+	}
+	if serverVersion >= minServerVerPegbestPegmidOffsets {
+		// IBKRATS minTradeQty / PEG BEST / PEG MID offsets — none for our orders.
+		if contract.Exchange == "IBKRATS" {
+			add("")
+		}
+	}
+	if serverVersion >= minServerVerCustomerAccount {
+		add("")
+	}
+	if serverVersion >= minServerVerProfessionalCustomer {
+		add("0")
+	}
+	if serverVersion >= minServerVerRfqFields && serverVersion < minServerVerUndoRfqFields {
+		add("", unsetIntStr)
+	}
+	if serverVersion >= minServerVerIncludeOvernight {
+		add("0")
+	}
+	if serverVersion >= minServerVerCmeTaggingFields {
+		add(unsetIntStr) // manualOrderIndicator
+	}
+	if serverVersion >= minServerVerImbalanceOnly {
+		add("0")
 	}
 
-	return e.writer.SendFields(fields...)
+	return e.writer.SendFields(f...)
 }
 
 // CancelOrder cancels an active order.
-func (e *Encoder) CancelOrder(reqId int64) error {
-	const version = "1"
-	fields := []string{
-		strconv.Itoa(outCancelOrder),
-		version,
-		strconv.FormatInt(reqId, 10),
+func (e *Encoder) CancelOrder(serverVersion int, orderID int64) error {
+	f := []string{strconv.Itoa(outCancelOrder)}
+	if serverVersion < minServerVerCmeTaggingFields {
+		f = append(f, "1") // legacy version field
 	}
-	return e.writer.SendFields(fields...)
+	f = append(f, strconv.FormatInt(orderID, 10))
+	if serverVersion >= minServerVerManualOrderTime {
+		f = append(f, "") // manualOrderCancelTime
+	}
+	if serverVersion >= minServerVerRfqFields && serverVersion < minServerVerUndoRfqFields {
+		f = append(f, "", "", unsetIntStr)
+	}
+	if serverVersion >= minServerVerCmeTaggingFields {
+		f = append(f, "", unsetIntStr) // extOperator, manualOrderIndicator
+	}
+	return e.writer.SendFields(f...)
 }

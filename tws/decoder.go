@@ -120,21 +120,22 @@ func (d *Decoder) Decode(fields []string) error {
 		d.wrapper.OpenOrderEnd()
 
 	case inOrderStatus:
+		// Modern servers (>= MIN_SERVER_VER_MARKET_CAP_PRICE, 131) omit the
+		// version field, so orderId is at index 1:
+		// [3, orderId, status, filled, remaining, avgFillPrice, permId,
+		//  parentId, lastFillPrice, clientId, whyHeld, mktCapPrice]
 		if len(fields) >= 12 {
-			orderId, _ := strconv.ParseInt(fields[2], 10, 64)
-			status := fields[3]
-			filled, _ := decimal.NewFromString(fields[4])
-			remaining, _ := decimal.NewFromString(fields[5])
-			avgFillPrice, _ := strconv.ParseFloat(fields[6], 64)
-			permId, _ := strconv.ParseInt(fields[7], 10, 64)
-			parentId, _ := strconv.ParseInt(fields[8], 10, 64)
-			lastFillPrice, _ := strconv.ParseFloat(fields[9], 64)
-			clientId, _ := strconv.Atoi(fields[10])
-			whyHeld := fields[11]
-			mktCapPrice := 0.0
-			if len(fields) >= 13 {
-				mktCapPrice, _ = strconv.ParseFloat(fields[12], 64)
-			}
+			orderId, _ := strconv.ParseInt(fields[1], 10, 64)
+			status := fields[2]
+			filled, _ := decimal.NewFromString(fields[3])
+			remaining, _ := decimal.NewFromString(fields[4])
+			avgFillPrice, _ := strconv.ParseFloat(fields[5], 64)
+			permId, _ := strconv.ParseInt(fields[6], 10, 64)
+			parentId, _ := strconv.ParseInt(fields[7], 10, 64)
+			lastFillPrice, _ := strconv.ParseFloat(fields[8], 64)
+			clientId, _ := strconv.Atoi(fields[9])
+			whyHeld := fields[10]
+			mktCapPrice, _ := strconv.ParseFloat(fields[11], 64)
 			d.wrapper.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
 		}
 

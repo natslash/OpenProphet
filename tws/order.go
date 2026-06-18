@@ -26,6 +26,7 @@ type Order struct {
 	TriggerMethod int
 	OutsideRth    bool
 	Hidden        bool
+	WhatIf        bool
 }
 
 // OrderState represents the current state of an order.

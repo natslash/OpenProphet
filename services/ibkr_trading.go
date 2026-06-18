@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 	"strconv"
@@ -28,11 +29,11 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
 }
 
 func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
-	reqId := s.client.NextOrderId()
+	orderID := s.client.NextOrderId()
 
 	contract := tws.Contract{
 		Symbol:   order.Symbol,
-		SecType:  "STK", // Hardcoded for now
+		SecType:  "STK", // TODO: instrument mapping (Phase 5.1)
 		Exchange: "SMART",
 		Currency: "USD",
 	}
@@ -48,34 +49,73 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 	}
 
 	twsOrder := tws.Order{
-		Action:        side,
-		OrderType:     orderType,
-		Tif:           order.TimeInForce,
+		Action:    side,
+		OrderType: orderType,
+		Tif:       order.TimeInForce,
+		Transmit:  true,
+		// Unset sentinels so the encoder emits "" (handle-empty) for prices
+		// not supplied, rather than a literal 0.
+		LmtPrice: tws.UnsetFloat,
+		AuxPrice: tws.UnsetFloat,
 	}
-	
-	// Convert float64 Qty to decimal
 	twsOrder.TotalQuantity = decimal.NewFromFloat(order.Qty)
-
 	if order.LimitPrice != nil {
 		twsOrder.LmtPrice = *order.LimitPrice
 	}
 	if order.StopPrice != nil {
 		twsOrder.AuxPrice = *order.StopPrice
 	}
-
 	if twsOrder.Tif == "" {
 		twsOrder.Tif = "DAY"
 	}
 
-	if err := s.client.Encoder().PlaceOrder(reqId, contract, twsOrder); err != nil {
-		return nil, fmt.Errorf("PlaceOrder failed: %w", err)
+	// Guardrail: log the full intended order BEFORE it hits the socket.
+	lmtStr := "unset"
+	if order.LimitPrice != nil {
+		lmtStr = fmt.Sprintf("%.4f", *order.LimitPrice)
+	}
+	log.Printf("[IBKR] ORDER INTENT id=%d %s %s qty=%v type=%s lmt=%s tif=%s (paper)",
+		orderID, side, order.Symbol, order.Qty, orderType, lmtStr, twsOrder.Tif)
+
+	// Register for this order's async status/reject before sending, so the
+	// acknowledgement (or rejection) can't race ahead of us.
+	ch := s.client.Register(orderID)
+	defer s.client.Complete(orderID)
+
+	if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), orderID, contract, twsOrder); err != nil {
+		return nil, fmt.Errorf("PlaceOrder encode/send failed: %w", err)
 	}
 
-	return &interfaces.OrderResult{
-		OrderID: strconv.FormatInt(reqId, 10),
-		Status:  "Submitted",
-		Message: "Order placed via TWS API",
-	}, nil
+	// Wait for the first authoritative response: orderStatus (accepted) or an
+	// error (rejected). Never report success without confirmation.
+	confirmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return nil, fmt.Errorf("order %d: status channel closed before confirmation", orderID)
+			}
+			switch t := msg.(type) {
+			case tws.OrderStatusMsg:
+				return &interfaces.OrderResult{
+					OrderID: strconv.FormatInt(orderID, 10),
+					Status:  t.Status,
+					Message: "Order acknowledged by TWS",
+				}, nil
+			case error:
+				return nil, fmt.Errorf("order %d rejected by TWS: %w", orderID, t)
+			}
+		case <-confirmCtx.Done():
+			// Sent but unacknowledged. Do NOT signal an error (a retry could
+			// duplicate the order); surface it as pending for reconciliation.
+			return &interfaces.OrderResult{
+				OrderID: strconv.FormatInt(orderID, 10),
+				Status:  "PendingConfirm",
+				Message: "Order sent; no acknowledgement yet — reconcile via ListOrders",
+			}, nil
+		}
+	}
 }
 
 func (s *IBKRTradingService) CancelOrder(ctx context.Context, orderID string) error {
@@ -83,7 +123,8 @@ func (s *IBKRTradingService) CancelOrder(ctx context.Context, orderID string) er
 	if err != nil {
 		return fmt.Errorf("invalid orderID %q: %w", orderID, err)
 	}
-	if err := s.client.Encoder().CancelOrder(reqId); err != nil {
+	log.Printf("[IBKR] CANCEL INTENT id=%d (paper)", reqId)
+	if err := s.client.Encoder().CancelOrder(s.client.ServerVersion(), reqId); err != nil {
 		return fmt.Errorf("CancelOrder failed: %w", err)
 	}
 	return nil

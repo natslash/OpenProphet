@@ -11,6 +11,9 @@ data/agent-config.json
 *.log
 *.pid
 
+# Scratch / reverse-engineering artifacts (not part of the build)
+.scratch/
+
 # Cartogopher cache
 bakes/
 fast.yaml

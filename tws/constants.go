@@ -38,6 +38,69 @@ const (
 	inAccountSummaryEnd = 64
 )
 
+// Server-version gates that affect placeOrder field emission.
+// Values are the canonical MIN_SERVER_VER_* numbers from the TWS API
+// (IBJts/source/JavaClient/.../EClient.java). A field block is emitted
+// when the negotiated serverVersion >= the gate.
+const (
+	minServerVerScaleOrders          = 35
+	minServerVerWhatIfOrders         = 36
+	minServerVerPtaOrders            = 39
+	minServerVerDeltaNeutral         = 40
+	minServerVerScaleOrders2         = 40
+	minServerVerAlgoOrders           = 41
+	minServerVerNotHeld              = 44
+	minServerVerSecIdType            = 45
+	minServerVerPlaceOrderConId      = 46
+	minServerVerSshortxOld           = 51
+	minServerVerHedgeOrders          = 54
+	minServerVerOptOutSmartRouting   = 56
+	minServerVerDeltaNeutralConId    = 58
+	minServerVerScaleOrders3         = 60
+	minServerVerOrderComboLegsPrice  = 61
+	minServerVerTrailingPercent      = 62
+	minServerVerTradingClass         = 68
+	minServerVerScaleTable           = 69
+	minServerVerLinking              = 70
+	minServerVerAlgoId               = 71
+	minServerVerOrderSolicited       = 73
+	minServerVerRandomizeSizeAndPrice = 76
+	minServerVerFractionalPositions  = 101
+	minServerVerPeggedToBenchmark    = 102
+	minServerVerModelsSupport        = 103
+	minServerVerExtOperator          = 105
+	minServerVerSoftDollarTier       = 106
+	minServerVerCashQty              = 111
+	minServerVerDecisionMaker        = 138
+	minServerVerMifidExecution       = 139
+	minServerVerAutoPriceForHedge    = 141
+	minServerVerOrderContainer       = 145
+	minServerVerDPegOrders           = 148
+	minServerVerPriceMgmtAlgo        = 151
+	minServerVerDuration             = 158
+	minServerVerPostToAts            = 160
+	minServerVerAutoCancelParent     = 162
+	minServerVerAdvancedOrderReject  = 166
+	minServerVerManualOrderTime      = 169
+	minServerVerPegbestPegmidOffsets = 170
+	minServerVerFaProfileDesupport   = 177
+	minServerVerCustomerAccount      = 183
+	minServerVerProfessionalCustomer = 184
+	minServerVerRfqFields            = 187
+	minServerVerUndoRfqFields        = 190
+	minServerVerIncludeOvernight     = 189
+	minServerVerCmeTaggingFields     = 192
+	minServerVerImbalanceOnly        = 199
+)
+
+// Sentinel string for an unset double, matching the TWS reference clients'
+// str(DBL_MAX) emission for non-handle-empty double fields.
+const unsetDoubleStr = "1.7976931348623157e+308"
+
+// unsetIntStr is the value emitted for an unset integer field that is sent
+// with the plain (non-handle-empty) encoder, matching str(Integer.MAX_VALUE).
+const unsetIntStr = "2147483647"
+
 // Tick types
 const (
 	TickBidSize   = 0
