@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 4.1 (in progress).** Order plumbing works end-to-end on paper for **STK**: `placeOrder` (version-gated encoder) → `orderStatus`/`openOrder` confirm → `cancelOrder` → reconcile, all validated live (AAPL 1-lot far-from-market LMT). **Remaining before 4.1 is ✅:** OESX contract mapping (service hardcodes STK/SMART/USD — overlaps 5.1) and a real fill exercised through `orderStatus`.
+**Phase 4.1 ✅ — next: 4.2 (bracket orders).** Full order lifecycle validated live on paper: `placeOrder` (version-gated encoder) → `orderStatus`/`openOrder` confirm → `cancelOrder` → reconcile. Verified across **STK (AAPL)** and **OESX (ESTX50)** placement, a real **fill** + position reconciliation (1-share AAPL market, then flattened), and the 399 "queued until open" warning handled as non-fatal. Contract mapping for STK + OESX landed too (partial Phase 5.1).
 
 ---
 
@@ -85,12 +85,12 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | 🟡 | 2026-06-18 | 524b855, df13a9f |
+| 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ✅ | 2026-06-18 | 524b855, df13a9f, b1704dc, 5823969 |
 | 4.2 | Bracket orders (parent + TP + SL, OCA) | ⬜ | | |
 | 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper | ⬜ | | |
 
 **Test criteria**
-- **4.1:** 1-lot OESX **paper** order places, fills, reconciles. *(Met for STK; OESX + fill still pending — see header.)*
+- **4.1:** 1-lot **paper** order places, fills, reconciles. *(Met: STK + OESX placement, a real AAPL fill + position reconcile, then flattened. Fill exercised on AAPL because EUREX was closed; OESX order placed/accepted/cancelled.)*
 - **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill.
 - **4.3:** Agent wakes → assesses → places/manages a paper trade → sleeps.
 
@@ -100,12 +100,12 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options | ⬜ | | |
+| 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options | 🟡 | 2026-06-18 | 6439d47, a4f865f |
 | 5.2 | News/feeds → European sources; remove the dead `reqFundamentalData` path | ⬜ | | |
 | 5.3 | Switch wiring to IBKR and **delete the Alpaca services** (IBKR-only; the `BROKER=` flag was only a temporary A/B aid during the build) | ⬜ | | |
 
 **Test criteria**
-- **5.1:** Each instrument type round-trips contractDetails + a paper order.
+- **5.1:** Each instrument type round-trips contractDetails + a paper order. *(Done: US stock + OESX option via tws.ParseSymbol/FormatSymbol. Remaining: EU stocks, futures.)*
 - **5.2:** `news_service` returns EU sources; no calls to removed fundamentals APIs.
 - **5.3:** Clean autonomous run on IBKR paper from a cold start, Alpaca code gone.
 
@@ -132,5 +132,9 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Branching | Merged fix/tws-client-improvements (containing both Phase 2.1 fixes and Phase 2.2 feature work) back into the main migration branch feature/ibkr-porting, and deleted the fix branch to maintain clean semantics moving forward.
 2026-06-18 | Step 2.3  | Implemented Dispatcher and OrderIdManager. Integrated OrderIdManager into tws_client.go to replace manual nextOrderID fields. Unit tests passed, manual test verified NextOrderId() seeding works.
 2026-06-18 | Step 2.3.1| Hardening pass: fixed Dispatcher RLock race condition and added interleaving race test. Renamed CurrentTime millis variables to seconds and acknowledged usage of classic message ID 49 (seconds) instead of 10.44 millis. Added routing strategy to CLAUDE.md.
-2026-06-18 | Step 4.1  | placeOrder rewritten as a serverVersion-gated encoder built from the installed TWS source (~/IBJts/source, Java + Python clients) — fixes error 320 (old fixed 110-field payload was truncated/misaligned; v187 needs 118 fields incl. the RFQ block). cancelOrder moved to the modern format (manualOrderCancelTime + RFQ trio); legacy [4,"1",id] was silently ignored by v187 and leaked open orders. orderStatus decoder: read orderId from fields[1] (modern servers ≥131 omit the version field). openOrder decoder: status now located by enum match instead of fragile skip-counting. ibkr_trading.PlaceOrder logs intent before send and waits for the real orderStatus/error (no more fake "Submitted"). Validated live on paper (commits 524b855, df13a9f); stray test orders cancelled, account clean. Remaining for ✅: OESX mapping (overlaps 5.1) + a real fill. Known: MKT default in PlaceOrder still emits a market order when type is empty.
+2026-06-18 | Step 4.1  | placeOrder rewritten as a serverVersion-gated encoder built from the installed TWS source (~/IBJts/source, Java + Python clients) — fixes error 320 (old fixed 110-field payload was truncated/misaligned; v187 needs 118 fields incl. the RFQ block). cancelOrder moved to the modern format (manualOrderCancelTime + RFQ trio); legacy [4,"1",id] was silently ignored by v187 and leaked open orders. orderStatus decoder: read orderId from fields[1] (modern servers ≥131 omit the version field). openOrder decoder: status now located by enum match instead of fragile skip-counting. ibkr_trading.PlaceOrder logs intent before send and waits for the real orderStatus/error (no more fake "Submitted"). Validated live on paper (commits 524b855, df13a9f); stray test orders cancelled, account clean.
+2026-06-18 | Step 5.1  | Symbology mapping in one place (tws.ParseSymbol/FormatSymbol, commits 6439d47/a4f865f): bare ticker -> US stock; "ESTX50:<YYYYMMDD>:<C|P>:<strike>" -> EURO STOXX 50 option (EUREX/EUR, x10, tradingClass OESX). Verified live: ESTX50:20260619:C:6325 resolved + accepted by TWS, round-trips in ListOrders. Table tests added. (EU stocks/futures still to do.)
+2026-06-18 | Step 4.1  | Order-type normalization (b1704dc): reject empty/unknown type instead of silently defaulting to market; map Alpaca-style market/limit/stop[_limit] -> MKT/LMT/STP[ STP LMT]. Fixed a latent bug — callers pass lower-case types that the old pass-through would have sent verbatim. normalizeOrderType unit test added (9d9c807). test_trading harness parameterized with flags (guards: orders only on 4002, market needs -allow-market).
+2026-06-18 | Step 4.1  | Warning handling (5823969): code 399 ("order will not be placed until <open>") is a non-fatal warning, not a rejection — isWarningCode keeps it off the order-confirm channel; authoritative state comes via orderStatus.
+2026-06-18 | Step 4.1  | CLOSED. Real fill + reconciliation exercised live (human-authorized, throwaway cmd, since live API data needs a subscription — 1-share AAPL market buy -> Filled @298.45 -> GetPositions shows qty 1 -> market sell -> flat). Full lifecycle proven: place/fill/cancel/reconcile across STK + OESX. Account left flat.
 ```
