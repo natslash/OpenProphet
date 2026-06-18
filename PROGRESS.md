@@ -86,7 +86,7 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
 | 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ✅ | 2026-06-18 | 524b855, df13a9f, b1704dc, 5823969 |
-| 4.2 | Bracket orders (parent + TP + SL, OCA) | ✅ | 2026-06-18 | pending |
+| 4.2 | Bracket orders (parent + TP + SL, OCA) | ✅ | 2026-06-18 | 84ea666 |
 | 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper | ⬜ | | |
 
 **Test criteria**
