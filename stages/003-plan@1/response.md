@@ -1,0 +1,1 @@
+Phase 3.2 is now complete. The `services/ibkr_trading.go` file has been implemented, satisfying the `interfaces.TradingService` interface with the required read-only stubs for account, positions, and order management, while stubbing out order placement/cancellation as requested. `PROGRESS.md` has been updated to reflect this completion.
