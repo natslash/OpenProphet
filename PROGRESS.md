@@ -72,7 +72,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert) | ✅ | 2026-06-18 | tbd |
+| 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert) | ✅ | 2026-06-18 | 7401a35 |
 | 3.2 | `services/ibkr_trading.go` read paths: account, positions, open orders (filter de-activated) | ⬜ | | |
 
 **Test criteria**
