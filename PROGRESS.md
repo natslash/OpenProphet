@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 4.1.** Phase 3 complete. **Next action:** Order execution (paper, manual, tightly gated): `placeOrder` / `cancelOrder` + `orderStatus`/`openOrder` callbacks via the dispatcher.
+**Phase 4.1 (in progress).** Order plumbing works end-to-end on paper for **STK**: `placeOrder` (version-gated encoder) → `orderStatus`/`openOrder` confirm → `cancelOrder` → reconcile, all validated live (AAPL 1-lot far-from-market LMT). **Remaining before 4.1 is ✅:** OESX contract mapping (service hardcodes STK/SMART/USD — overlaps 5.1) and a real fill exercised through `orderStatus`.
 
 ---
 
@@ -85,12 +85,12 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ⬜ | | |
+| 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | 🟡 | 2026-06-18 | 524b855, df13a9f |
 | 4.2 | Bracket orders (parent + TP + SL, OCA) | ⬜ | | |
 | 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper | ⬜ | | |
 
 **Test criteria**
-- **4.1:** 1-lot OESX **paper** order places, fills, reconciles.
+- **4.1:** 1-lot OESX **paper** order places, fills, reconciles. *(Met for STK; OESX + fill still pending — see header.)*
 - **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill.
 - **4.3:** Agent wakes → assesses → places/manages a paper trade → sleeps.
 
@@ -132,4 +132,5 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Branching | Merged fix/tws-client-improvements (containing both Phase 2.1 fixes and Phase 2.2 feature work) back into the main migration branch feature/ibkr-porting, and deleted the fix branch to maintain clean semantics moving forward.
 2026-06-18 | Step 2.3  | Implemented Dispatcher and OrderIdManager. Integrated OrderIdManager into tws_client.go to replace manual nextOrderID fields. Unit tests passed, manual test verified NextOrderId() seeding works.
 2026-06-18 | Step 2.3.1| Hardening pass: fixed Dispatcher RLock race condition and added interleaving race test. Renamed CurrentTime millis variables to seconds and acknowledged usage of classic message ID 49 (seconds) instead of 10.44 millis. Added routing strategy to CLAUDE.md.
+2026-06-18 | Step 4.1  | placeOrder rewritten as a serverVersion-gated encoder built from the installed TWS source (~/IBJts/source, Java + Python clients) — fixes error 320 (old fixed 110-field payload was truncated/misaligned; v187 needs 118 fields incl. the RFQ block). cancelOrder moved to the modern format (manualOrderCancelTime + RFQ trio); legacy [4,"1",id] was silently ignored by v187 and leaked open orders. orderStatus decoder: read orderId from fields[1] (modern servers ≥131 omit the version field). openOrder decoder: status now located by enum match instead of fragile skip-counting. ibkr_trading.PlaceOrder logs intent before send and waits for the real orderStatus/error (no more fake "Submitted"). Validated live on paper (commits 524b855, df13a9f); stray test orders cancelled, account clean. Remaining for ✅: OESX mapping (overlaps 5.1) + a real fill. Known: MKT default in PlaceOrder still emits a market order when type is empty.
 ```
