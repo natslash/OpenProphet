@@ -66,17 +66,19 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 
 	// TWS historical data response terminates with an empty HistoricalData message
 	// with ReqId > 0, Date == "", and Count == -1
-	if err := s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false); err != nil {
+	err = s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false)
+	if err != nil {
 		return nil, fmt.Errorf("failed to request historical data: %w", err)
 	}
 
 	// 3. Wait for historical data response
 	var bars []*interfaces.Bar
+	var lastErr error
 	for {
 		select {
 		case msg, ok := <-ch:
 			if !ok {
-				return bars, nil
+				return bars, lastErr
 			}
 			switch m := msg.(type) {
 			case tws.HistoricalData:
@@ -98,7 +100,9 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 					Volume:    int64(m.Volume),
 				})
 			case error:
-				return nil, m
+				// If we get an error, check if it's a rate limit error (e.g., code 162)
+				// For now, keep it simple and return the error
+				lastErr = m
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
