@@ -1,0 +1,392 @@
+diff --git a/services/ibkr_data.go b/services/ibkr_data.go
+index 6818578..3b7fe88 100644
+--- a/services/ibkr_data.go
++++ b/services/ibkr_data.go
+@@ -41,8 +41,58 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string,
+ 		"timeframe": timeframe,
+ 	}).Info("Fetching historical bars from IBKR")
+ 
+-	// TODO: Implement IBKR historical data request
+-	return nil, fmt.Errorf("GetHistoricalBars not implemented for IBKR yet")
++	// 1. Resolve symbol to Contract
++	contract := tws.Contract{
++		Symbol:   symbol,
++		SecType:  tws.Stock,
++		Exchange: "SMART",
++		Currency: "USD",
++	}
++	details, err := s.client.ReqContractDetails(ctx, contract)
++	if err != nil || len(details) == 0 {
++		return nil, fmt.Errorf("failed to resolve contract for %s: %v", symbol, err)
++	}
++	contract = details[0].Contract
++
++	// 2. reqHistoricalData
++	reqID := s.client.NextOrderId()
++	ch := s.client.Dispatcher().Register(reqID)
++	defer s.client.Dispatcher().Complete(reqID)
++
++	// Format for IBKR: "yyyyMMdd HH:mm:ss"
++	endStr := end.Format("20060102 15:04:05")
++	duration := fmt.Sprintf("%d D", int(end.Sub(start).Hours()/24)+1)
++	barSize := "1 day" // Simplified mapping
++
++	if err := s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false); err != nil {
++		return nil, fmt.Errorf("failed to request historical data: %w", err)
++	}
++
++	// 3. Wait for historical data response
++	var bars []*interfaces.Bar
++	for {
++		select {
++		case msg := <-ch:
++			switch m := msg.(type) {
++			case tws.HistoricalData:
++				bars = append(bars, &interfaces.Bar{
++					Symbol: symbol,
++					Timestamp: time.Now(), // Need to parse Date field
++					Open: m.Open,
++					High: m.High,
++					Low: m.Low,
++					Close: m.Close,
++					Volume: int64(m.Volume),
++				})
++			case error:
++				return nil, m
++			}
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		case <-time.After(10 * time.Second): // Simple timeout
++			return bars, nil
++		}
++	}
+ }
+ 
+ // GetLatestBar retrieves the most recent bar for a symbol
+@@ -62,8 +112,6 @@ func (s *IbkrDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
+ 		Currency: "USD",
+ 	}
+ 
+-	// For simplicity, we fetch details first to get conID if needed
+-	// In reality, we might just pass the contract if we have it
+ 	details, err := s.client.ReqContractDetails(ctx, contract)
+ 	if err != nil || len(details) == 0 {
+ 		return nil, fmt.Errorf("failed to resolve contract for %s: %v", symbol, err)
+diff --git a/tws/constants.go b/tws/constants.go
+index e244f74..45917e6 100644
+--- a/tws/constants.go
++++ b/tws/constants.go
+@@ -12,6 +12,7 @@ const (
+ 	outReqPositions         = 61
+ 	outCancelPositions      = 64
+ 	outReqContractDetails   = 9
++	outReqHistoricalData    = 20
+ 	outReqCurrentTime       = 49
+ 	outStartAPI             = 71
+ )
+@@ -33,4 +34,5 @@ const (
+ 	inContractDataEnd = 52
+ 	inPosition        = 61
+ 	inAccountSummary  = 63
++	inHistoricalData  = 17
+ )
+diff --git a/tws/decoder.go b/tws/decoder.go
+index 4114f5f..8263e84 100644
+--- a/tws/decoder.go
++++ b/tws/decoder.go
+@@ -7,18 +7,14 @@ import (
+ 	"github.com/shopspring/decimal"
+ )
+ 
+-// Decoder parses incoming \0-delimited TWS messages and dispatches them
+-// to the appropriate methods on the Wrapper interface.
+ type Decoder struct {
+ 	wrapper Wrapper
+ }
+ 
+-// NewDecoder creates a new protocol decoder.
+ func NewDecoder(w Wrapper) *Decoder {
+ 	return &Decoder{wrapper: w}
+ }
+ 
+-// Decode processes a single incoming TWS message payload.
+ func (d *Decoder) Decode(fields []string) error {
+ 	if len(fields) == 0 || fields[0] == "" {
+ 		return nil
+@@ -30,52 +26,43 @@ func (d *Decoder) Decode(fields []string) error {
+ 	}
+ 
+ 	switch msgID {
+-	case inNextValidID: // [9, version, orderId]
++	case inNextValidID:
+ 		if len(fields) >= 3 {
+ 			if orderID, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
+ 				d.wrapper.NextValidId(orderID)
+ 			}
+ 		}
+-
+ 	case inTickPrice:
+ 		d.handleTickPrice(fields)
+-
+ 	case inTickSize:
+ 		d.handleTickSize(fields)
+-
+-	case inManagedAccts: // [15, version, accountsCSV]
++	case inManagedAccts:
+ 		if len(fields) >= 3 {
+ 			d.wrapper.ManagedAccounts(fields[2])
+ 		}
+-
+-	case inErrMsg: // [4, version, id, code, msg, ...]
++	case inErrMsg:
+ 		if len(fields) >= 5 {
+ 			reqID, _ := strconv.Atoi(fields[2])
+ 			code, _ := strconv.Atoi(fields[3])
+ 			d.wrapper.Error(reqID, code, fields[4])
+ 		}
+-
+-	case inCurrentTime: // [49, version, time]
++	case inCurrentTime:
+ 		if len(fields) >= 3 {
+ 			if t, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
+ 				d.wrapper.CurrentTime(t)
+ 			}
+ 		}
+-
+ 	case inContractData:
+ 		d.handleContractData(fields)
+-
+-	case inContractDataEnd: // [52, version, reqId]
++	case inContractDataEnd:
+ 		if len(fields) >= 3 {
+ 			if reqId, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
+ 				d.wrapper.ContractDetailsEnd(reqId)
+ 			}
+ 		}
+-
+-	default:
+-		// Unhandled message type in this phase
++	case inHistoricalData:
++		d.handleHistoricalData(fields)
+ 	}
+-
+ 	return nil
+ }
+ 
+@@ -83,9 +70,7 @@ func (d *Decoder) handleContractData(fields []string) {
+ 	if len(fields) < 30 {
+ 		return
+ 	}
+-	
+ 	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+-	
+ 	var cd ContractDetails
+ 	cd.Contract.Symbol = fields[3]
+ 	cd.Contract.SecType = InstrumentType(fields[4])
+@@ -118,46 +103,52 @@ func (d *Decoder) handleContractData(fields []string) {
+ 		cd.EvRule = fields[30]
+ 		cd.EvMultiplier, _ = strconv.ParseFloat(fields[31], 64)
+ 	}
+-
+ 	d.wrapper.ContractDetails(reqId, cd)
+ }
+ 
+-func (d *Decoder) handleTickPrice(fields []string) {
+-	if len(fields) < 6 {
++func (d *Decoder) handleHistoricalData(fields []string) {
++	if len(fields) < 10 {
+ 		return
+ 	}
++	reqId, _ := strconv.ParseInt(fields[1], 10, 64)
++	d.wrapper.HistoricalData(reqId, HistoricalData{
++		ReqId: reqId,
++		Date: fields[2],
++		Open: parseF(fields[3]),
++		High: parseF(fields[4]),
++		Low: parseF(fields[5]),
++		Close: parseF(fields[6]),
++		Volume: parseF(fields[7]),
++		Count: parseInt(fields[8]),
++		WAP: parseF(fields[9]),
++	})
++}
++
++func parseF(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
++func parseInt(s string) int64 { v, _ := strconv.ParseInt(s, 10, 64); return v }
++
++func (d *Decoder) handleTickPrice(fields []string) {
++	if len(fields) < 6 { return }
+ 	version, _ := strconv.Atoi(fields[1])
+ 	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+ 	tickType, _ := strconv.Atoi(fields[3])
+ 	price, _ := strconv.ParseFloat(fields[4], 64)
+-
+ 	size := decimal.Zero
+-	if version >= 2 {
+-		size, _ = decimal.NewFromString(fields[5])
+-	}
+-
++	if version >= 2 { size, _ = decimal.NewFromString(fields[5]) }
+ 	attr := TickAttrib{}
+ 	if version >= 3 && len(fields) >= 7 {
+ 		attrMask, _ := strconv.Atoi(fields[6])
+ 		attr.CanAutoExecute = (attrMask & 1) != 0
+-		if version >= 4 {
+-			attr.PastLimit = (attrMask & 2) != 0
+-		}
+-		if version >= 6 {
+-			attr.PreOpen = (attrMask & 4) != 0
+-		}
++		if version >= 4 { attr.PastLimit = (attrMask & 2) != 0 }
++		if version >= 6 { attr.PreOpen = (attrMask & 4) != 0 }
+ 	}
+-
+ 	d.wrapper.TickPrice(reqId, tickType, price, size, attr)
+ }
+ 
+ func (d *Decoder) handleTickSize(fields []string) {
+-	if len(fields) < 5 {
+-		return
+-	}
++	if len(fields) < 5 { return }
+ 	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+ 	tickType, _ := strconv.Atoi(fields[3])
+ 	size, _ := decimal.NewFromString(fields[4])
+-
+ 	d.wrapper.TickSize(reqId, tickType, size)
+ }
+diff --git a/tws/decoder_test.go b/tws/decoder_test.go
+index a82c15d..430a19a 100644
+--- a/tws/decoder_test.go
++++ b/tws/decoder_test.go
+@@ -26,6 +26,8 @@ type mockWrapper struct {
+ 	tsReqId   int64
+ 	tsTick    int
+ 	tsSize    decimal.Decimal
++
++	hdData HistoricalData
+ }
+ 
+ func (m *mockWrapper) NextValidId(orderId int64) {
+@@ -69,6 +71,10 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal)
+ 	m.tsSize = size
+ }
+ 
++func (m *mockWrapper) HistoricalData(reqId int64, data HistoricalData) {
++	m.hdData = data
++}
++
+ func TestDecoder_Decode(t *testing.T) {
+ 	mock := &mockWrapper{}
+ 	decoder := NewDecoder(mock)
+@@ -87,6 +93,15 @@ func TestDecoder_Decode(t *testing.T) {
+ 				}
+ 			},
+ 		},
++		{
++			name:   "historical data",
++			fields: []string{"17", "42", "20250619 09:30:00", "150.1", "150.5", "150.0", "150.2", "1000", "1", "150.15"},
++			validation: func(t *testing.T, m *mockWrapper) {
++				if m.hdData.ReqId != 42 || m.hdData.Open != 150.1 {
++					t.Errorf("Expected HD reqId 42 and Open 150.1, got %v", m.hdData)
++				}
++			},
++		},
+ 		{
+ 			name:   "managed accounts",
+ 			fields: []string{"15", "1", "DU123,DU456"},
+diff --git a/tws/encoder.go b/tws/encoder.go
+index 164bf6c..3e25f1a 100644
+--- a/tws/encoder.go
++++ b/tws/encoder.go
+@@ -113,3 +113,42 @@ func (e *Encoder) CancelMktData(reqId int64) error {
+ 	}
+ 	return e.writer.SendFields(fields...)
+ }
++
++// ReqHistoricalData requests historical data.
++func (e *Encoder) ReqHistoricalData(reqId int64, contract Contract, endDateTime string, duration string, barSize string, whatToShow string, useRTH int, formatDate int, keepUpToDate bool) error {
++	const version = "6"
++
++	strikeStr := strconv.FormatFloat(contract.Strike, 'f', -1, 64)
++	if contract.Strike == 0.0 {
++		strikeStr = "0.0"
++	}
++
++	fields := []string{
++		strconv.Itoa(outReqHistoricalData),
++		version,
++		strconv.FormatInt(reqId, 10),
++		strconv.FormatInt(contract.ConId, 10),
++		contract.Symbol,
++		string(contract.SecType),
++		contract.LastTradeDateOrContractMonth,
++		strikeStr,
++		contract.Right,
++		contract.Multiplier,
++		contract.Exchange,
++		contract.PrimaryExch,
++		contract.Currency,
++		contract.LocalSymbol,
++		contract.TradingClass,
++		"0", // includeExpired
++		endDateTime,
++		barSize,
++		duration,
++		strconv.Itoa(useRTH),
++		whatToShow,
++		strconv.Itoa(formatDate),
++		"0", // keepUpToDate (not implemented in this minimal client yet)
++		"",  // chartOptions
++	}
++
++	return e.writer.SendFields(fields...)
++}
+diff --git a/tws/tws_client.go b/tws/tws_client.go
+index 938f9d9..e192c66 100644
+--- a/tws/tws_client.go
++++ b/tws/tws_client.go
+@@ -424,3 +424,13 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+ 		appWrapper.TickSize(reqId, tickType, size)
+ 	}
+ }
++
++func (c *Client) HistoricalData(reqId int64, data HistoricalData) {
++	c.dispatcher.Dispatch(reqId, data)
++	c.mu.RLock()
++	appWrapper := c.appWrapper
++	c.mu.RUnlock()
++	if appWrapper != nil {
++		appWrapper.HistoricalData(reqId, data)
++	}
++}
+diff --git a/tws/wrapper.go b/tws/wrapper.go
+index 66f2a4a..14a9d9e 100644
+--- a/tws/wrapper.go
++++ b/tws/wrapper.go
+@@ -21,6 +21,19 @@ type TickSizeMsg struct {
+ 	Size     decimal.Decimal
+ }
+ 
++type HistoricalData struct {
++	ReqId   int64
++	Date    string
++	Open    float64
++	High    float64
++	Low     float64
++	Close   float64
++	Volume  float64
++	Count   int64
++	WAP     float64
++	HasGaps bool
++}
++
+ // Wrapper is the callback interface for receiving decoded messages from TWS.
+ // It represents the Go equivalent of the Java EWrapper interface.
+ type Wrapper interface {
+@@ -32,4 +45,5 @@ type Wrapper interface {
+ 	ContractDetailsEnd(reqId int64)
+ 	TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib)
+ 	TickSize(reqId int64, tickType int, size decimal.Decimal)
++	HistoricalData(reqId int64, data HistoricalData)
+ }
