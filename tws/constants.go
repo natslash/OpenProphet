@@ -31,8 +31,10 @@ const (
 	inTickOptionComp  = 21
 	inCurrentTime     = 49
 	inContractDataEnd = 52
-	inPosition        = 61
-	inAccountSummary  = 63
+	inPosition          = 61
+	inPositionEnd       = 62
+	inAccountSummary    = 63
+	inAccountSummaryEnd = 64
 )
 
 // Tick types

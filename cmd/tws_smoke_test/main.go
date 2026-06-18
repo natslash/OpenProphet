@@ -32,6 +32,12 @@ func (s *smokeTestWrapper) TickSize(reqId int64, tickType int, size decimal.Deci
 	fmt.Printf("TickSize: reqId=%d tickType=%d size=%s\n", reqId, tickType, size.String())
 }
 
+func (s *smokeTestWrapper) Position(account string, contract tws.Contract, position decimal.Decimal, avgCost float64) {
+}
+func (s *smokeTestWrapper) PositionEnd()                                                     {}
+func (s *smokeTestWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {}
+func (s *smokeTestWrapper) AccountSummaryEnd(reqId int64)                                     {}
+
 func main() {
 	fmt.Println("Starting Phase 2.5 Smoke Test...")
 	client := tws.NewClient("127.0.0.1", 4002, 5)

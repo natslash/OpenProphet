@@ -5,8 +5,14 @@ import (
 	"fmt"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
+	"strconv"
 	"time"
 )
+
+// accountSummaryTags are the tags requested for GetAccount, mapped onto the
+// interfaces.Account fields below. PatternDayTrader / DayTradeCount are US
+// concepts and are intentionally left zero for IBKR.
+const accountSummaryTags = "NetLiquidation,TotalCashValue,BuyingPower"
 
 // IBKRTradingService implements the read-only paths of interfaces.TradingService
 // by wrapping the TWS client.
@@ -21,14 +27,110 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
 	return &IBKRTradingService{client: client}
 }
 
-// GetAccount returns the account summary (not yet implemented).
+// GetAccount returns the account summary by requesting NetLiquidation,
+// TotalCashValue and BuyingPower from TWS and mapping them onto
+// interfaces.Account. US-specific fields (PatternDayTrader, DayTradeCount) are
+// left zero/false.
 func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Account, error) {
-	return nil, fmt.Errorf("GetAccount not yet implemented")
+	reqId := s.client.NextOrderId()
+	ch := s.client.Register(reqId)
+	defer s.client.Complete(reqId)
+
+	if err := s.client.Encoder().ReqAccountSummary(reqId, "All", accountSummaryTags); err != nil {
+		return nil, fmt.Errorf("ReqAccountSummary error: %w", err)
+	}
+	defer func() { _ = s.client.Encoder().CancelAccountSummary(reqId) }()
+
+	account := &interfaces.Account{}
+
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel closed by AccountSummaryEnd: all tags delivered.
+				return account, nil
+			}
+			switch m := msg.(type) {
+			case tws.AccountSummaryMsg:
+				if account.ID == "" {
+					account.ID = m.Account
+				}
+				val, err := strconv.ParseFloat(m.Value, 64)
+				if err != nil {
+					continue
+				}
+				switch m.Tag {
+				case "NetLiquidation":
+					account.PortfolioValue = val
+				case "TotalCashValue":
+					account.Cash = val
+				case "BuyingPower":
+					account.BuyingPower = val
+				}
+			case error:
+				return nil, fmt.Errorf("tws error: %w", m)
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
-// GetPositions returns the current positions (not yet implemented).
+// GetPositions returns the current positions for the account. De-activated /
+// zero-quantity records are skipped.
 func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
-	return nil, fmt.Errorf("GetPositions not yet implemented")
+	ch, err := s.client.ReqPositions()
+	if err != nil {
+		return nil, fmt.Errorf("ReqPositions error: %w", err)
+	}
+	defer func() { _ = s.client.CancelPositions() }()
+
+	var positions []*interfaces.Position
+
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel closed by PositionEnd: all positions delivered.
+				return positions, nil
+			}
+			p, isPos := msg.(tws.PositionMsg)
+			if !isPos {
+				continue
+			}
+			qty := p.Position.InexactFloat64()
+			if qty == 0 {
+				continue
+			}
+			side := "long"
+			if qty < 0 {
+				side = "short"
+			}
+			positions = append(positions, &interfaces.Position{
+				Symbol:        positionSymbol(p.Contract),
+				Qty:           qty,
+				AvgEntryPrice: p.AvgCost,
+				CostBasis:     p.AvgCost * qty,
+				Side:          side,
+			})
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// positionSymbol derives a stable interface-level symbol string for a TWS
+// contract. For options it includes the underlying, expiry, right and strike;
+// otherwise it falls back to LocalSymbol or Symbol.
+func positionSymbol(c tws.Contract) string {
+	if c.SecType == tws.Option {
+		return fmt.Sprintf("%s %s %s%s", c.Symbol, c.LastTradeDateOrContractMonth, c.Right,
+			strconv.FormatFloat(c.Strike, 'f', -1, 64))
+	}
+	if c.LocalSymbol != "" {
+		return c.LocalSymbol
+	}
+	return c.Symbol
 }
 
 // ListOrders returns the list of open orders (not yet implemented).

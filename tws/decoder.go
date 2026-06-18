@@ -72,6 +72,22 @@ func (d *Decoder) Decode(fields []string) error {
 			}
 		}
 
+	case inPosition:
+		d.handlePosition(fields)
+
+	case inPositionEnd: // [62, version]
+		d.wrapper.PositionEnd()
+
+	case inAccountSummary:
+		d.handleAccountSummary(fields)
+
+	case inAccountSummaryEnd: // [64, version, reqId]
+		if len(fields) >= 3 {
+			if reqId, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
+				d.wrapper.AccountSummaryEnd(reqId)
+			}
+		}
+
 	default:
 		// Unhandled message type in this phase
 	}
@@ -120,6 +136,45 @@ func (d *Decoder) handleContractData(fields []string) {
 	}
 
 	d.wrapper.ContractDetails(reqId, cd)
+}
+
+// handlePosition decodes a position message (version 3 layout):
+// [61, version, account, conId, symbol, secType, lastTradeDate, strike, right,
+//  multiplier, exchange, currency, localSymbol, tradingClass, position, avgCost]
+func (d *Decoder) handlePosition(fields []string) {
+	if len(fields) < 16 {
+		return
+	}
+
+	account := fields[2]
+
+	var contract Contract
+	contract.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
+	contract.Symbol = fields[4]
+	contract.SecType = InstrumentType(fields[5])
+	contract.LastTradeDateOrContractMonth = fields[6]
+	contract.Strike, _ = strconv.ParseFloat(fields[7], 64)
+	contract.Right = fields[8]
+	contract.Multiplier = fields[9]
+	contract.Exchange = fields[10]
+	contract.Currency = fields[11]
+	contract.LocalSymbol = fields[12]
+	contract.TradingClass = fields[13]
+
+	position, _ := decimal.NewFromString(fields[14])
+	avgCost, _ := strconv.ParseFloat(fields[15], 64)
+
+	d.wrapper.Position(account, contract, position, avgCost)
+}
+
+// handleAccountSummary decodes an account summary message:
+// [63, version, reqId, account, tag, value, currency]
+func (d *Decoder) handleAccountSummary(fields []string) {
+	if len(fields) < 7 {
+		return
+	}
+	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+	d.wrapper.AccountSummary(reqId, fields[3], fields[4], fields[5], fields[6])
 }
 
 func (d *Decoder) handleTickPrice(fields []string) {

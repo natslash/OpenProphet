@@ -103,6 +103,55 @@ func (e *Encoder) ReqMktData(reqId int64, contract Contract, genericTickList str
 	return e.writer.SendFields(fields...)
 }
 
+// ReqAccountSummary requests account summary data for the given tags. The
+// server streams accountSummary messages keyed by reqId, terminated by an
+// accountSummaryEnd. group is typically "All"; tags is a comma-separated list
+// (e.g. "NetLiquidation,TotalCashValue,BuyingPower").
+func (e *Encoder) ReqAccountSummary(reqId int64, group, tags string) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqAccountSummary),
+		version,
+		strconv.FormatInt(reqId, 10),
+		group,
+		tags,
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// CancelAccountSummary cancels an account summary subscription.
+func (e *Encoder) CancelAccountSummary(reqId int64) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outCancelAccountSummary),
+		version,
+		strconv.FormatInt(reqId, 10),
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// ReqPositions subscribes to position updates for all accounts. Positions are
+// delivered via position messages and terminated by a positionEnd. This request
+// carries no reqId on the wire.
+func (e *Encoder) ReqPositions() error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqPositions),
+		version,
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// CancelPositions cancels the position subscription.
+func (e *Encoder) CancelPositions() error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outCancelPositions),
+		version,
+	}
+	return e.writer.SendFields(fields...)
+}
+
 // CancelMktData cancels a market data request.
 func (e *Encoder) CancelMktData(reqId int64) error {
 	const version = "1"

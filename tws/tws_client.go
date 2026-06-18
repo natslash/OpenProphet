@@ -52,6 +52,12 @@ type Client struct {
 	AsyncErrorCallback func(reqID, code int, msg string)
 	appWrapper         Wrapper
 
+	// positionsCh receives position/positionEnd updates for the single active
+	// ReqPositions subscription. reqPositions carries no reqId on the wire, so
+	// it cannot use the reqId-keyed dispatcher. nil when no request is active.
+	posMu       sync.Mutex
+	positionsCh chan any
+
 	nextIDCh  chan int64 // first nextValidId is delivered here
 	acctCh    chan string
 	errCh     chan error // a fatal error seen during connect
@@ -435,4 +441,89 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
 	if appWrapper != nil {
 		appWrapper.TickSize(reqId, tickType, size)
 	}
+}
+
+func (c *Client) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {
+	c.posMu.Lock()
+	ch := c.positionsCh
+	c.posMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- PositionMsg{Account: account, Contract: contract, Position: position, AvgCost: avgCost}:
+		case <-c.closed:
+		}
+	}
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.Position(account, contract, position, avgCost)
+	}
+}
+
+func (c *Client) PositionEnd() {
+	c.posMu.Lock()
+	ch := c.positionsCh
+	c.posMu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.PositionEnd()
+	}
+}
+
+func (c *Client) AccountSummary(reqId int64, account, tag, value, currency string) {
+	c.dispatcher.Dispatch(reqId, AccountSummaryMsg{Account: account, Tag: tag, Value: value, Currency: currency})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.AccountSummary(reqId, account, tag, value, currency)
+	}
+}
+
+func (c *Client) AccountSummaryEnd(reqId int64) {
+	c.dispatcher.Complete(reqId)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.AccountSummaryEnd(reqId)
+	}
+}
+
+// ReqPositions subscribes to account positions and returns an unbuffered channel
+// that receives PositionMsg values, closed after positionEnd. Only one positions
+// request may be active at a time. The caller must drain the channel to
+// completion. cancel via CancelPositions when done.
+func (c *Client) ReqPositions() (<-chan any, error) {
+	c.posMu.Lock()
+	if c.positionsCh != nil {
+		c.posMu.Unlock()
+		return nil, fmt.Errorf("positions request already active")
+	}
+	ch := make(chan any)
+	c.positionsCh = ch
+	c.posMu.Unlock()
+
+	if err := c.Encoder().ReqPositions(); err != nil {
+		c.posMu.Lock()
+		c.positionsCh = nil
+		c.posMu.Unlock()
+		return nil, err
+	}
+	return ch, nil
+}
+
+// CancelPositions cancels the active positions subscription and clears the
+// channel so a subsequent ReqPositions can be issued.
+func (c *Client) CancelPositions() error {
+	c.posMu.Lock()
+	c.positionsCh = nil
+	c.posMu.Unlock()
+	return c.Encoder().CancelPositions()
 }

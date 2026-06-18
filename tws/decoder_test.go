@@ -26,6 +26,19 @@ type mockWrapper struct {
 	tsReqId   int64
 	tsTick    int
 	tsSize    decimal.Decimal
+
+	posAccount  string
+	posContract Contract
+	posPosition decimal.Decimal
+	posAvgCost  float64
+	posEndCalls int
+
+	asReqId    int64
+	asAccount  string
+	asTag      string
+	asValue    string
+	asCurrency string
+	asEndReqId int64
 }
 
 func (m *mockWrapper) NextValidId(orderId int64) {
@@ -67,6 +80,29 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) 
 	m.tsReqId = reqId
 	m.tsTick = tickType
 	m.tsSize = size
+}
+
+func (m *mockWrapper) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {
+	m.posAccount = account
+	m.posContract = contract
+	m.posPosition = position
+	m.posAvgCost = avgCost
+}
+
+func (m *mockWrapper) PositionEnd() {
+	m.posEndCalls++
+}
+
+func (m *mockWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {
+	m.asReqId = reqId
+	m.asAccount = account
+	m.asTag = tag
+	m.asValue = value
+	m.asCurrency = currency
+}
+
+func (m *mockWrapper) AccountSummaryEnd(reqId int64) {
+	m.asEndReqId = reqId
 }
 
 func TestDecoder_Decode(t *testing.T) {
@@ -163,6 +199,57 @@ func TestDecoder_Decode(t *testing.T) {
 				}
 				if m.tsSize.String() != "123.45" {
 					t.Errorf("Expected decimal size 123.45, got %s", m.tsSize.String())
+				}
+			},
+		},
+		{
+			name: "position",
+			fields: []string{
+				"61", "3", "DU5894187", "12345", "ESTX50", "OPT", "20260619", "5200.0", "C",
+				"10", "EUREX", "EUR", "OESX", "OESX", "5", "1234.56",
+			},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.posAccount != "DU5894187" {
+					t.Errorf("Expected position account DU5894187, got %s", m.posAccount)
+				}
+				if m.posContract.Symbol != "ESTX50" || m.posContract.ConId != 12345 {
+					t.Errorf("Expected position symbol ESTX50/conId 12345, got %+v", m.posContract)
+				}
+				if m.posPosition.String() != "5" {
+					t.Errorf("Expected position 5, got %s", m.posPosition.String())
+				}
+				if m.posAvgCost != 1234.56 {
+					t.Errorf("Expected avgCost 1234.56, got %f", m.posAvgCost)
+				}
+			},
+		},
+		{
+			name:   "position end",
+			fields: []string{"62", "1"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.posEndCalls != 1 {
+					t.Errorf("Expected 1 PositionEnd call, got %d", m.posEndCalls)
+				}
+			},
+		},
+		{
+			name:   "account summary",
+			fields: []string{"63", "1", "77", "DU5894187", "NetLiquidation", "100000.50", "EUR"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.asReqId != 77 || m.asAccount != "DU5894187" || m.asTag != "NetLiquidation" {
+					t.Errorf("Expected AS 77/DU5894187/NetLiquidation, got %d/%s/%s", m.asReqId, m.asAccount, m.asTag)
+				}
+				if m.asValue != "100000.50" || m.asCurrency != "EUR" {
+					t.Errorf("Expected AS value 100000.50/EUR, got %s/%s", m.asValue, m.asCurrency)
+				}
+			},
+		},
+		{
+			name:   "account summary end",
+			fields: []string{"64", "1", "77"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.asEndReqId != 77 {
+					t.Errorf("Expected AS End reqId 77, got %d", m.asEndReqId)
 				}
 			},
 		},
