@@ -7,6 +7,7 @@ import (
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,27 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
 	return s
 }
 
+// normalizeOrderType maps the interface's order-type strings (Alpaca-style,
+// lower-case) to TWS order-type codes. An empty or unrecognized type is
+// rejected rather than silently defaulting to a market order (guardrail:
+// never send a market order implicitly).
+func normalizeOrderType(t string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "market", "mkt":
+		return "MKT", nil
+	case "limit", "lmt":
+		return "LMT", nil
+	case "stop", "stp":
+		return "STP", nil
+	case "stop_limit", "stop limit", "stp lmt":
+		return "STP LMT", nil
+	case "":
+		return "", fmt.Errorf("order type is required (market/limit/stop); refusing to default to a market order")
+	default:
+		return "", fmt.Errorf("unsupported order type %q", t)
+	}
+}
+
 func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
 	contract, err := tws.ParseSymbol(order.Symbol)
 	if err != nil {
@@ -37,13 +59,13 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 	orderID := s.client.NextOrderId()
 
 	side := "BUY"
-	if order.Side == "sell" {
+	if strings.EqualFold(order.Side, "sell") {
 		side = "SELL"
 	}
 
-	orderType := "MKT"
-	if order.Type != "" {
-		orderType = order.Type
+	orderType, err := normalizeOrderType(order.Type)
+	if err != nil {
+		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
 
 	twsOrder := tws.Order{
