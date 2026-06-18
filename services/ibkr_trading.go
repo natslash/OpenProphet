@@ -167,17 +167,19 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 		}()
 	}
 
-	// Emit orders
+	// Emit orders. If any fail to encode/send, we must attempt to cancel the parent to prevent orphans.
 	if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), parentID, contract, parentOrder); err != nil {
 		return nil, fmt.Errorf("PlaceOrder parent encode/send failed: %w", err)
 	}
 	if tpID > 0 {
 		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), tpID, contract, tpOrder); err != nil {
+			_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
 			return nil, fmt.Errorf("PlaceOrder TP encode/send failed: %w", err)
 		}
 	}
 	if slID > 0 {
 		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), slID, contract, slOrder); err != nil {
+			_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
 			return nil, fmt.Errorf("PlaceOrder SL encode/send failed: %w", err)
 		}
 	}
@@ -199,6 +201,8 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 					}, nil
 				}
 			case error:
+				// On any rejection, attempt to tear down the group.
+				_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
 				return nil, fmt.Errorf("order %d rejected by TWS: %w", rm.id, t)
 			}
 		case <-confirmCtx.Done():

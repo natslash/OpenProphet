@@ -91,7 +91,7 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 **Test criteria**
 - **4.1:** 1-lot **paper** order places, fills, reconciles. *(Met: STK + OESX placement, a real AAPL fill + position reconcile, then flattened. Fill exercised on AAPL because EUREX was closed; OESX order placed/accepted/cancelled.)*
-- **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill. *(Met: verified atomically grouped resting orders across US equities and EU options; parent-cancel perfectly cascades to children via IBKR).*
+- **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill. *(Met: verified atomically grouped resting orders across US equities and EU options; grouping + cancel cascade verified; OCA-on-fill not yet exercised.)*
 - **4.3:** Agent wakes → assesses → places/manages a paper trade → sleeps.
 
 ---
