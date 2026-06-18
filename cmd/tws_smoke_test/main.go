@@ -39,6 +39,18 @@ func (w *smokeTestWrapper) OpenOrder(orderId int64, contract tws.Contract, order
 func (w *smokeTestWrapper) OpenOrderEnd() {}
 func (w *smokeTestWrapper) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {}
 
+func (s *smokeTestWrapper) HistoricalData(reqId int64, bar tws.HistoricalBar) {
+	fmt.Printf("HistoricalData: reqId=%d date=%s open=%f close=%f\n", reqId, bar.Date, bar.Open, bar.Close)
+}
+
+func (s *smokeTestWrapper) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {
+	fmt.Printf("HistoricalDataEnd: reqId=%d start=%s end=%s\n", reqId, startDateStr, endDateStr)
+}
+
+func (s *smokeTestWrapper) HistoricalDataUpdate(reqId int64, bar tws.HistoricalBar) {
+	fmt.Printf("HistoricalDataUpdate: reqId=%d date=%s open=%f close=%f\n", reqId, bar.Date, bar.Open, bar.Close)
+}
+
 func main() {
 	fmt.Println("Starting Phase 2.5 Smoke Test...")
 	client := tws.NewClient("127.0.0.1", 4002, 5)
@@ -53,22 +65,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Connected. Requesting Market Data for AAPL...")
+	fmt.Println("Connected. Requesting Historical Data for AAPL...")
 	contract := tws.Contract{Symbol: "AAPL", SecType: tws.Stock, Exchange: "SMART", Currency: "USD"}
 	
 	reqId := client.NextOrderId()
-	err := client.Encoder().ReqMktData(reqId, contract, "", false, false)
+	
+	// Query the last 5 days of 1-day bars
+	endDateTime := time.Now().Format("20060102 15:04:05")
+	err := client.Encoder().ReqHistoricalData(client.ServerVersion(), reqId, contract, endDateTime, "5 D", "1 day", "TRADES", 1, 1, false)
 	if err != nil {
-		fmt.Printf("FAIL: ReqMktData error: %v\n", err)
+		fmt.Printf("FAIL: ReqHistoricalData error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Wait to see ticks
-	time.Sleep(3 * time.Second)
+	// Wait to see bars
+	time.Sleep(5 * time.Second)
 
-	fmt.Println("Cancelling Market Data...")
-	_ = client.Encoder().CancelMktData(reqId)
-	
 	client.Close()
 	fmt.Println("Smoke test completed successfully.")
 }

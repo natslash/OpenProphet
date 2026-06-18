@@ -159,6 +159,7 @@ func (c *Client) handshake() error {
 		return fmt.Errorf("bad server version %q: %w", f[0], err)
 	}
 	c.serverVersion = sv
+	c.decoder.SetServerVersion(sv)
 	c.connTime = f[1]
 	return nil
 }
@@ -577,5 +578,39 @@ func (c *Client) OrderStatus(orderId int64, status string, filled, remaining dec
 	c.mu.RUnlock()
 	for _, w := range ws {
 		w.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+	}
+}
+
+func (c *Client) HistoricalData(reqId int64, bar HistoricalBar) {
+	c.dispatcher.Dispatch(reqId, HistoricalDataMsg{ReqId: reqId, Bar: bar})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.HistoricalData(reqId, bar)
+	}
+}
+
+func (c *Client) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {
+	c.dispatcher.Dispatch(reqId, HistoricalDataEndMsg{ReqId: reqId, Start: startDateStr, End: endDateStr})
+	c.dispatcher.Complete(reqId)
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.HistoricalDataEnd(reqId, startDateStr, endDateStr)
+	}
+}
+
+func (c *Client) HistoricalDataUpdate(reqId int64, bar HistoricalBar) {
+	c.dispatcher.Dispatch(reqId, HistoricalDataUpdateMsg{ReqId: reqId, Bar: bar})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.HistoricalDataUpdate(reqId, bar)
 	}
 }

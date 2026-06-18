@@ -19,5 +19,8 @@ func (w *DefaultWrapper) AccountSummaryEnd(reqId int64) {}
 func (w *DefaultWrapper) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {}
 func (w *DefaultWrapper) PositionEnd() {}
 func (w *DefaultWrapper) OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState) {}
-func (w *DefaultWrapper) OpenOrderEnd() {}
+func (w *DefaultWrapper) OpenOrderEnd()                                                               {}
 func (w *DefaultWrapper) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {}
+func (w *DefaultWrapper) HistoricalData(reqId int64, bar HistoricalBar) {}
+func (w *DefaultWrapper) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {}
+func (w *DefaultWrapper) HistoricalDataUpdate(reqId int64, bar HistoricalBar) {}

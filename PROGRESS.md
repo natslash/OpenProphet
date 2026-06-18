@@ -87,8 +87,8 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 |------|-------------|--------|------|--------|
 | 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ✅ | 2026-06-18 | 524b855, df13a9f, b1704dc, 5823969 |
 | 4.2 | Bracket orders (parent + TP + SL, OCA) | ✅ | 2026-06-18 | 84ea666 |
-| 4.3a | Historical data codec (isolated, Fabro-eligible) | ⬜ | | |
-| 4.3b | `ibkr_data.go` historical/latest bars integration | ⬜ | | |
+| 4.3a | Historical data codec (isolated, Fabro-eligible) | ✅ | 2026-06-18 | pending |
+| 4.3b | `ibkr_data.go` historical/latest bars integration | 🟡 | | |
 | 4.3c | Safe Bot Wiring (Broker config, paper enforcement, disconnect monitor) | ⬜ | | |
 | 4.3d | `PositionManager` bracket refactor + tracking reconciliation | ⬜ | | |
 | 4.3e | Supervised autonomous beat (size caps, kill switch, watched) | ⬜ | | |
@@ -145,4 +145,5 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Step 4.1  | Order-type normalization (b1704dc): reject empty/unknown type instead of silently defaulting to market; map Alpaca-style market/limit/stop[_limit] -> MKT/LMT/STP[ STP LMT]. Fixed a latent bug — callers pass lower-case types that the old pass-through would have sent verbatim. normalizeOrderType unit test added (9d9c807). test_trading harness parameterized with flags (guards: orders only on 4002, market needs -allow-market).
 2026-06-18 | Step 4.1  | Warning handling (5823969): code 399 ("order will not be placed until <open>") is a non-fatal warning, not a rejection — isWarningCode keeps it off the order-confirm channel; authoritative state comes via orderStatus.
 2026-06-18 | Step 4.1  | CLOSED. Real fill + reconciliation exercised live (human-authorized, throwaway cmd, since live API data needs a subscription — 1-share AAPL market buy -> Filled @298.45 -> GetPositions shows qty 1 -> market sell -> flat). Full lifecycle proven: place/fill/cancel/reconcile across STK + OESX. Account left flat.
+2026-06-18 | Step 4.3a | Historical data codec implemented and verified live. Defined `HistoricalBar` type and updated Wrapper methods. Extended encoder with `ReqHistoricalData` mapped to TWS wire protocol. Wrote `historicalData`/`historicalDataEnd`/`historicalDataUpdate` handlers in decoder that respect the negotiated `ServerVersion`. Added test cases mapping to actual byte sequences. A standalone manual test against TWS port 4002 fetching AAPL last 5 days succeeded cleanly. Ready for integration into IBKRDataService (4.3b).
 ```

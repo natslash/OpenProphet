@@ -118,6 +118,66 @@ func (e *Encoder) CancelMktData(reqId int64) error {
 	return e.writer.SendFields(fields...)
 }
 
+// ReqHistoricalData requests historical data.
+func (e *Encoder) ReqHistoricalData(serverVersion int, reqId int64, contract Contract, endDateTime, durationStr, barSizeSetting, whatToShow string, useRTH int, formatDate int, keepUpToDate bool) error {
+	f := []string{strconv.Itoa(outReqHistoricalData)}
+	add := func(v ...string) { f = append(f, v...) }
+
+	const minServerVerSyntRealtimeBars = 32
+
+	if serverVersion < minServerVerSyntRealtimeBars {
+		add("6") // version
+	}
+
+	add(strconv.FormatInt(reqId, 10))
+
+	// send contract fields
+	if serverVersion >= minServerVerTradingClass {
+		add(strconv.FormatInt(contract.ConId, 10))
+	}
+
+	strikeStr := encFloatMax(contract.Strike)
+	if contract.Strike == 0.0 {
+		strikeStr = "0.0"
+	}
+
+	add(contract.Symbol, string(contract.SecType), contract.LastTradeDateOrContractMonth,
+		strikeStr, contract.Right, contract.Multiplier, contract.Exchange,
+		contract.PrimaryExch, contract.Currency, contract.LocalSymbol)
+
+	if serverVersion >= minServerVerTradingClass {
+		add(contract.TradingClass)
+	}
+
+	if serverVersion >= 31 {
+		add("0") // includeExpired
+	}
+
+	if serverVersion >= 20 {
+		add(endDateTime, barSizeSetting)
+	}
+
+	add(durationStr, strconv.Itoa(useRTH), whatToShow)
+
+	if serverVersion > 16 {
+		add(strconv.Itoa(formatDate))
+	}
+
+	if contract.SecType == "BAG" {
+		add("0") // combo legs not supported
+	}
+
+	if serverVersion >= minServerVerSyntRealtimeBars {
+		add(encBool(keepUpToDate))
+	}
+
+	if serverVersion >= minServerVerLinking {
+		add("") // chartOptions
+	}
+
+	return e.writer.SendFields(f...)
+}
+
 // ReqAccountSummary requests account summary data.
 func (e *Encoder) ReqAccountSummary(reqId int64, group, tags string) error {
 	const version = "1"

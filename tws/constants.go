@@ -12,6 +12,7 @@ const (
 	outReqPositions         = 61
 	outCancelPositions      = 64
 	outReqContractDetails   = 9
+	outReqHistoricalData    = 20
 	outReqCurrentTime       = 49
 	outStartAPI             = 71
 )
@@ -28,6 +29,7 @@ const (
 	inContractData    = 10
 	inExecutionData   = 11
 	inManagedAccts    = 15
+	inHistoricalData  = 17
 	inTickOptionComp  = 21
 	inCurrentTime     = 49
 	inContractDataEnd   = 52
@@ -36,6 +38,8 @@ const (
 	inPositionEnd       = 62
 	inAccountSummary    = 63
 	inAccountSummaryEnd = 64
+	inHistoricalDataUpdate = 90
+	inHistoricalDataEnd    = 108
 )
 
 // Server-version gates that affect placeOrder field emission.

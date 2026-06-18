@@ -2,6 +2,7 @@ package tws
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/shopspring/decimal"
@@ -10,12 +11,18 @@ import (
 // Decoder parses incoming \0-delimited TWS messages and dispatches them
 // to the appropriate methods on the Wrapper interface.
 type Decoder struct {
-	wrapper Wrapper
+	wrapper       Wrapper
+	serverVersion int
 }
 
 // NewDecoder creates a new protocol decoder.
 func NewDecoder(w Wrapper) *Decoder {
 	return &Decoder{wrapper: w}
+}
+
+// SetServerVersion updates the decoder's knowledge of the negotiated protocol version.
+func (d *Decoder) SetServerVersion(v int) {
+	d.serverVersion = v
 }
 
 // Decode processes a single incoming TWS message payload.
@@ -139,6 +146,15 @@ func (d *Decoder) Decode(fields []string) error {
 			d.wrapper.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
 		}
 
+	case inHistoricalData:
+		d.handleHistoricalData(fields)
+
+	case inHistoricalDataUpdate:
+		d.handleHistoricalDataUpdate(fields)
+
+	case inHistoricalDataEnd:
+		d.handleHistoricalDataEnd(fields)
+
 	default:
 		// Unhandled message type in this phase
 	}
@@ -227,4 +243,131 @@ func (d *Decoder) handleTickSize(fields []string) {
 	size, _ := decimal.NewFromString(fields[4])
 
 	d.wrapper.TickSize(reqId, tickType, size)
+}
+
+func (d *Decoder) handleHistoricalData(fields []string) {
+	idx := 1 // fields[0] is msgID
+	if idx >= len(fields) {
+		return
+	}
+
+	version := math.MaxInt32
+	if d.serverVersion < 32 /* MIN_SERVER_VER_SYNT_REALTIME_BARS */ {
+		version, _ = strconv.Atoi(fields[idx])
+		idx++
+	}
+
+	if idx >= len(fields) { return }
+	reqId, _ := strconv.ParseInt(fields[idx], 10, 64)
+	idx++
+
+	startDateStr := ""
+	endDateStr := ""
+	if version >= 2 && d.serverVersion < 196 /* MIN_SERVER_VER_HISTORICAL_DATA_END */ {
+		if idx+1 >= len(fields) { return }
+		startDateStr = fields[idx]
+		idx++
+		endDateStr = fields[idx]
+		idx++
+	}
+
+	if idx >= len(fields) { return }
+	itemCount, _ := strconv.Atoi(fields[idx])
+	idx++
+
+	for ctr := 0; ctr < itemCount; ctr++ {
+		if idx+8 > len(fields) { return } // At least 8 fields per bar
+		date := fields[idx]
+		idx++
+		open, _ := strconv.ParseFloat(fields[idx], 64)
+		idx++
+		high, _ := strconv.ParseFloat(fields[idx], 64)
+		idx++
+		low, _ := strconv.ParseFloat(fields[idx], 64)
+		idx++
+		close, _ := strconv.ParseFloat(fields[idx], 64)
+		idx++
+		
+		volume := decimal.Zero
+		if fields[idx] != "-1" {
+			volume, _ = decimal.NewFromString(fields[idx])
+		}
+		idx++
+
+		wap := decimal.Zero
+		if fields[idx] != "-1" {
+			wap, _ = decimal.NewFromString(fields[idx])
+		}
+		idx++
+
+		if d.serverVersion < 32 {
+			idx++ // hasGaps
+		}
+
+		barCount := -1
+		if version >= 3 {
+			if idx >= len(fields) { return }
+			barCount, _ = strconv.Atoi(fields[idx])
+			idx++
+		}
+
+		d.wrapper.HistoricalData(reqId, HistoricalBar{
+			Date:     date,
+			Open:     open,
+			High:     high,
+			Low:      low,
+			Close:    close,
+			Volume:   volume,
+			BarCount: barCount,
+			WAP:      wap,
+		})
+	}
+
+	if d.serverVersion < 196 /* MIN_SERVER_VER_HISTORICAL_DATA_END */ {
+		d.wrapper.HistoricalDataEnd(reqId, startDateStr, endDateStr)
+	}
+}
+
+func (d *Decoder) handleHistoricalDataUpdate(fields []string) {
+	if len(fields) < 10 {
+		return
+	}
+	reqId, _ := strconv.ParseInt(fields[1], 10, 64)
+	barCount, _ := strconv.Atoi(fields[2])
+	date := fields[3]
+	open, _ := strconv.ParseFloat(fields[4], 64)
+	close, _ := strconv.ParseFloat(fields[5], 64)
+	high, _ := strconv.ParseFloat(fields[6], 64)
+	low, _ := strconv.ParseFloat(fields[7], 64)
+	
+	wap := decimal.Zero
+	if fields[8] != "-1" {
+		wap, _ = decimal.NewFromString(fields[8])
+	}
+	
+	volume := decimal.Zero
+	if fields[9] != "-1" {
+		volume, _ = decimal.NewFromString(fields[9])
+	}
+
+	d.wrapper.HistoricalDataUpdate(reqId, HistoricalBar{
+		Date:     date,
+		Open:     open,
+		High:     high,
+		Low:      low,
+		Close:    close,
+		Volume:   volume,
+		BarCount: barCount,
+		WAP:      wap,
+	})
+}
+
+func (d *Decoder) handleHistoricalDataEnd(fields []string) {
+	if len(fields) < 4 {
+		return
+	}
+	reqId, _ := strconv.ParseInt(fields[1], 10, 64)
+	startDateStr := fields[2]
+	endDateStr := fields[3]
+	d.wrapper.HistoricalDataEnd(reqId, startDateStr, endDateStr)
 }

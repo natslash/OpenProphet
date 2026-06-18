@@ -26,6 +26,30 @@ type mockWrapper struct {
 	tsReqId   int64
 	tsTick    int
 	tsSize    decimal.Decimal
+
+	histReqId int64
+	histBars  []HistoricalBar
+	histEndStart string
+	histEndEnd   string
+	
+	histUpdReqId int64
+	histUpdBar   HistoricalBar
+}
+
+func (m *mockWrapper) HistoricalData(reqId int64, bar HistoricalBar) {
+	m.histReqId = reqId
+	m.histBars = append(m.histBars, bar)
+}
+
+func (m *mockWrapper) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {
+	m.histReqId = reqId
+	m.histEndStart = startDateStr
+	m.histEndEnd = endDateStr
+}
+
+func (m *mockWrapper) HistoricalDataUpdate(reqId int64, bar HistoricalBar) {
+	m.histUpdReqId = reqId
+	m.histUpdBar = bar
 }
 
 func (m *mockWrapper) NextValidId(orderId int64) {
@@ -181,10 +205,58 @@ func TestDecoder_Decode(t *testing.T) {
 				// No panic, no changes
 			},
 		},
+		{
+			name:   "historical data",
+			// msgID(17), reqId(101), startDate(start), endDate(end), itemCount(1), date, open, high, low, close, volume, wap, barCount
+			fields: []string{"17", "101", "20260601", "20260602", "1", "20260601  00:00:00", "5000", "5010", "4990", "5005", "100", "5002.5", "1000"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.histReqId != 101 {
+					t.Errorf("Expected histReqId 101, got %d", m.histReqId)
+				}
+				if len(m.histBars) != 1 {
+					t.Errorf("Expected 1 bar, got %d", len(m.histBars))
+					return
+				}
+				bar := m.histBars[0]
+				if bar.Date != "20260601  00:00:00" || bar.Open != 5000 || bar.BarCount != 1000 {
+					t.Errorf("Unexpected bar data: %+v", bar)
+				}
+				if m.histEndStart != "20260601" || m.histEndEnd != "20260602" {
+					t.Errorf("Unexpected histEnd: %s, %s", m.histEndStart, m.histEndEnd)
+				}
+			},
+		},
+		{
+			name:   "historical data update",
+			// msgID(90), reqId(102), barCount(5), date, open, close, high, low, wap, volume
+			fields: []string{"90", "102", "5", "20260601  10:00:00", "10", "12", "13", "9", "11.5", "50"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.histUpdReqId != 102 {
+					t.Errorf("Expected histUpdReqId 102, got %d", m.histUpdReqId)
+				}
+				bar := m.histUpdBar
+				if bar.Date != "20260601  10:00:00" || bar.Open != 10 || bar.Volume.String() != "50" || bar.Close != 12 {
+					t.Errorf("Unexpected updated bar data: %+v", bar)
+				}
+			},
+		},
+		{
+			name:   "historical data end standalone",
+			fields: []string{"108", "103", "start", "end"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.histReqId != 103 {
+					t.Errorf("Expected histReqId 103, got %d", m.histReqId)
+				}
+				if m.histEndStart != "start" || m.histEndEnd != "end" {
+					t.Errorf("Unexpected histEnd: %s, %s", m.histEndStart, m.histEndEnd)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			decoder.SetServerVersion(100) // Simulate server version < 196 for start/end date behavior
 			err := decoder.Decode(tt.fields)
 			if err != nil {
 				t.Fatalf("Decode failed: %v", err)

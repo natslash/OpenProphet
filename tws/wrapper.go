@@ -65,6 +65,33 @@ type OrderStatusMsg struct {
 	MktCapPrice float64
 }
 
+type HistoricalBar struct {
+	Date     string
+	Open     float64
+	High     float64
+	Low      float64
+	Close    float64
+	Volume   decimal.Decimal
+	BarCount int
+	WAP      decimal.Decimal
+}
+
+type HistoricalDataMsg struct {
+	ReqId int64
+	Bar   HistoricalBar
+}
+
+type HistoricalDataEndMsg struct {
+	ReqId   int64
+	Start   string
+	End     string
+}
+
+type HistoricalDataUpdateMsg struct {
+	ReqId int64
+	Bar   HistoricalBar
+}
+
 // Wrapper is the callback interface for receiving decoded messages from TWS.
 // It represents the Go equivalent of the Java EWrapper interface.
 type Wrapper interface {
@@ -84,4 +111,7 @@ type Wrapper interface {
 	OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState)
 	OpenOrderEnd()
 	OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64)
+	HistoricalData(reqId int64, bar HistoricalBar)
+	HistoricalDataEnd(reqId int64, startDateStr, endDateStr string)
+	HistoricalDataUpdate(reqId int64, bar HistoricalBar)
 }
