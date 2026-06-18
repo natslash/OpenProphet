@@ -7,7 +7,7 @@
 //
 //	go run ./cmd/test_trading                                  # reads + default AAPL LMT @10, then cancel
 //	go run ./cmd/test_trading -place=false                     # reads only
-//	go run ./cmd/test_trading -symbol OESX:20260620:C:5200 -price 50
+//	go run ./cmd/test_trading -symbol ESTX50:20260619:C:6325 -price 50
 //	go run ./cmd/test_trading -type ""                         # exercise empty-type rejection
 //	go run ./cmd/test_trading -type limit -side sell -qty 1 -price 500
 //
@@ -44,7 +44,7 @@ func main() {
 	clientID := flag.Int("client", 6, "API client id")
 	doPlace := flag.Bool("place", true, "place an order after the read paths")
 	doCancel := flag.Bool("cancel", true, "cancel the placed order")
-	symbol := flag.String("symbol", "AAPL", "interface symbol (e.g. AAPL or OESX:20260620:C:5200)")
+	symbol := flag.String("symbol", "AAPL", "interface symbol (e.g. AAPL or ESTX50:20260619:C:6325)")
 	side := flag.String("side", "buy", "buy|sell")
 	otype := flag.String("type", "LMT", "order type (limit/market/stop or TWS codes); empty exercises rejection")
 	qty := flag.Float64("qty", 1.0, "quantity (lots)")

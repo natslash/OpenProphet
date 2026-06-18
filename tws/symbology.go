@@ -13,16 +13,19 @@ import (
 //
 // Conventions:
 //
-//	"AAPL"                   → US stock: STK / SMART / USD
-//	"OESX:20260620:C:5200"   → OESX index option on the EURO STOXX 50
-//	                           (underlying ESTX50, EUREX, EUR, multiplier 10,
-//	                            tradingClass OESX). Form: OESX:<YYYYMMDD>:<C|P>:<strike>
+//	"AAPL"                     → US stock: STK / SMART / USD
+//	"ESTX50:20260619:C:6325"   → EURO STOXX 50 index option (OESX): underlying
+//	                             ESTX50, EUREX, EUR, multiplier 10, tradingClass
+//	                             OESX. Form: ESTX50:<YYYYMMDD>:<C|P>:<strike>
 //
 // A bare symbol (no ":") is treated as a US stock for backward compatibility.
 // OCC-style US option symbols are intentionally not parsed — this fork targets
 // European/OESX instruments; extend here if that need appears.
 
-const oesxPrefix = "OESX"
+const (
+	estoxxSymbol      = "ESTX50" // EURO STOXX 50 underlying
+	oesxTradingClass  = "OESX"   // EUREX option class on ESTX50
+)
 
 // ParseSymbol turns an interface Symbol string into a tws.Contract.
 func ParseSymbol(symbol string) (Contract, error) {
@@ -40,21 +43,21 @@ func ParseSymbol(symbol string) (Contract, error) {
 		}, nil
 	}
 
-	if parts[0] == oesxPrefix {
+	if parts[0] == estoxxSymbol {
 		if len(parts) != 4 {
-			return Contract{}, fmt.Errorf("invalid OESX symbol %q: want %s:<YYYYMMDD>:<C|P>:<strike>", symbol, oesxPrefix)
+			return Contract{}, fmt.Errorf("invalid ESTX50 option symbol %q: want %s:<YYYYMMDD>:<C|P>:<strike>", symbol, estoxxSymbol)
 		}
 		expiry := parts[1]
 		right := strings.ToUpper(parts[2])
 		if right != "C" && right != "P" {
-			return Contract{}, fmt.Errorf("invalid OESX right %q in %q: want C or P", parts[2], symbol)
+			return Contract{}, fmt.Errorf("invalid ESTX50 right %q in %q: want C or P", parts[2], symbol)
 		}
 		strike, err := strconv.ParseFloat(parts[3], 64)
 		if err != nil {
-			return Contract{}, fmt.Errorf("invalid OESX strike %q in %q: %w", parts[3], symbol, err)
+			return Contract{}, fmt.Errorf("invalid ESTX50 strike %q in %q: %w", parts[3], symbol, err)
 		}
 		return Contract{
-			Symbol:                       "ESTX50",
+			Symbol:                       estoxxSymbol,
 			SecType:                      Option,
 			Exchange:                     "EUREX",
 			Currency:                     "EUR",
@@ -62,18 +65,18 @@ func ParseSymbol(symbol string) (Contract, error) {
 			Strike:                       strike,
 			Right:                        right,
 			Multiplier:                   "10",
-			TradingClass:                 oesxPrefix,
+			TradingClass:                 oesxTradingClass,
 		}, nil
 	}
 
-	return Contract{}, fmt.Errorf("unrecognized symbol %q", symbol)
+	return Contract{}, fmt.Errorf("unrecognized symbol %q (want a bare ticker like AAPL, or %s:<YYYYMMDD>:<C|P>:<strike>)", symbol, estoxxSymbol)
 }
 
 // FormatSymbol is the inverse of ParseSymbol for the contract types we map, so
 // positions/orders decoded from TWS are presented with the same convention.
 func FormatSymbol(c Contract) string {
-	if c.SecType == Option && c.TradingClass == oesxPrefix {
-		return fmt.Sprintf("%s:%s:%s:%s", oesxPrefix,
+	if c.SecType == Option && c.TradingClass == oesxTradingClass {
+		return fmt.Sprintf("%s:%s:%s:%s", estoxxSymbol,
 			c.LastTradeDateOrContractMonth, c.Right,
 			strconv.FormatFloat(c.Strike, 'f', -1, 64))
 	}
