@@ -436,3 +436,79 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
 		appWrapper.TickSize(reqId, tickType, size)
 	}
 }
+
+func (c *Client) AccountSummary(reqId int64, account, tag, value, currency string) {
+	c.dispatcher.Dispatch(reqId, AccountSummaryMsg{ReqId: reqId, Account: account, Tag: tag, Value: value, Currency: currency})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.AccountSummary(reqId, account, tag, value, currency)
+	}
+}
+
+func (c *Client) AccountSummaryEnd(reqId int64) {
+	c.dispatcher.Complete(reqId)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.AccountSummaryEnd(reqId)
+	}
+}
+
+func (c *Client) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {
+	// Positions don't have a reqId in the API natively, we can dispatch it to a special constant ID like 0,
+	// or the caller can just use the wrapper. But for our dispatcher, let's dispatch to reqId 0.
+	c.dispatcher.Dispatch(0, PositionMsg{Account: account, Contract: contract, Position: position, AvgCost: avgCost})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.Position(account, contract, position, avgCost)
+	}
+}
+
+func (c *Client) PositionEnd() {
+	c.dispatcher.Complete(0)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.PositionEnd()
+	}
+}
+
+func (c *Client) OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState) {
+	// Open orders don't always have a strict request ID if requested globally, but we can dispatch to 0.
+	c.dispatcher.Dispatch(0, OpenOrderMsg{OrderId: orderId, Contract: contract, Order: order, OrderState: orderState})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.OpenOrder(orderId, contract, order, orderState)
+	}
+}
+
+func (c *Client) OpenOrderEnd() {
+	c.dispatcher.Complete(0)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.OpenOrderEnd()
+	}
+}
+
+func (c *Client) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {
+	c.dispatcher.Dispatch(orderId, OrderStatusMsg{
+		OrderId: orderId, Status: status, Filled: filled, Remaining: remaining, AvgFillPrice: avgFillPrice, 
+		PermId: permId, ParentId: parentId, LastFillPrice: lastFillPrice, ClientId: clientId, WhyHeld: whyHeld, MktCapPrice: mktCapPrice,
+	})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+	}
+}

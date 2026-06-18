@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 3.2.** Phase 3.1 complete. **Next action:** `services/ibkr_trading.go` read paths (account summary, positions).
+**Phase 4.1.** Phase 3 complete. **Next action:** Order execution (paper, manual, tightly gated): `placeOrder` / `cancelOrder` + `orderStatus`/`openOrder` callbacks via the dispatcher.
 
 ---
 
@@ -71,7 +71,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
 | 3.1 | `services/ibkr_data.go` implements `interfaces.DataService` over `tws/` (+ assert) | ✅ | 2026-06-18 | pending |
-| 3.2 | `services/ibkr_trading.go` read paths: account, positions, open orders (filter de-activated) | ⬜ | | |
+| 3.2 | `services/ibkr_trading.go` read paths: account, positions, open orders (filter de-activated) | ✅ | 2026-06-18 | pending |
 
 **Test criteria**
 - **3.1:** Quotes/Greeks for OESX match the TWS UI.

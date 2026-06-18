@@ -113,3 +113,48 @@ func (e *Encoder) CancelMktData(reqId int64) error {
 	}
 	return e.writer.SendFields(fields...)
 }
+
+// ReqAccountSummary requests account summary data.
+func (e *Encoder) ReqAccountSummary(reqId int64, group, tags string) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqAccountSummary),
+		version,
+		strconv.FormatInt(reqId, 10),
+		group,
+		tags,
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// CancelAccountSummary cancels an account summary request.
+func (e *Encoder) CancelAccountSummary(reqId int64) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outCancelAccountSummary),
+		version,
+		strconv.FormatInt(reqId, 10),
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// ReqPositions requests all positions for all accounts.
+// TWS API doesn't use a reqId for positions, so we just send the message.
+func (e *Encoder) ReqPositions() error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqPositions),
+		version,
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// ReqOpenOrders requests all open orders.
+func (e *Encoder) ReqOpenOrders() error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqOpenOrders),
+		version,
+	}
+	return e.writer.SendFields(fields...)
+}

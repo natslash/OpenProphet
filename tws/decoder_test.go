@@ -69,6 +69,14 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) 
 	m.tsSize = size
 }
 
+func (m *mockWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {}
+func (m *mockWrapper) AccountSummaryEnd(reqId int64) {}
+func (m *mockWrapper) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {}
+func (m *mockWrapper) PositionEnd() {}
+func (m *mockWrapper) OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState) {}
+func (m *mockWrapper) OpenOrderEnd() {}
+func (m *mockWrapper) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {}
+
 func TestDecoder_Decode(t *testing.T) {
 	mock := &mockWrapper{}
 	decoder := NewDecoder(mock)

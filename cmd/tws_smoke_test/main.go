@@ -28,9 +28,16 @@ func (s *smokeTestWrapper) TickPrice(reqId int64, tickType int, price float64, s
 	fmt.Printf("TickPrice: reqId=%d tickType=%d price=%f size=%s attr=%+v\n", reqId, tickType, price, size.String(), attr)
 }
 
-func (s *smokeTestWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) {
-	fmt.Printf("TickSize: reqId=%d tickType=%d size=%s\n", reqId, tickType, size.String())
+func (w *smokeTestWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+	fmt.Printf("SMOKE: Tick Size: req=%d type=%d size=%v\n", reqId, tickType, size)
 }
+func (w *smokeTestWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {}
+func (w *smokeTestWrapper) AccountSummaryEnd(reqId int64) {}
+func (w *smokeTestWrapper) Position(account string, contract tws.Contract, position decimal.Decimal, avgCost float64) {}
+func (w *smokeTestWrapper) PositionEnd() {}
+func (w *smokeTestWrapper) OpenOrder(orderId int64, contract tws.Contract, order tws.Order, orderState tws.OrderState) {}
+func (w *smokeTestWrapper) OpenOrderEnd() {}
+func (w *smokeTestWrapper) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {}
 
 func main() {
 	fmt.Println("Starting Phase 2.5 Smoke Test...")

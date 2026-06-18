@@ -72,6 +72,104 @@ func (d *Decoder) Decode(fields []string) error {
 			}
 		}
 
+	case inAccountSummary:
+		if len(fields) >= 6 {
+			reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+			d.wrapper.AccountSummary(reqId, fields[3], fields[4], fields[5], fields[6])
+		}
+
+	case inAccountSummaryEnd:
+		if len(fields) >= 3 {
+			reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+			d.wrapper.AccountSummaryEnd(reqId)
+		}
+
+	case inPosition:
+		if len(fields) >= 8 {
+			account := fields[2]
+			var c Contract
+			c.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
+			c.Symbol = fields[4]
+			c.SecType = InstrumentType(fields[5])
+			c.LastTradeDateOrContractMonth = fields[6]
+			c.Strike, _ = strconv.ParseFloat(fields[7], 64)
+			c.Right = fields[8]
+			c.Multiplier = fields[9]
+			c.Exchange = fields[10]
+			c.Currency = fields[11]
+			c.LocalSymbol = fields[12]
+			c.TradingClass = fields[13]
+			
+			pos, _ := decimal.NewFromString(fields[14])
+			avgCost, _ := strconv.ParseFloat(fields[15], 64)
+			
+			d.wrapper.Position(account, c, pos, avgCost)
+		}
+
+	case inPositionEnd:
+		d.wrapper.PositionEnd()
+
+	case inOpenOrder:
+		// Basic parsing for OpenOrder
+		if len(fields) >= 22 {
+			var orderId int64
+			offset := 1
+			if fields[1] != "" { // version check
+				// simpler parsing skipping version specific offset rules if not strict, but basic:
+				orderId, _ = strconv.ParseInt(fields[2], 10, 64)
+				var c Contract
+				c.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
+				c.Symbol = fields[4]
+				c.SecType = InstrumentType(fields[5])
+				c.LastTradeDateOrContractMonth = fields[6]
+				c.Strike, _ = strconv.ParseFloat(fields[7], 64)
+				c.Right = fields[8]
+				c.Multiplier = fields[9]
+				c.Exchange = fields[10]
+				c.Currency = fields[11]
+				c.LocalSymbol = fields[12]
+				c.TradingClass = fields[13]
+
+				var o Order
+				o.OrderId = orderId
+				o.Action = fields[14]
+				o.TotalQuantity, _ = decimal.NewFromString(fields[15])
+				o.OrderType = fields[16]
+				o.LmtPrice, _ = strconv.ParseFloat(fields[17], 64)
+				o.AuxPrice, _ = strconv.ParseFloat(fields[18], 64)
+				o.Tif = fields[19]
+				o.OcaGroup = fields[20]
+				o.Account = fields[21]
+
+				var os OrderState
+				os.Status = fields[offset+84] // approximation, usually order state fields are further down
+				
+				d.wrapper.OpenOrder(orderId, c, o, os)
+			}
+		}
+
+	case inOpenOrderEnd:
+		d.wrapper.OpenOrderEnd()
+
+	case inOrderStatus:
+		if len(fields) >= 12 {
+			orderId, _ := strconv.ParseInt(fields[2], 10, 64)
+			status := fields[3]
+			filled, _ := decimal.NewFromString(fields[4])
+			remaining, _ := decimal.NewFromString(fields[5])
+			avgFillPrice, _ := strconv.ParseFloat(fields[6], 64)
+			permId, _ := strconv.ParseInt(fields[7], 10, 64)
+			parentId, _ := strconv.ParseInt(fields[8], 10, 64)
+			lastFillPrice, _ := strconv.ParseFloat(fields[9], 64)
+			clientId, _ := strconv.Atoi(fields[10])
+			whyHeld := fields[11]
+			mktCapPrice := 0.0
+			if len(fields) >= 13 {
+				mktCapPrice, _ = strconv.ParseFloat(fields[12], 64)
+			}
+			d.wrapper.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+		}
+
 	default:
 		// Unhandled message type in this phase
 	}

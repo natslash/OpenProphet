@@ -1,2 +1,2 @@
-[fabro]
+[project]
 graph = "workflow.fabro"
