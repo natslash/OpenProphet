@@ -50,7 +50,7 @@ type Client struct {
 	dispatcher *Dispatcher
 
 	AsyncErrorCallback func(reqID, code int, msg string)
-	appWrapper         Wrapper
+	wrappers []Wrapper
 
 	nextIDCh  chan int64 // first nextValidId is delivered here
 	acctCh    chan string
@@ -203,10 +203,11 @@ func (c *Client) NextValidId(orderId int64) {
 	default: // first one already delivered
 	}
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.NextValidId(orderId)
+	for _, w := range ws {
+		w.NextValidId(orderId)
 	}
 }
 
@@ -225,21 +226,23 @@ func (c *Client) ManagedAccounts(accountsList string) {
 	c.mu.Unlock()
 	
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.ManagedAccounts(accountsList)
+	for _, w := range ws {
+		w.ManagedAccounts(accountsList)
 	}
 }
 
 func (c *Client) Error(reqId int, code int, msg string) {
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
 
 	if isInfoCode(code) {
-		if appWrapper != nil {
-			appWrapper.Error(reqId, code, msg)
+		for _, w := range ws {
+			w.Error(reqId, code, msg)
 		}
 		return
 	}
@@ -258,8 +261,8 @@ func (c *Client) Error(reqId int, code int, msg string) {
 	if cb != nil {
 		cb(reqId, code, msg)
 	}
-	if appWrapper != nil {
-		appWrapper.Error(reqId, code, msg)
+	for _, w := range ws {
+		w.Error(reqId, code, msg)
 	}
 
 	if !isConnected {
@@ -272,10 +275,11 @@ func (c *Client) Error(reqId int, code int, msg string) {
 
 func (c *Client) CurrentTime(timeInSeconds int64) {
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.CurrentTime(timeInSeconds)
+	for _, w := range ws {
+		w.CurrentTime(timeInSeconds)
 	}
 }
 
@@ -346,10 +350,26 @@ func (c *Client) Complete(reqId int64) {
 	c.dispatcher.Complete(reqId)
 }
 
-func (c *Client) SetWrapper(w Wrapper) {
+func (c *Client) AddWrapper(w Wrapper) {
 	c.mu.Lock()
-	c.appWrapper = w
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	for _, existing := range c.wrappers {
+		if existing == w {
+			return
+		}
+	}
+	c.wrappers = append(c.wrappers, w)
+}
+
+func (c *Client) RemoveWrapper(w Wrapper) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, existing := range c.wrappers {
+		if existing == w {
+			c.wrappers = append(c.wrappers[:i], c.wrappers[i+1:]...)
+			return
+		}
+	}
 }
 
 func (c *Client) writeFrame(payload []byte) error {
@@ -423,60 +443,66 @@ func (c *Client) ReqContractDetails(ctx context.Context, contract Contract) ([]C
 func (c *Client) ContractDetails(reqId int64, details ContractDetails) {
 	c.dispatcher.Dispatch(reqId, details)
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.ContractDetails(reqId, details)
+	for _, w := range ws {
+		w.ContractDetails(reqId, details)
 	}
 }
 
 func (c *Client) ContractDetailsEnd(reqId int64) {
 	c.dispatcher.Complete(reqId)
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.ContractDetailsEnd(reqId)
+	for _, w := range ws {
+		w.ContractDetailsEnd(reqId)
 	}
 }
 
 func (c *Client) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib) {
 	c.dispatcher.Dispatch(reqId, TickPriceMsg{TickType: tickType, Price: price, Size: size, Attr: attr})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.TickPrice(reqId, tickType, price, size, attr)
+	for _, w := range ws {
+		w.TickPrice(reqId, tickType, price, size, attr)
 	}
 }
 
 func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
 	c.dispatcher.Dispatch(reqId, TickSizeMsg{TickType: tickType, Size: size})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.TickSize(reqId, tickType, size)
+	for _, w := range ws {
+		w.TickSize(reqId, tickType, size)
 	}
 }
 
 func (c *Client) AccountSummary(reqId int64, account, tag, value, currency string) {
 	c.dispatcher.Dispatch(reqId, AccountSummaryMsg{ReqId: reqId, Account: account, Tag: tag, Value: value, Currency: currency})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.AccountSummary(reqId, account, tag, value, currency)
+	for _, w := range ws {
+		w.AccountSummary(reqId, account, tag, value, currency)
 	}
 }
 
 func (c *Client) AccountSummaryEnd(reqId int64) {
 	c.dispatcher.Complete(reqId)
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.AccountSummaryEnd(reqId)
+	for _, w := range ws {
+		w.AccountSummaryEnd(reqId)
 	}
 }
 
@@ -485,20 +511,22 @@ func (c *Client) Position(account string, contract Contract, position decimal.De
 	// or the caller can just use the wrapper. But for our dispatcher, let's dispatch to reqId 0.
 	c.dispatcher.Dispatch(0, PositionMsg{Account: account, Contract: contract, Position: position, AvgCost: avgCost})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.Position(account, contract, position, avgCost)
+	for _, w := range ws {
+		w.Position(account, contract, position, avgCost)
 	}
 }
 
 func (c *Client) PositionEnd() {
 	c.dispatcher.Complete(0)
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.PositionEnd()
+	for _, w := range ws {
+		w.PositionEnd()
 	}
 }
 
@@ -506,20 +534,22 @@ func (c *Client) OpenOrder(orderId int64, contract Contract, order Order, orderS
 	// Open orders don't always have a strict request ID if requested globally, but we can dispatch to 0.
 	c.dispatcher.Dispatch(0, OpenOrderMsg{OrderId: orderId, Contract: contract, Order: order, OrderState: orderState})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.OpenOrder(orderId, contract, order, orderState)
+	for _, w := range ws {
+		w.OpenOrder(orderId, contract, order, orderState)
 	}
 }
 
 func (c *Client) OpenOrderEnd() {
 	c.dispatcher.Complete(0)
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.OpenOrderEnd()
+	for _, w := range ws {
+		w.OpenOrderEnd()
 	}
 }
 
@@ -529,9 +559,10 @@ func (c *Client) OrderStatus(orderId int64, status string, filled, remaining dec
 		PermId: permId, ParentId: parentId, LastFillPrice: lastFillPrice, ClientId: clientId, WhyHeld: whyHeld, MktCapPrice: mktCapPrice,
 	})
 	c.mu.RLock()
-	appWrapper := c.appWrapper
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
 	c.mu.RUnlock()
-	if appWrapper != nil {
-		appWrapper.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+	for _, w := range ws {
+		w.OrderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
 	}
 }

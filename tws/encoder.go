@@ -158,3 +158,78 @@ func (e *Encoder) ReqOpenOrders() error {
 	}
 	return e.writer.SendFields(fields...)
 }
+
+// PlaceOrder places a new order or updates an existing order.
+func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error {
+	// Send place order message. v100+ servers use a more complex format, but the essential 
+	// fields can be sent in version 45 logic. Since TWS maintains backward compatibility,
+	// we will send version 45 which is sufficient for basic orders.
+	const version = "45"
+	
+	strikeStr := strconv.FormatFloat(contract.Strike, 'f', -1, 64)
+	if contract.Strike == 0.0 {
+		strikeStr = "0"
+	}
+
+	fields := []string{
+		strconv.Itoa(outPlaceOrder),
+		version,
+		strconv.FormatInt(reqId, 10),
+		
+		// Contract fields
+		strconv.FormatInt(contract.ConId, 10),
+		contract.Symbol,
+		string(contract.SecType),
+		contract.LastTradeDateOrContractMonth,
+		strikeStr,
+		contract.Right,
+		contract.Multiplier,
+		contract.Exchange,
+		contract.PrimaryExch,
+		contract.Currency,
+		contract.LocalSymbol,
+		contract.TradingClass,
+		"0", // secIdType
+		"",  // secId
+
+		// Order fields
+		order.Action,
+		order.TotalQuantity.String(),
+		order.OrderType,
+		strconv.FormatFloat(order.LmtPrice, 'f', -1, 64),
+		strconv.FormatFloat(order.AuxPrice, 'f', -1, 64),
+		order.Tif,
+		order.OcaGroup,
+		order.Account,
+		"", // openClose
+		"", // origin
+		"", // orderRef
+		"1", // transmit
+		"0", // parentId
+		"0", // blockOrder
+		"0", // sweepToFill
+		"0", // displaySize
+		"0", // triggerMethod
+		"0", // outsideRth
+		"0", // hidden
+		"",  // goodAfterTime
+		"",  // goodTillDate
+		"",  // rule80A
+		"0", // percentOffset
+		"0", // trailingPercent
+	}
+
+	return e.writer.SendFields(fields...)
+}
+
+// CancelOrder cancels an active order.
+func (e *Encoder) CancelOrder(reqId int64) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outCancelOrder),
+		version,
+		strconv.FormatInt(reqId, 10),
+		"", // manualOrderCancelTime (empty for automated)
+	}
+	return e.writer.SendFields(fields...)
+}

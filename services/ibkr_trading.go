@@ -8,9 +8,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 type IBKRTradingService struct {
+	tws.DefaultWrapper
 	client      *tws.Client
 	globalReqMu sync.Mutex
 }
@@ -19,15 +22,79 @@ type IBKRTradingService struct {
 var _ interfaces.TradingService = (*IBKRTradingService)(nil)
 
 func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
-	return &IBKRTradingService{client: client}
+	s := &IBKRTradingService{client: client}
+	client.AddWrapper(s)
+	return s
 }
 
 func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
-	return nil, fmt.Errorf("PlaceOrder not implemented in Phase 3")
+	reqId := s.client.NextOrderId()
+
+	contract := tws.Contract{
+		Symbol:   order.Symbol,
+		SecType:  "STK", // Hardcoded for now
+		Exchange: "SMART",
+		Currency: "USD",
+	}
+
+	side := "BUY"
+	if order.Side == "sell" {
+		side = "SELL"
+	}
+
+	orderType := "MKT"
+	if order.Type != "" {
+		orderType = order.Type
+	}
+
+	twsOrder := tws.Order{
+		Action:        side,
+		OrderType:     orderType,
+		Tif:           order.TimeInForce,
+	}
+	
+	// Convert float64 Qty to decimal
+	twsOrder.TotalQuantity = decimal.NewFromFloat(order.Qty)
+
+	if order.LimitPrice != nil {
+		twsOrder.LmtPrice = *order.LimitPrice
+	}
+	if order.StopPrice != nil {
+		twsOrder.AuxPrice = *order.StopPrice
+	}
+
+	if twsOrder.Tif == "" {
+		twsOrder.Tif = "DAY"
+	}
+
+	if err := s.client.Encoder().PlaceOrder(reqId, contract, twsOrder); err != nil {
+		return nil, fmt.Errorf("PlaceOrder failed: %w", err)
+	}
+
+	return &interfaces.OrderResult{
+		OrderID: strconv.FormatInt(reqId, 10),
+		Status:  "Submitted",
+		Message: "Order placed via TWS API",
+	}, nil
 }
 
 func (s *IBKRTradingService) CancelOrder(ctx context.Context, orderID string) error {
-	return fmt.Errorf("CancelOrder not implemented in Phase 3")
+	reqId, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid orderID %q: %w", orderID, err)
+	}
+	if err := s.client.Encoder().CancelOrder(reqId); err != nil {
+		return fmt.Errorf("CancelOrder failed: %w", err)
+	}
+	return nil
+}
+
+func (s *IBKRTradingService) OpenOrder(orderId int64, contract tws.Contract, order tws.Order, orderState tws.OrderState) {
+	fmt.Printf("[IBKRTradingService] OpenOrder: %d %s %s %s -> %s\n", orderId, order.Action, order.TotalQuantity.String(), contract.Symbol, orderState.Status)
+}
+
+func (s *IBKRTradingService) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {
+	fmt.Printf("[IBKRTradingService] OrderStatus: %d -> %s (Filled: %s, Remaining: %s)\n", orderId, status, filled.String(), remaining.String())
 }
 
 func (s *IBKRTradingService) GetOrder(ctx context.Context, orderID string) (*interfaces.Order, error) {

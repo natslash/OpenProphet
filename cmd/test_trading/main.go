@@ -42,7 +42,7 @@ func main() {
 	defer cancel()
 
 	fmt.Println("Connecting to TWS Paper (port 4002)...")
-	client.SetWrapper(&simpleWrapper{})
+	client.AddWrapper(&simpleWrapper{})
 	if err := client.Connect(ctx); err != nil {
 		fmt.Printf("FAIL: Connect error: %v\n", err)
 		os.Exit(1)

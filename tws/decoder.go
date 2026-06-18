@@ -111,52 +111,9 @@ func (d *Decoder) Decode(fields []string) error {
 
 	case inOpenOrder:
 		// Safe sequential parsing for OpenOrder
-		if len(fields) >= 22 {
-			var orderId int64
-			
-			// Handle version prefix (in newer v100+ servers, it's often omitted if not legacy, 
-			// but if it's there it's usually an integer version). 
-			// We check if fields[1] is the orderId or version. 
-			// TWS OpenOrder message typically has orderId at index 2 if version is at 1.
-			if fields[1] != "" {
-				orderId, _ = strconv.ParseInt(fields[2], 10, 64)
-				var c Contract
-				c.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
-				c.Symbol = fields[4]
-				c.SecType = InstrumentType(fields[5])
-				c.LastTradeDateOrContractMonth = fields[6]
-				c.Strike, _ = strconv.ParseFloat(fields[7], 64)
-				c.Right = fields[8]
-				c.Multiplier = fields[9]
-				c.Exchange = fields[10]
-				c.Currency = fields[11]
-				c.LocalSymbol = fields[12]
-				c.TradingClass = fields[13]
-
-				var o Order
-				o.OrderId = orderId
-				o.Action = fields[14]
-				o.TotalQuantity, _ = decimal.NewFromString(fields[15])
-				o.OrderType = fields[16]
-				o.LmtPrice, _ = strconv.ParseFloat(fields[17], 64)
-				o.AuxPrice, _ = strconv.ParseFloat(fields[18], 64)
-				o.Tif = fields[19]
-				o.OcaGroup = fields[20]
-				o.Account = fields[21]
-
-				var os OrderState
-				// Robust search for OrderState.Status to avoid panic and handle varying layouts
-				// Status is typically one of these predefined strings
-				for i := len(fields) - 1; i >= 22; i-- {
-					s := fields[i]
-					if s == "PendingSubmit" || s == "PendingCancel" || s == "PreSubmitted" || s == "Submitted" || s == "Cancelled" || s == "Filled" || s == "Inactive" {
-						os.Status = s
-						break
-					}
-				}
-				
-				d.wrapper.OpenOrder(orderId, c, o, os)
-			}
+		orderId, c, o, os, ok := decodeOpenOrder(fields)
+		if ok {
+			d.wrapper.OpenOrder(orderId, c, o, os)
 		}
 
 	case inOpenOrderEnd:

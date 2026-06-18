@@ -26,7 +26,7 @@ func NewIBKRDataService(client *tws.Client) *IBKRDataService {
 		client:  client,
 		streams: make(map[int64]chan any),
 	}
-	client.SetWrapper(s)
+	client.AddWrapper(s)
 	return s
 }
 

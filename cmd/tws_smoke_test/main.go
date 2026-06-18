@@ -43,7 +43,7 @@ func main() {
 	fmt.Println("Starting Phase 2.5 Smoke Test...")
 	client := tws.NewClient("127.0.0.1", 4002, 5)
 	wrapper := &smokeTestWrapper{timeReceived: make(chan int64, 1)}
-	client.SetWrapper(wrapper)
+	client.AddWrapper(wrapper)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
