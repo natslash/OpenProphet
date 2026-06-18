@@ -1,0 +1,51 @@
+digraph G {
+  graph [model_stylesheet="* { model: gemini-3.1-flash-lite; reasoning_effort: low; } .coding { model: gemini-3.1-pro-preview; reasoning_effort: high; } .review { model: claude-opus-4-8; reasoning_effort: high; }"]
+
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  analyze [shape=box, label="Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step."]
+  plan [shape=box, label="Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step."]
+  
+  approve_plan [shape=hexagon, label="approve_plan"]
+  
+  implement [shape=box, class="coding", label="Implement only the approved plan. Follow CLAUDE.md (from-scratch wrapper, stdlib only, the routing-strategy section, Decimal tick sizes). One testable change. Add table-driven unit tests. **If the task involves placing/cancelling orders or the live port (4001), STOP and fail — that is out of scope and forbidden.**"]
+  
+  unit_test [shape=box, class="command", label="go test -race ./tws/..."]
+  
+  review [shape=box, class="review", label="Review the diff for protocol correctness against the TWS spec, concurrency safety (run/assume `-race`), dispatcher routing per CLAUDE.md, and guardrail compliance. Request changes if anything is wrong; do not rubber-stamp."]
+  
+  explain_failure [shape=box, class="review", label="Analyze the test failure or review rejection. Explain clearly to the user what went wrong, and outline exactly what different approach the agent will take in the next implementation attempt to fix it."]
+  
+  approve_retry [shape=hexagon, label="approve_retry"]
+  
+  integration_manual [shape=hexagon, label="integration_manual"]
+  approve_push [shape=hexagon, label="approve_push"]
+  
+  push [shape=box, class="command", label="git push origin feature/ibkr-porting"]
+
+  start -> analyze
+  analyze -> plan
+  plan -> approve_plan
+  approve_plan -> implement [label="A"]
+  approve_plan -> exit [label="R"]
+  
+  implement -> unit_test
+  
+  // Gate 1: Unit tests
+  unit_test -> review [label="pass"]
+  unit_test -> explain_failure [label="fail"]
+  
+  // Gate 2: Code Review
+  review -> integration_manual [label="pass"]
+  review -> explain_failure [label="fail"]
+  
+  // Failure analysis and manual check
+  explain_failure -> approve_retry
+  approve_retry -> implement [label="A"]
+  approve_retry -> exit [label="R"]
+  
+  integration_manual -> approve_push [label="pass"]
+  approve_push -> push [label="A"]
+  push -> exit
+}
