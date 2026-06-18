@@ -173,13 +173,13 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 	}
 	if tpID > 0 {
 		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), tpID, contract, tpOrder); err != nil {
-			_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
+			s.cancelForCleanup(parentID, "TP send failed")
 			return nil, fmt.Errorf("PlaceOrder TP encode/send failed: %w", err)
 		}
 	}
 	if slID > 0 {
 		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), slID, contract, slOrder); err != nil {
-			_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
+			s.cancelForCleanup(parentID, "SL send failed")
 			return nil, fmt.Errorf("PlaceOrder SL encode/send failed: %w", err)
 		}
 	}
@@ -201,8 +201,8 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 					}, nil
 				}
 			case error:
-				// On any rejection, attempt to tear down the group.
-				_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
+				// On any rejection, tear down the group to avoid orphan legs.
+				s.cancelForCleanup(parentID, fmt.Sprintf("leg %d rejected", rm.id))
 				return nil, fmt.Errorf("order %d rejected by TWS: %w", rm.id, t)
 			}
 		case <-confirmCtx.Done():
@@ -214,6 +214,15 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 			}, nil
 		}
 	}
+}
+
+// cancelForCleanup best-effort cancels the parent order (which cascades to any
+// attached children) to avoid orphan legs when a bracket can't be fully
+// submitted or is rejected. Logged for the order-audit trail; the cancel error
+// is ignored because this runs on an already-failing path.
+func (s *IBKRTradingService) cancelForCleanup(parentID int64, reason string) {
+	log.Printf("[IBKR] CLEANUP CANCEL id=%d: %s (cancel parent; cascades to children)", parentID, reason)
+	_ = s.client.Encoder().CancelOrder(s.client.ServerVersion(), parentID)
 }
 
 func (s *IBKRTradingService) CancelOrder(ctx context.Context, orderID string) error {
