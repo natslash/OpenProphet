@@ -64,6 +64,8 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 	duration := fmt.Sprintf("%d D", int(end.Sub(start).Hours()/24)+1)
 	barSize := "1 day" // Simplified mapping
 
+	// TWS historical data response terminates with an empty HistoricalData message
+	// with ReqId > 0, Date == "", and Count == -1
 	if err := s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false); err != nil {
 		return nil, fmt.Errorf("failed to request historical data: %w", err)
 	}
@@ -72,25 +74,36 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 	var bars []*interfaces.Bar
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return bars, nil
+			}
 			switch m := msg.(type) {
 			case tws.HistoricalData:
+				if m.Count == -1 { // Termination marker
+					return bars, nil
+				}
+				// Attempt to parse Date: "20060102 15:04:05"
+				t, err := time.Parse("20060102 15:04:05", m.Date)
+				if err != nil {
+					t = time.Now()
+				}
 				bars = append(bars, &interfaces.Bar{
-					Symbol: symbol,
-					Timestamp: time.Now(), // Need to parse Date field
-					Open: m.Open,
-					High: m.High,
-					Low: m.Low,
-					Close: m.Close,
-					Volume: int64(m.Volume),
+					Symbol:    symbol,
+					Timestamp: t,
+					Open:      m.Open,
+					High:      m.High,
+					Low:       m.Low,
+					Close:     m.Close,
+					Volume:    int64(m.Volume),
 				})
 			case error:
 				return nil, m
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(10 * time.Second): // Simple timeout
-			return bars, nil
+		case <-time.After(30 * time.Second): // Extended timeout
+			return bars, fmt.Errorf("timeout waiting for historical data")
 		}
 	}
 }
