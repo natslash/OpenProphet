@@ -231,8 +231,8 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		"0",                                   // 50
 		"",                                    // 51
 		"",                                    // 52
-		"1",                                   // 53
-		"1",                                   // 54
+		"0",                                   // 53
+		"0",                                   // 54
 		"",                                    // 55
 		"0",                                   // 56
 		"",                                    // 57
@@ -288,7 +288,6 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		"0",                                   // 107
 		"0",                                   // 108
 		"",                                    // 109
-		"",                                    // 110
 	}
 
 	return e.writer.SendFields(fields...)
