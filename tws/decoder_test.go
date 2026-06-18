@@ -26,6 +26,8 @@ type mockWrapper struct {
 	tsReqId   int64
 	tsTick    int
 	tsSize    decimal.Decimal
+
+	hdData HistoricalData
 }
 
 func (m *mockWrapper) NextValidId(orderId int64) {
@@ -69,6 +71,10 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) 
 	m.tsSize = size
 }
 
+func (m *mockWrapper) HistoricalData(reqId int64, data HistoricalData) {
+	m.hdData = data
+}
+
 func TestDecoder_Decode(t *testing.T) {
 	mock := &mockWrapper{}
 	decoder := NewDecoder(mock)
@@ -84,6 +90,15 @@ func TestDecoder_Decode(t *testing.T) {
 			validation: func(t *testing.T, m *mockWrapper) {
 				if m.nextValidId != 100 {
 					t.Errorf("Expected NextValidId 100, got %d", m.nextValidId)
+				}
+			},
+		},
+		{
+			name:   "historical data",
+			fields: []string{"17", "42", "20250619 09:30:00", "150.1", "150.5", "150.0", "150.2", "1000", "1", "150.15"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.hdData.ReqId != 42 || m.hdData.Open != 150.1 {
+					t.Errorf("Expected HD reqId 42 and Open 150.1, got %v", m.hdData)
 				}
 			},
 		},

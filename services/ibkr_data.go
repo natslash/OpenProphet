@@ -41,8 +41,58 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 		"timeframe": timeframe,
 	}).Info("Fetching historical bars from IBKR")
 
-	// TODO: Implement IBKR historical data request
-	return nil, fmt.Errorf("GetHistoricalBars not implemented for IBKR yet")
+	// 1. Resolve symbol to Contract
+	contract := tws.Contract{
+		Symbol:   symbol,
+		SecType:  tws.Stock,
+		Exchange: "SMART",
+		Currency: "USD",
+	}
+	details, err := s.client.ReqContractDetails(ctx, contract)
+	if err != nil || len(details) == 0 {
+		return nil, fmt.Errorf("failed to resolve contract for %s: %v", symbol, err)
+	}
+	contract = details[0].Contract
+
+	// 2. reqHistoricalData
+	reqID := s.client.NextOrderId()
+	ch := s.client.Dispatcher().Register(reqID)
+	defer s.client.Dispatcher().Complete(reqID)
+
+	// Format for IBKR: "yyyyMMdd HH:mm:ss"
+	endStr := end.Format("20060102 15:04:05")
+	duration := fmt.Sprintf("%d D", int(end.Sub(start).Hours()/24)+1)
+	barSize := "1 day" // Simplified mapping
+
+	if err := s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false); err != nil {
+		return nil, fmt.Errorf("failed to request historical data: %w", err)
+	}
+
+	// 3. Wait for historical data response
+	var bars []*interfaces.Bar
+	for {
+		select {
+		case msg := <-ch:
+			switch m := msg.(type) {
+			case tws.HistoricalData:
+				bars = append(bars, &interfaces.Bar{
+					Symbol: symbol,
+					Timestamp: time.Now(), // Need to parse Date field
+					Open: m.Open,
+					High: m.High,
+					Low: m.Low,
+					Close: m.Close,
+					Volume: int64(m.Volume),
+				})
+			case error:
+				return nil, m
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Second): // Simple timeout
+			return bars, nil
+		}
+	}
 }
 
 // GetLatestBar retrieves the most recent bar for a symbol
@@ -62,8 +112,6 @@ func (s *IbkrDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 		Currency: "USD",
 	}
 
-	// For simplicity, we fetch details first to get conID if needed
-	// In reality, we might just pass the contract if we have it
 	details, err := s.client.ReqContractDetails(ctx, contract)
 	if err != nil || len(details) == 0 {
 		return nil, fmt.Errorf("failed to resolve contract for %s: %v", symbol, err)

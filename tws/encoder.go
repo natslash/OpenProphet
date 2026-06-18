@@ -113,3 +113,42 @@ func (e *Encoder) CancelMktData(reqId int64) error {
 	}
 	return e.writer.SendFields(fields...)
 }
+
+// ReqHistoricalData requests historical data.
+func (e *Encoder) ReqHistoricalData(reqId int64, contract Contract, endDateTime string, duration string, barSize string, whatToShow string, useRTH int, formatDate int, keepUpToDate bool) error {
+	const version = "6"
+
+	strikeStr := strconv.FormatFloat(contract.Strike, 'f', -1, 64)
+	if contract.Strike == 0.0 {
+		strikeStr = "0.0"
+	}
+
+	fields := []string{
+		strconv.Itoa(outReqHistoricalData),
+		version,
+		strconv.FormatInt(reqId, 10),
+		strconv.FormatInt(contract.ConId, 10),
+		contract.Symbol,
+		string(contract.SecType),
+		contract.LastTradeDateOrContractMonth,
+		strikeStr,
+		contract.Right,
+		contract.Multiplier,
+		contract.Exchange,
+		contract.PrimaryExch,
+		contract.Currency,
+		contract.LocalSymbol,
+		contract.TradingClass,
+		"0", // includeExpired
+		endDateTime,
+		barSize,
+		duration,
+		strconv.Itoa(useRTH),
+		whatToShow,
+		strconv.Itoa(formatDate),
+		"0", // keepUpToDate (not implemented in this minimal client yet)
+		"",  // chartOptions
+	}
+
+	return e.writer.SendFields(fields...)
+}

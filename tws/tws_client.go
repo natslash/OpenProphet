@@ -424,3 +424,13 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
 		appWrapper.TickSize(reqId, tickType, size)
 	}
 }
+
+func (c *Client) HistoricalData(reqId int64, data HistoricalData) {
+	c.dispatcher.Dispatch(reqId, data)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.HistoricalData(reqId, data)
+	}
+}

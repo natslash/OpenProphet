@@ -12,6 +12,7 @@ const (
 	outReqPositions         = 61
 	outCancelPositions      = 64
 	outReqContractDetails   = 9
+	outReqHistoricalData    = 20
 	outReqCurrentTime       = 49
 	outStartAPI             = 71
 )
@@ -33,4 +34,5 @@ const (
 	inContractDataEnd = 52
 	inPosition        = 61
 	inAccountSummary  = 63
+	inHistoricalData  = 17
 )

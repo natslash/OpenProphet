@@ -21,6 +21,19 @@ type TickSizeMsg struct {
 	Size     decimal.Decimal
 }
 
+type HistoricalData struct {
+	ReqId   int64
+	Date    string
+	Open    float64
+	High    float64
+	Low     float64
+	Close   float64
+	Volume  float64
+	Count   int64
+	WAP     float64
+	HasGaps bool
+}
+
 // Wrapper is the callback interface for receiving decoded messages from TWS.
 // It represents the Go equivalent of the Java EWrapper interface.
 type Wrapper interface {
@@ -32,4 +45,5 @@ type Wrapper interface {
 	ContractDetailsEnd(reqId int64)
 	TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib)
 	TickSize(reqId int64, tickType int, size decimal.Decimal)
+	HistoricalData(reqId int64, data HistoricalData)
 }
