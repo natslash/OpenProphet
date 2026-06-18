@@ -160,11 +160,17 @@ func (e *Encoder) ReqOpenOrders() error {
 }
 
 // PlaceOrder places a new order or updates an existing order.
+
+func formatPrice(p float64) string {
+	if p == 0.0 { // TWS usually treats 0.0 or 1.79e308 as unset. We'll use empty string for unset.
+		return ""
+	}
+	return strconv.FormatFloat(p, 'f', -1, 64)
+}
+
 func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error {
-	// Send place order message. v100+ servers use a more complex format, but the essential 
-	// fields can be sent in version 45 logic. Since TWS maintains backward compatibility,
-	// we will send version 45 which is sufficient for basic orders.
-	const version = "45"
+	// Send place order message. v145+ servers do NOT expect the version string.
+	// Since we assume TWS v187, we omit the version field entirely.
 	
 	strikeStr := strconv.FormatFloat(contract.Strike, 'f', -1, 64)
 	if contract.Strike == 0.0 {
@@ -173,7 +179,6 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 
 	fields := []string{
 		strconv.Itoa(outPlaceOrder),
-		version,
 		strconv.FormatInt(reqId, 10),
 		
 		// Contract fields
@@ -189,15 +194,15 @@ func (e *Encoder) PlaceOrder(reqId int64, contract Contract, order Order) error 
 		contract.Currency,
 		contract.LocalSymbol,
 		contract.TradingClass,
-		"0", // secIdType
-		"",  // secId
+		"", // secIdType
+		"", // secId
 
 		// Order fields
 		order.Action,
 		order.TotalQuantity.String(),
 		order.OrderType,
-		strconv.FormatFloat(order.LmtPrice, 'f', -1, 64),
-		strconv.FormatFloat(order.AuxPrice, 'f', -1, 64),
+		formatPrice(order.LmtPrice),
+		formatPrice(order.AuxPrice),
 		order.Tif,
 		order.OcaGroup,
 		order.Account,
@@ -229,7 +234,6 @@ func (e *Encoder) CancelOrder(reqId int64) error {
 		strconv.Itoa(outCancelOrder),
 		version,
 		strconv.FormatInt(reqId, 10),
-		"", // manualOrderCancelTime (empty for automated)
 	}
 	return e.writer.SendFields(fields...)
 }
