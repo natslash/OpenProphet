@@ -101,5 +101,41 @@ func main() {
 		}
 	}
 
+	fmt.Println("\n--- 4. Testing PlaceOrder (Paper Only) ---")
+	placeCtx, placeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer placeCancel()
+	
+	order := &interfaces.Order{
+		Symbol: "AAPL",
+		Qty:    1.0,
+		Side:   "buy",
+		Type:   "LMT",
+	}
+	price := 10.0 // Low limit price so it doesn't fill immediately, allowing us to cancel it
+	order.LimitPrice = &price
+
+	res, err := tradingSvc.PlaceOrder(placeCtx, order)
+	if err != nil {
+		fmt.Printf("PlaceOrder Error: %v\n", err)
+	} else {
+		fmt.Printf("Order placed successfully! Result: %+v\n", res)
+		
+		// Wait a bit to receive OrderStatus and OpenOrder callbacks
+		fmt.Println("Waiting 3 seconds for OpenOrder and OrderStatus callbacks...")
+		time.Sleep(3 * time.Second)
+
+		fmt.Println("\n--- 5. Testing CancelOrder ---")
+		cancelCtx, cancelCtxCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelCtxCancel()
+		
+		err := tradingSvc.CancelOrder(cancelCtx, res.OrderID)
+		if err != nil {
+			fmt.Printf("CancelOrder Error: %v\n", err)
+		} else {
+			fmt.Printf("CancelOrder sent for %s. Waiting 2 seconds for cancellation callbacks...\n", res.OrderID)
+			time.Sleep(2 * time.Second)
+		}
+	}
+
 	fmt.Println("\n=== Test Complete ===")
 }
