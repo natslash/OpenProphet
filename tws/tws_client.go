@@ -247,7 +247,7 @@ func (c *Client) Error(reqId int, code int, msg string) {
 		return
 	}
 
-	if reqId > 0 {
+	if reqId > 0 && !isWarningCode(code) {
 		c.dispatcher.Dispatch(int64(reqId), fmt.Errorf("TWS Error %d: %s", code, msg))
 		// We do NOT complete the channel here. Not all errors are terminal, 
 		// and it is the caller's responsibility to defer Complete() on the request channel.
@@ -287,6 +287,19 @@ func (c *Client) CurrentTime(timeInSeconds int64) {
 // real error (data-farm connection notices and connectivity warnings).
 func isInfoCode(code int) bool {
 	return (code >= 2100 && code <= 2200) || (code >= 1100 && code <= 1102)
+}
+
+// isWarningCode reports codes that annotate a still-live request rather than
+// signalling a failure, so they must not be surfaced to a waiting caller as a
+// rejection. The authoritative order state still arrives via orderStatus.
+// Extend as new non-fatal codes are observed.
+func isWarningCode(code int) bool {
+	switch code {
+	case 399: // order message, e.g. "order will not be placed until <time>"
+		return true
+	default:
+		return false
+	}
 }
 
 // Accessors.
