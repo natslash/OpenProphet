@@ -30,14 +30,10 @@ func NewIBKRDataService(client *tws.Client) *IBKRDataService {
 	return s
 }
 
-func symbolToContract(symbol string) tws.Contract {
-	// For OESX index options, we'll later expand this. For now, stock fallback.
-	return tws.Contract{
-		Symbol:   symbol,
-		SecType:  tws.Stock,
-		Exchange: "SMART",
-		Currency: "USD",
-	}
+// symbolToContract resolves an interface Symbol via the shared symbology
+// convention (US stock by default, "OESX:<expiry>:<C|P>:<strike>" for OESX).
+func symbolToContract(symbol string) (tws.Contract, error) {
+	return tws.ParseSymbol(symbol)
 }
 
 func (s *IBKRDataService) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr tws.TickAttrib) {
@@ -106,7 +102,10 @@ func (s *IBKRDataService) StreamBars(ctx context.Context, symbols []string) (<-c
 }
 
 func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*interfaces.Quote, error) {
-	contract := symbolToContract(symbol)
+	contract, err := symbolToContract(symbol)
+	if err != nil {
+		return nil, fmt.Errorf("GetLatestQuote: %w", err)
+	}
 
 	reqId := s.client.NextOrderId()
 	ch := s.subscribe(reqId)
@@ -165,7 +164,10 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 }
 
 func (s *IBKRDataService) GetLatestTrade(ctx context.Context, symbol string) (*interfaces.Trade, error) {
-	contract := symbolToContract(symbol)
+	contract, err := symbolToContract(symbol)
+	if err != nil {
+		return nil, fmt.Errorf("GetLatestTrade: %w", err)
+	}
 
 	reqId := s.client.NextOrderId()
 	ch := s.subscribe(reqId)

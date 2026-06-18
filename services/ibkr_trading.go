@@ -29,14 +29,12 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
 }
 
 func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
-	orderID := s.client.NextOrderId()
-
-	contract := tws.Contract{
-		Symbol:   order.Symbol,
-		SecType:  "STK", // TODO: instrument mapping (Phase 5.1)
-		Exchange: "SMART",
-		Currency: "USD",
+	contract, err := tws.ParseSymbol(order.Symbol)
+	if err != nil {
+		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
+
+	orderID := s.client.NextOrderId()
 
 	side := "BUY"
 	if order.Side == "sell" {
@@ -195,7 +193,7 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 			case tws.OpenOrderMsg:
 				o := &interfaces.Order{
 					ID:     strconv.FormatInt(t.OrderId, 10),
-					Symbol: t.Contract.Symbol,
+					Symbol: tws.FormatSymbol(t.Contract),
 					Qty:    t.Order.TotalQuantity.InexactFloat64(),
 					Side:   t.Order.Action,
 					Type:   t.Order.OrderType,
@@ -242,7 +240,7 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 					continue
 				}
 				p := &interfaces.Position{
-					Symbol:        t.Contract.Symbol,
+					Symbol:        tws.FormatSymbol(t.Contract),
 					Qty:           qty,
 					AvgEntryPrice: t.AvgCost,
 				}
