@@ -12,8 +12,7 @@ import (
 
 type IBKRTradingService struct {
 	client      *tws.Client
-	positionsMu sync.Mutex
-	ordersMu    sync.Mutex
+	globalReqMu sync.Mutex
 }
 
 // Ensure IBKRTradingService implements interfaces.TradingService
@@ -45,8 +44,8 @@ func (s *IBKRTradingService) GetOrder(ctx context.Context, orderID string) (*int
 }
 
 func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*interfaces.Order, error) {
-	s.ordersMu.Lock()
-	defer s.ordersMu.Unlock()
+	s.globalReqMu.Lock()
+	defer s.globalReqMu.Unlock()
 
 	ch := s.client.Register(0) // Dispatcher uses 0 for global events like OpenOrders
 	defer s.client.Complete(0)
@@ -107,8 +106,8 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 }
 
 func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
-	s.positionsMu.Lock()
-	defer s.positionsMu.Unlock()
+	s.globalReqMu.Lock()
+	defer s.globalReqMu.Unlock()
 
 	ch := s.client.Register(0)
 	defer s.client.Complete(0)
@@ -176,11 +175,11 @@ func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 			switch t := msg.(type) {
 			case tws.AccountSummaryMsg:
 				acc.ID = t.Account
-				if t.Tag == "NetLiquidationByCurrency" {
+				if t.Tag == "NetLiquidation" {
 					if val, err := strconv.ParseFloat(t.Value, 64); err == nil {
 						acc.PortfolioValue = val
 					}
-				} else if t.Tag == "TotalCashBalance" || t.Tag == "CashBalance" {
+				} else if t.Tag == "TotalCashValue" {
 					if val, err := strconv.ParseFloat(t.Value, 64); err == nil {
 						acc.Cash = val
 					}
