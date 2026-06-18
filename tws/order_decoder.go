@@ -68,127 +68,39 @@ func decodeOpenOrder(fields []string) (int64, Contract, Order, OrderState, bool)
 	o.OcaGroup = cursor.next()
 	o.Account = cursor.next()
 
-	cursor.skip(1) // openClose
-	cursor.skip(1) // origin
-	cursor.skip(1) // orderRef
-	cursor.skip(1) // clientId
-	cursor.skip(1) // permId
-	cursor.skip(1) // outsideRth
-	cursor.skip(1) // hidden
-	cursor.skip(1) // discretionaryAmt
-	cursor.skip(1) // goodAfterTime
-	cursor.skip(1) // sharesAllocation
-	cursor.skip(3) // faGroup, faMethod, faPercentage
-	cursor.skip(1) // modelCode
-	cursor.skip(1) // goodTillDate
-	cursor.skip(1) // rule80A
-	cursor.skip(1) // percentOffset
-	cursor.skip(1) // settlingFirm
-	cursor.skip(4) // shortSaleSlot, designatedLocation, exemptCode, _ 
-	cursor.skip(1) // auctionStrategy
-	cursor.skip(2) // startingPrice, stockRefPrice (box order)
-	cursor.skip(4) // pegToStkOrVol (delta, referencePriceType...)
-	cursor.skip(1) // displaySize
-	cursor.skip(1) // blockOrder
-	cursor.skip(1) // sweepToFill
-	cursor.skip(1) // allOrNone
-	cursor.skip(1) // minQty
-	cursor.skip(1) // ocaType
-	cursor.skip(1) // eTradeOnly
-	cursor.skip(1) // firmQuoteOnly
-	cursor.skip(1) // nbboPriceCap
-	cursor.skip(1) // parentId
-	cursor.skip(1) // triggerMethod
+	// The remainder of the openOrder message is a long, heavily version-gated
+	// run of order parameters (FA, box/peg/vol, combo legs, scale, hedge, algo,
+	// conditions, …) followed by the orderState block whose first field is the
+	// status. Rather than track every conditional offset (fragile, and easy to
+	// desync), we locate the status directly: it is always one of a known set
+	// of enum strings that do not collide with the preceding fields' values.
+	os.Status = findOrderStatus(fields, cursor.pos)
 
-	// VolOrderParams
-	cursor.skip(1) // volatility
-	cursor.skip(1) // volatilityType
-	cursor.skip(1) // deltaNeutralOrderType
-	cursor.skip(1) // deltaNeutralAuxPrice
-	
-	deltaNeutralConId := cursor.nextInt()
-	if deltaNeutralConId > 0 {
-		cursor.skip(1) // deltaNeutralDelta
-		cursor.skip(1) // deltaNeutralPrice
-		cursor.skip(1) // deltaNeutralShortSale
-		cursor.skip(1) // deltaNeutralShortSaleSlot
-		cursor.skip(1) // deltaNeutralDesignatedLocation
-	}
-	cursor.skip(1) // continuousUpdate
-	cursor.skip(1) // referencePriceType
-
-	cursor.skip(2) // trailStopPrice, trailingPercent
-	cursor.skip(2) // basisPoints, basisPointsType
-	
-	// ComboLegs
-	comboLegsStr := cursor.next()
-	comboLegsCount, _ := strconv.Atoi(comboLegsStr)
-	if comboLegsCount > 0 {
-		for i := 0; i < comboLegsCount; i++ {
-			cursor.skip(1) // conId
-			cursor.skip(1) // ratio
-			cursor.skip(1) // action
-			cursor.skip(1) // exchange
-			cursor.skip(1) // openClose
-			cursor.skip(1) // shortSaleSlot
-			cursor.skip(1) // designatedLocation
-			cursor.skip(1) // exemptCode
-		}
-	}
-
-	orderComboLegsCount := cursor.nextInt()
-	if orderComboLegsCount > 0 {
-		for i := 0; i < orderComboLegsCount; i++ {
-			cursor.skip(1) // price
-		}
-	}
-
-	// SmartComboRoutingParams
-	smartComboRoutingParamsCount := cursor.nextInt()
-	if smartComboRoutingParamsCount > 0 {
-		for i := 0; i < smartComboRoutingParamsCount; i++ {
-			cursor.skip(2) // tag, value
-		}
-	}
-
-	// ScaleOrderParams
-	cursor.skip(1) // scaleInitLevelSize
-	cursor.skip(1) // scaleSubsLevelSize
-	cursor.skip(1) // scalePriceIncrement
-
-	// HedgeParams
-	hedgeType := cursor.next()
-	if hedgeType != "" {
-		cursor.skip(1) // hedgeParam
-	}
-
-	cursor.skip(1) // optOutSmartRouting
-	cursor.skip(2) // clearingAccount, clearingIntent
-	cursor.skip(1) // notHeld
-
-	deltaNeutralContractPresent := cursor.next() == "1"
-	if deltaNeutralContractPresent {
-		cursor.skip(3) // conId, delta, price
-	}
-
-	// AlgoParams
-	algoStrategy := cursor.next()
-	if algoStrategy != "" {
-		algoParamsCount := cursor.nextInt()
-		if algoParamsCount > 0 {
-			for i := 0; i < algoParamsCount; i++ {
-				cursor.skip(2) // tag, value
-			}
-		}
-	}
-
-	cursor.skip(1) // solicited
-
-	// WhatIfInfoAndCommission
-	cursor.skip(1) // whatIf
-
-	// FINALLY! OrderState!
-	os.Status = cursor.next()
-	
 	return orderId, c, o, os, true
+}
+
+// orderStatusValues is the set of status strings TWS emits in orderState /
+// orderStatus (see EWrapper / OrderStatus docs).
+var orderStatusValues = map[string]bool{
+	"PendingSubmit": true,
+	"PendingCancel": true,
+	"PreSubmitted":  true,
+	"Submitted":     true,
+	"ApiPending":    true,
+	"ApiCancelled":  true,
+	"Cancelled":     true,
+	"Filled":        true,
+	"Inactive":      true,
+	"Unknown":       true,
+}
+
+// findOrderStatus returns the first field at or after `from` that is a known
+// order-status enum, or "" if none is present.
+func findOrderStatus(fields []string, from int) string {
+	for i := from; i < len(fields); i++ {
+		if orderStatusValues[fields[i]] {
+			return fields[i]
+		}
+	}
+	return ""
 }
