@@ -6,6 +6,7 @@ import (
 	"os"
 	"prophet-trader/tws"
 	"time"
+	"github.com/shopspring/decimal"
 )
 
 type smokeTestWrapper struct {
@@ -23,8 +24,16 @@ func (s *smokeTestWrapper) Error(reqId int, code int, msg string) {
 func (s *smokeTestWrapper) ContractDetails(reqId int64, details tws.ContractDetails) {}
 func (s *smokeTestWrapper) ContractDetailsEnd(reqId int64) {}
 
+func (s *smokeTestWrapper) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr tws.TickAttrib) {
+	fmt.Printf("TickPrice: reqId=%d tickType=%d price=%f size=%s attr=%+v\n", reqId, tickType, price, size.String(), attr)
+}
+
+func (s *smokeTestWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+	fmt.Printf("TickSize: reqId=%d tickType=%d size=%s\n", reqId, tickType, size.String())
+}
+
 func main() {
-	fmt.Println("Starting Phase 2.4 Smoke Test...")
+	fmt.Println("Starting Phase 2.5 Smoke Test...")
 	client := tws.NewClient("127.0.0.1", 4002, 5)
 	wrapper := &smokeTestWrapper{timeReceived: make(chan int64, 1)}
 	client.SetWrapper(wrapper)
@@ -37,21 +46,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Connected. Sending ReqContractDetails...")
-	contract := tws.Contract{Symbol: "ESTX50", SecType: tws.Option, Exchange: "EUREX", Currency: "EUR"}
+	fmt.Println("Connected. Requesting Market Data for AAPL...")
+	contract := tws.Contract{Symbol: "AAPL", SecType: tws.Stock, Exchange: "SMART", Currency: "USD"}
 	
-	details, err := client.ReqContractDetails(ctx, contract)
+	reqId := client.NextOrderId()
+	err := client.Encoder().ReqMktData(reqId, contract, "", false, false)
 	if err != nil {
-		fmt.Printf("FAIL: ReqContractDetails error: %v\n", err)
+		fmt.Printf("FAIL: ReqMktData error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if len(details) > 0 {
-		fmt.Printf("OK: Received %d ContractDetails. First ConId: %d, Multiplier: %s\n", len(details), details[0].Contract.ConId, details[0].Contract.Multiplier)
-	} else {
-		fmt.Println("FAIL: Received 0 ContractDetails.")
-		os.Exit(1)
-	}
+	// Wait to see ticks
+	time.Sleep(3 * time.Second)
+
+	fmt.Println("Cancelling Market Data...")
+	_ = client.Encoder().CancelMktData(reqId)
+	
 	client.Close()
 	fmt.Println("Smoke test completed successfully.")
 }

@@ -3,6 +3,8 @@ package tws
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/shopspring/decimal"
 )
 
 // Decoder parses incoming \0-delimited TWS messages and dispatches them
@@ -34,6 +36,12 @@ func (d *Decoder) Decode(fields []string) error {
 				d.wrapper.NextValidId(orderID)
 			}
 		}
+
+	case inTickPrice:
+		d.handleTickPrice(fields)
+
+	case inTickSize:
+		d.handleTickSize(fields)
 
 	case inManagedAccts: // [15, version, accountsCSV]
 		if len(fields) >= 3 {
@@ -112,4 +120,44 @@ func (d *Decoder) handleContractData(fields []string) {
 	}
 
 	d.wrapper.ContractDetails(reqId, cd)
+}
+
+func (d *Decoder) handleTickPrice(fields []string) {
+	if len(fields) < 6 {
+		return
+	}
+	version, _ := strconv.Atoi(fields[1])
+	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+	tickType, _ := strconv.Atoi(fields[3])
+	price, _ := strconv.ParseFloat(fields[4], 64)
+
+	size := decimal.Zero
+	if version >= 2 {
+		size, _ = decimal.NewFromString(fields[5])
+	}
+
+	attr := TickAttrib{}
+	if version >= 3 && len(fields) >= 7 {
+		attrMask, _ := strconv.Atoi(fields[6])
+		attr.CanAutoExecute = (attrMask & 1) != 0
+		if version >= 4 {
+			attr.PastLimit = (attrMask & 2) != 0
+		}
+		if version >= 6 {
+			attr.PreOpen = (attrMask & 4) != 0
+		}
+	}
+
+	d.wrapper.TickPrice(reqId, tickType, price, size, attr)
+}
+
+func (d *Decoder) handleTickSize(fields []string) {
+	if len(fields) < 5 {
+		return
+	}
+	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+	tickType, _ := strconv.Atoi(fields[3])
+	size, _ := decimal.NewFromString(fields[4])
+
+	d.wrapper.TickSize(reqId, tickType, size)
 }

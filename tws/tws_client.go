@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // Client version range advertised in the handshake. The server negotiates down
@@ -402,5 +404,25 @@ func (c *Client) ContractDetailsEnd(reqId int64) {
 	c.mu.RUnlock()
 	if appWrapper != nil {
 		appWrapper.ContractDetailsEnd(reqId)
+	}
+}
+
+func (c *Client) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib) {
+	c.dispatcher.Dispatch(reqId, TickPriceMsg{TickType: tickType, Price: price, Size: size, Attr: attr})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.TickPrice(reqId, tickType, price, size, attr)
+	}
+}
+
+func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+	c.dispatcher.Dispatch(reqId, TickSizeMsg{TickType: tickType, Size: size})
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.TickSize(reqId, tickType, size)
 	}
 }
