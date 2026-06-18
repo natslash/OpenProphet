@@ -53,13 +53,72 @@ func (s *IbkrDataService) GetLatestBar(ctx context.Context, symbol string) (*int
 // GetLatestQuote retrieves the most recent quote for a symbol
 func (s *IbkrDataService) GetLatestQuote(ctx context.Context, symbol string) (*interfaces.Quote, error) {
 	s.logger.WithField("symbol", symbol).Info("Fetching latest quote from IBKR")
-	
-	// IBKR-specific implementation logic will go here
-	// 1. Resolve symbol to Contract
+
+	// 1. Resolve symbol to Contract (Assume stock for now)
+	contract := tws.Contract{
+		Symbol:   symbol,
+		SecType:  tws.Stock,
+		Exchange: "SMART",
+		Currency: "USD",
+	}
+
+	// For simplicity, we fetch details first to get conID if needed
+	// In reality, we might just pass the contract if we have it
+	details, err := s.client.ReqContractDetails(ctx, contract)
+	if err != nil || len(details) == 0 {
+		return nil, fmt.Errorf("failed to resolve contract for %s: %v", symbol, err)
+	}
+	contract = details[0].Contract
+
 	// 2. reqMktData(contract)
+	reqID := s.client.NextOrderId()
+	ch := s.client.Dispatcher().Register(reqID)
+	defer s.client.Dispatcher().Complete(reqID)
+
+	if err := s.client.Encoder().ReqMktData(reqID, contract, "", true, false); err != nil {
+		return nil, fmt.Errorf("failed to request market data: %w", err)
+	}
+
 	// 3. Wait for tick/quote response
-	
-	return nil, fmt.Errorf("GetLatestQuote not implemented for IBKR yet")
+	var bidPrice, askPrice float64
+	var bidSize, askSize int64
+	var receivedCount int
+
+	for {
+		select {
+		case msg := <-ch:
+			switch m := msg.(type) {
+			case tws.TickPriceMsg:
+				if m.TickType == 1 { // Bid
+					bidPrice = m.Price
+				} else if m.TickType == 2 { // Ask
+					askPrice = m.Price
+				}
+				receivedCount++
+			case tws.TickSizeMsg:
+				if m.TickType == 0 { // Bid Size
+					bidSize = m.Size.IntPart()
+				} else if m.TickType == 3 { // Ask Size
+					askSize = m.Size.IntPart()
+				}
+				receivedCount++
+			case error:
+				return nil, m
+			}
+			if receivedCount >= 4 { // Got enough for a basic quote
+				return &interfaces.Quote{
+					Symbol:    symbol,
+					BidPrice:  bidPrice,
+					BidSize:   bidSize,
+					AskPrice:  askPrice,
+					AskSize:   askSize,
+					Timestamp: time.Now(),
+				}, nil
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // GetLatestTrade retrieves the most recent trade for a symbol

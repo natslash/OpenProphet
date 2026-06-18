@@ -312,10 +312,8 @@ func (c *Client) Encoder() *Encoder {
 	return NewEncoder(c)
 }
 
-func (c *Client) SetWrapper(w Wrapper) {
-	c.mu.Lock()
-	c.appWrapper = w
-	c.mu.Unlock()
+func (c *Client) Dispatcher() *Dispatcher {
+	return c.dispatcher
 }
 
 func (c *Client) writeFrame(payload []byte) error {
