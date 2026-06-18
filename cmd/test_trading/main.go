@@ -5,7 +5,7 @@
 //
 // Examples:
 //
-//	go run ./cmd/test_trading                                  # reads + default AAPL LMT @10, then cancel
+//	go run ./cmd/test_trading                                  # reads + default ESTX50 resting bracket limit @1, TP @5, SL @0.1
 //	go run ./cmd/test_trading -place=false                     # reads only
 //	go run ./cmd/test_trading -symbol ESTX50:20260619:C:6325 -price 50
 //	go run ./cmd/test_trading -type ""                         # exercise empty-type rejection
@@ -44,12 +44,14 @@ func main() {
 	clientID := flag.Int("client", 6, "API client id")
 	doPlace := flag.Bool("place", true, "place an order after the read paths")
 	doCancel := flag.Bool("cancel", true, "cancel the placed order")
-	symbol := flag.String("symbol", "AAPL", "interface symbol (e.g. AAPL or ESTX50:20260619:C:6325)")
+	symbol := flag.String("symbol", "ESTX50:20260619:C:6325", "interface symbol (e.g. AAPL or ESTX50:20260619:C:6325)")
 	side := flag.String("side", "buy", "buy|sell")
 	otype := flag.String("type", "LMT", "order type (limit/market/stop or TWS codes); empty exercises rejection")
 	qty := flag.Float64("qty", 1.0, "quantity (lots)")
-	price := flag.Float64("price", 10.0, "limit price (0 = unset)")
+	price := flag.Float64("price", 1.0, "limit price (0 = unset)")
 	stop := flag.Float64("stop", 0, "stop/aux price (0 = unset)")
+	tpPrice := flag.Float64("tp", 5.0, "take profit limit price (0 = unset)")
+	slPrice := flag.Float64("sl", 0.1, "stop loss trigger price (0 = unset)")
 	allowMarket := flag.Bool("allow-market", false, "permit a market order (off by default — can fill)")
 	flag.Parse()
 
@@ -137,6 +139,14 @@ func main() {
 	if *stop > 0 {
 		s := *stop
 		order.StopPrice = &s
+	}
+	if *tpPrice > 0 {
+		tp := *tpPrice
+		order.TakeProfitPrice = &tp
+	}
+	if *slPrice > 0 {
+		sl := *slPrice
+		order.StopLossPrice = &sl
 	}
 
 	c4, x4 := withCtx(8 * time.Second)

@@ -61,7 +61,9 @@ type Order struct {
 	Type          string // "market", "limit", etc.
 	TimeInForce   string // "day", "gtc", etc.
 	LimitPrice    *float64
-	StopPrice     *float64
+	StopPrice     *float64 // Stop trigger for entry orders (e.g., stop or stop_limit)
+	TakeProfitPrice *float64 // Limit price for the attached take-profit child order
+	StopLossPrice   *float64 // Stop trigger price for the attached stop-loss child order
 	Status        string
 	FilledQty     float64
 	FilledAvgPrice *float64

@@ -56,11 +56,13 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
 
-	orderID := s.client.NextOrderId()
+	parentID := s.client.NextOrderId()
 
 	side := "BUY"
+	reverseSide := "SELL"
 	if strings.EqualFold(order.Side, "sell") {
 		side = "SELL"
+		reverseSide = "BUY"
 	}
 
 	orderType, err := normalizeOrderType(order.Type)
@@ -68,25 +70,66 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
 
-	twsOrder := tws.Order{
-		Action:    side,
-		OrderType: orderType,
-		Tif:       order.TimeInForce,
-		Transmit:  true,
-		// Unset sentinels so the encoder emits "" (handle-empty) for prices
-		// not supplied, rather than a literal 0.
-		LmtPrice: tws.UnsetFloat,
-		AuxPrice: tws.UnsetFloat,
+	parentOrder := tws.Order{
+		Action:        side,
+		TotalQuantity: decimal.NewFromFloat(order.Qty),
+		OrderType:     orderType,
+		Tif:           order.TimeInForce,
+		LmtPrice:      tws.UnsetFloat,
+		AuxPrice:      tws.UnsetFloat,
 	}
-	twsOrder.TotalQuantity = decimal.NewFromFloat(order.Qty)
+
 	if order.LimitPrice != nil {
-		twsOrder.LmtPrice = *order.LimitPrice
+		parentOrder.LmtPrice = *order.LimitPrice
 	}
 	if order.StopPrice != nil {
-		twsOrder.AuxPrice = *order.StopPrice
+		parentOrder.AuxPrice = *order.StopPrice
 	}
-	if twsOrder.Tif == "" {
-		twsOrder.Tif = "DAY"
+	if parentOrder.Tif == "" {
+		parentOrder.Tif = "DAY"
+	}
+
+	var tpID, slID int64
+	var tpOrder, slOrder tws.Order
+
+	if order.TakeProfitPrice != nil {
+		tpID = s.client.NextOrderId()
+		tpOrder = tws.Order{
+			Action:        reverseSide,
+			TotalQuantity: parentOrder.TotalQuantity,
+			OrderType:     "LMT",
+			Tif:           parentOrder.Tif,
+			LmtPrice:      *order.TakeProfitPrice,
+			AuxPrice:      tws.UnsetFloat,
+			ParentId:      parentID,
+		}
+	}
+
+	if order.StopLossPrice != nil {
+		slID = s.client.NextOrderId()
+		slOrder = tws.Order{
+			Action:        reverseSide,
+			TotalQuantity: parentOrder.TotalQuantity,
+			OrderType:     "STP",
+			Tif:           parentOrder.Tif,
+			LmtPrice:      tws.UnsetFloat,
+			AuxPrice:      *order.StopLossPrice,
+			ParentId:      parentID,
+		}
+	}
+
+	// Transmit logic
+	if tpID == 0 && slID == 0 {
+		parentOrder.Transmit = true
+	} else if slID > 0 {
+		parentOrder.Transmit = false
+		if tpID > 0 {
+			tpOrder.Transmit = false
+		}
+		slOrder.Transmit = true
+	} else if tpID > 0 {
+		parentOrder.Transmit = false
+		tpOrder.Transmit = true
 	}
 
 	// Guardrail: log the full intended order BEFORE it hits the socket.
@@ -94,43 +137,74 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 	if order.LimitPrice != nil {
 		lmtStr = fmt.Sprintf("%.4f", *order.LimitPrice)
 	}
-	log.Printf("[IBKR] ORDER INTENT id=%d %s %s qty=%v type=%s lmt=%s tif=%s (paper)",
-		orderID, side, order.Symbol, order.Qty, orderType, lmtStr, twsOrder.Tif)
+	log.Printf("[IBKR] ORDER INTENT id=%d %s %s qty=%v type=%s lmt=%s tif=%s tp=%v sl=%v (paper)",
+		parentID, side, order.Symbol, order.Qty, orderType, lmtStr, parentOrder.Tif, tpID > 0, slID > 0)
 
-	// Register for this order's async status/reject before sending, so the
-	// acknowledgement (or rejection) can't race ahead of us.
-	ch := s.client.Register(orderID)
-	defer s.client.Complete(orderID)
+	// Register channels for all legs
+	type resultMsg struct {
+		id  int64
+		msg any
+	}
+	// Buffer must be large enough to hold all initial statuses/errors without blocking goroutines
+	aggCh := make(chan resultMsg, 30)
 
-	if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), orderID, contract, twsOrder); err != nil {
-		return nil, fmt.Errorf("PlaceOrder encode/send failed: %w", err)
+	ids := []int64{parentID}
+	if tpID > 0 {
+		ids = append(ids, tpID)
+	}
+	if slID > 0 {
+		ids = append(ids, slID)
 	}
 
-	// Wait for the first authoritative response: orderStatus (accepted) or an
-	// error (rejected). Never report success without confirmation.
+	for _, id := range ids {
+		id := id // capture
+		ch := s.client.Register(id)
+		defer s.client.Complete(id)
+		go func() {
+			for msg := range ch {
+				aggCh <- resultMsg{id: id, msg: msg}
+			}
+		}()
+	}
+
+	// Emit orders
+	if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), parentID, contract, parentOrder); err != nil {
+		return nil, fmt.Errorf("PlaceOrder parent encode/send failed: %w", err)
+	}
+	if tpID > 0 {
+		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), tpID, contract, tpOrder); err != nil {
+			return nil, fmt.Errorf("PlaceOrder TP encode/send failed: %w", err)
+		}
+	}
+	if slID > 0 {
+		if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), slID, contract, slOrder); err != nil {
+			return nil, fmt.Errorf("PlaceOrder SL encode/send failed: %w", err)
+		}
+	}
+
+	// Wait for the first authoritative response: orderStatus (accepted) or an error (rejected).
+	// We wait on aggCh to catch errors on ANY leg, but success requires parent confirmation.
 	confirmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	for {
 		select {
-		case msg, ok := <-ch:
-			if !ok {
-				return nil, fmt.Errorf("order %d: status channel closed before confirmation", orderID)
-			}
-			switch t := msg.(type) {
+		case rm := <-aggCh:
+			switch t := rm.msg.(type) {
 			case tws.OrderStatusMsg:
-				return &interfaces.OrderResult{
-					OrderID: strconv.FormatInt(orderID, 10),
-					Status:  t.Status,
-					Message: "Order acknowledged by TWS",
-				}, nil
+				if rm.id == parentID {
+					return &interfaces.OrderResult{
+						OrderID: strconv.FormatInt(parentID, 10),
+						Status:  t.Status,
+						Message: "Order acknowledged by TWS",
+					}, nil
+				}
 			case error:
-				return nil, fmt.Errorf("order %d rejected by TWS: %w", orderID, t)
+				return nil, fmt.Errorf("order %d rejected by TWS: %w", rm.id, t)
 			}
 		case <-confirmCtx.Done():
-			// Sent but unacknowledged. Do NOT signal an error (a retry could
-			// duplicate the order); surface it as pending for reconciliation.
+			// Sent but unacknowledged.
 			return &interfaces.OrderResult{
-				OrderID: strconv.FormatInt(orderID, 10),
+				OrderID: strconv.FormatInt(parentID, 10),
 				Status:  "PendingConfirm",
 				Message: "Order sent; no acknowledgement yet — reconcile via ListOrders",
 			}, nil

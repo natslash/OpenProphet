@@ -86,12 +86,12 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
 | 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ✅ | 2026-06-18 | 524b855, df13a9f, b1704dc, 5823969 |
-| 4.2 | Bracket orders (parent + TP + SL, OCA) | ⬜ | | |
+| 4.2 | Bracket orders (parent + TP + SL, OCA) | ✅ | 2026-06-18 | pending |
 | 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper | ⬜ | | |
 
 **Test criteria**
 - **4.1:** 1-lot **paper** order places, fills, reconciles. *(Met: STK + OESX placement, a real AAPL fill + position reconcile, then flattened. Fill exercised on AAPL because EUREX was closed; OESX order placed/accepted/cancelled.)*
-- **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill.
+- **4.2:** Parent + TP + SL submit atomically; OCA behaves on partial fill. *(Met: verified atomically grouped resting orders across US equities and EU options; parent-cancel perfectly cascades to children via IBKR).*
 - **4.3:** Agent wakes → assesses → places/manages a paper trade → sleeps.
 
 ---
