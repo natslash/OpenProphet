@@ -1,0 +1,567 @@
+diff --git a/PROGRESS.md b/PROGRESS.md
+index 02b9cfc..f4f0c98 100644
+--- a/PROGRESS.md
++++ b/PROGRESS.md
+@@ -133,4 +133,4 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
+ 2026-06-18 | Step 2.3  | Implemented Dispatcher and OrderIdManager. Integrated OrderIdManager into tws_client.go to replace manual nextOrderID fields. Unit tests passed, manual test verified NextOrderId() seeding works.
+ 2026-06-18 | Step 2.3.1| Hardening pass: fixed Dispatcher RLock race condition and added interleaving race test. Renamed CurrentTime millis variables to seconds and acknowledged usage of classic message ID 49 (seconds) instead of 10.44 millis. Added routing strategy to CLAUDE.md.
+ ```
+-Phase 3.2 implemented in services/ibkr_trading.go.
++2026-06-18 | Step 3.2  | Implemented services/ibkr_trading.go read paths (GetAccount via reqAccountSummary mapping NetLiquidation/TotalCashValue/BuyingPower; GetPositions via reqPositions). Extended tws/ with ReqAccountSummary/ReqPositions encoders, position/accountSummary(+End) decoders, and Wrapper callbacks (positions stream via a dedicated client channel since reqPositions has no reqId; account summary via the reqId dispatcher). PlaceOrder/CancelOrder/options methods remain explicit not-implemented stubs (Phase 4, manual). go build, go test ./..., go vet all green. Read paths not yet verified live against IB Gateway paper — that is the 3.2 test criterion to run next.
+diff --git a/cmd/tws_smoke_test/main.go b/cmd/tws_smoke_test/main.go
+index 7c3bcbe..3b26ed7 100644
+--- a/cmd/tws_smoke_test/main.go
++++ b/cmd/tws_smoke_test/main.go
+@@ -32,6 +32,12 @@ func (s *smokeTestWrapper) TickSize(reqId int64, tickType int, size decimal.Deci
+ 	fmt.Printf("TickSize: reqId=%d tickType=%d size=%s\n", reqId, tickType, size.String())
+ }
+ 
++func (s *smokeTestWrapper) Position(account string, contract tws.Contract, position decimal.Decimal, avgCost float64) {
++}
++func (s *smokeTestWrapper) PositionEnd()                                                     {}
++func (s *smokeTestWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {}
++func (s *smokeTestWrapper) AccountSummaryEnd(reqId int64)                                     {}
++
+ func main() {
+ 	fmt.Println("Starting Phase 2.5 Smoke Test...")
+ 	client := tws.NewClient("127.0.0.1", 4002, 5)
+diff --git a/services/ibkr_trading.go b/services/ibkr_trading.go
+index 3d2d00f..a92af47 100644
+--- a/services/ibkr_trading.go
++++ b/services/ibkr_trading.go
+@@ -5,9 +5,15 @@ import (
+ 	"fmt"
+ 	"prophet-trader/interfaces"
+ 	"prophet-trader/tws"
++	"strconv"
+ 	"time"
+ )
+ 
++// accountSummaryTags are the tags requested for GetAccount, mapped onto the
++// interfaces.Account fields below. PatternDayTrader / DayTradeCount are US
++// concepts and are intentionally left zero for IBKR.
++const accountSummaryTags = "NetLiquidation,TotalCashValue,BuyingPower"
++
+ // IBKRTradingService implements the read-only paths of interfaces.TradingService
+ // by wrapping the TWS client.
+ type IBKRTradingService struct {
+@@ -21,14 +27,110 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
+ 	return &IBKRTradingService{client: client}
+ }
+ 
+-// GetAccount returns the account summary (not yet implemented).
++// GetAccount returns the account summary by requesting NetLiquidation,
++// TotalCashValue and BuyingPower from TWS and mapping them onto
++// interfaces.Account. US-specific fields (PatternDayTrader, DayTradeCount) are
++// left zero/false.
+ func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Account, error) {
+-	return nil, fmt.Errorf("GetAccount not yet implemented")
++	reqId := s.client.NextOrderId()
++	ch := s.client.Register(reqId)
++	defer s.client.Complete(reqId)
++
++	if err := s.client.Encoder().ReqAccountSummary(reqId, "All", accountSummaryTags); err != nil {
++		return nil, fmt.Errorf("ReqAccountSummary error: %w", err)
++	}
++	defer func() { _ = s.client.Encoder().CancelAccountSummary(reqId) }()
++
++	account := &interfaces.Account{}
++
++	for {
++		select {
++		case msg, ok := <-ch:
++			if !ok {
++				// Channel closed by AccountSummaryEnd: all tags delivered.
++				return account, nil
++			}
++			switch m := msg.(type) {
++			case tws.AccountSummaryMsg:
++				if account.ID == "" {
++					account.ID = m.Account
++				}
++				val, err := strconv.ParseFloat(m.Value, 64)
++				if err != nil {
++					continue
++				}
++				switch m.Tag {
++				case "NetLiquidation":
++					account.PortfolioValue = val
++				case "TotalCashValue":
++					account.Cash = val
++				case "BuyingPower":
++					account.BuyingPower = val
++				}
++			case error:
++				return nil, fmt.Errorf("tws error: %w", m)
++			}
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
+ }
+ 
+-// GetPositions returns the current positions (not yet implemented).
++// GetPositions returns the current positions for the account. De-activated /
++// zero-quantity records are skipped.
+ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
+-	return nil, fmt.Errorf("GetPositions not yet implemented")
++	ch, err := s.client.ReqPositions()
++	if err != nil {
++		return nil, fmt.Errorf("ReqPositions error: %w", err)
++	}
++	defer func() { _ = s.client.CancelPositions() }()
++
++	var positions []*interfaces.Position
++
++	for {
++		select {
++		case msg, ok := <-ch:
++			if !ok {
++				// Channel closed by PositionEnd: all positions delivered.
++				return positions, nil
++			}
++			p, isPos := msg.(tws.PositionMsg)
++			if !isPos {
++				continue
++			}
++			qty := p.Position.InexactFloat64()
++			if qty == 0 {
++				continue
++			}
++			side := "long"
++			if qty < 0 {
++				side = "short"
++			}
++			positions = append(positions, &interfaces.Position{
++				Symbol:        positionSymbol(p.Contract),
++				Qty:           qty,
++				AvgEntryPrice: p.AvgCost,
++				CostBasis:     p.AvgCost * qty,
++				Side:          side,
++			})
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++}
++
++// positionSymbol derives a stable interface-level symbol string for a TWS
++// contract. For options it includes the underlying, expiry, right and strike;
++// otherwise it falls back to LocalSymbol or Symbol.
++func positionSymbol(c tws.Contract) string {
++	if c.SecType == tws.Option {
++		return fmt.Sprintf("%s %s %s%s", c.Symbol, c.LastTradeDateOrContractMonth, c.Right,
++			strconv.FormatFloat(c.Strike, 'f', -1, 64))
++	}
++	if c.LocalSymbol != "" {
++		return c.LocalSymbol
++	}
++	return c.Symbol
+ }
+ 
+ // ListOrders returns the list of open orders (not yet implemented).
+diff --git a/tws/constants.go b/tws/constants.go
+index 690a74b..5832ded 100644
+--- a/tws/constants.go
++++ b/tws/constants.go
+@@ -31,8 +31,10 @@ const (
+ 	inTickOptionComp  = 21
+ 	inCurrentTime     = 49
+ 	inContractDataEnd = 52
+-	inPosition        = 61
+-	inAccountSummary  = 63
++	inPosition          = 61
++	inPositionEnd       = 62
++	inAccountSummary    = 63
++	inAccountSummaryEnd = 64
+ )
+ 
+ // Tick types
+diff --git a/tws/decoder.go b/tws/decoder.go
+index 4114f5f..985e34c 100644
+--- a/tws/decoder.go
++++ b/tws/decoder.go
+@@ -72,6 +72,22 @@ func (d *Decoder) Decode(fields []string) error {
+ 			}
+ 		}
+ 
++	case inPosition:
++		d.handlePosition(fields)
++
++	case inPositionEnd: // [62, version]
++		d.wrapper.PositionEnd()
++
++	case inAccountSummary:
++		d.handleAccountSummary(fields)
++
++	case inAccountSummaryEnd: // [64, version, reqId]
++		if len(fields) >= 3 {
++			if reqId, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
++				d.wrapper.AccountSummaryEnd(reqId)
++			}
++		}
++
+ 	default:
+ 		// Unhandled message type in this phase
+ 	}
+@@ -122,6 +138,45 @@ func (d *Decoder) handleContractData(fields []string) {
+ 	d.wrapper.ContractDetails(reqId, cd)
+ }
+ 
++// handlePosition decodes a position message (version 3 layout):
++// [61, version, account, conId, symbol, secType, lastTradeDate, strike, right,
++//  multiplier, exchange, currency, localSymbol, tradingClass, position, avgCost]
++func (d *Decoder) handlePosition(fields []string) {
++	if len(fields) < 16 {
++		return
++	}
++
++	account := fields[2]
++
++	var contract Contract
++	contract.ConId, _ = strconv.ParseInt(fields[3], 10, 64)
++	contract.Symbol = fields[4]
++	contract.SecType = InstrumentType(fields[5])
++	contract.LastTradeDateOrContractMonth = fields[6]
++	contract.Strike, _ = strconv.ParseFloat(fields[7], 64)
++	contract.Right = fields[8]
++	contract.Multiplier = fields[9]
++	contract.Exchange = fields[10]
++	contract.Currency = fields[11]
++	contract.LocalSymbol = fields[12]
++	contract.TradingClass = fields[13]
++
++	position, _ := decimal.NewFromString(fields[14])
++	avgCost, _ := strconv.ParseFloat(fields[15], 64)
++
++	d.wrapper.Position(account, contract, position, avgCost)
++}
++
++// handleAccountSummary decodes an account summary message:
++// [63, version, reqId, account, tag, value, currency]
++func (d *Decoder) handleAccountSummary(fields []string) {
++	if len(fields) < 7 {
++		return
++	}
++	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
++	d.wrapper.AccountSummary(reqId, fields[3], fields[4], fields[5], fields[6])
++}
++
+ func (d *Decoder) handleTickPrice(fields []string) {
+ 	if len(fields) < 6 {
+ 		return
+diff --git a/tws/decoder_test.go b/tws/decoder_test.go
+index a82c15d..3111eb2 100644
+--- a/tws/decoder_test.go
++++ b/tws/decoder_test.go
+@@ -26,6 +26,19 @@ type mockWrapper struct {
+ 	tsReqId   int64
+ 	tsTick    int
+ 	tsSize    decimal.Decimal
++
++	posAccount  string
++	posContract Contract
++	posPosition decimal.Decimal
++	posAvgCost  float64
++	posEndCalls int
++
++	asReqId    int64
++	asAccount  string
++	asTag      string
++	asValue    string
++	asCurrency string
++	asEndReqId int64
+ }
+ 
+ func (m *mockWrapper) NextValidId(orderId int64) {
+@@ -69,6 +82,29 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal)
+ 	m.tsSize = size
+ }
+ 
++func (m *mockWrapper) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {
++	m.posAccount = account
++	m.posContract = contract
++	m.posPosition = position
++	m.posAvgCost = avgCost
++}
++
++func (m *mockWrapper) PositionEnd() {
++	m.posEndCalls++
++}
++
++func (m *mockWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {
++	m.asReqId = reqId
++	m.asAccount = account
++	m.asTag = tag
++	m.asValue = value
++	m.asCurrency = currency
++}
++
++func (m *mockWrapper) AccountSummaryEnd(reqId int64) {
++	m.asEndReqId = reqId
++}
++
+ func TestDecoder_Decode(t *testing.T) {
+ 	mock := &mockWrapper{}
+ 	decoder := NewDecoder(mock)
+@@ -166,6 +202,57 @@ func TestDecoder_Decode(t *testing.T) {
+ 				}
+ 			},
+ 		},
++		{
++			name: "position",
++			fields: []string{
++				"61", "3", "DU5894187", "12345", "ESTX50", "OPT", "20260619", "5200.0", "C",
++				"10", "EUREX", "EUR", "OESX", "OESX", "5", "1234.56",
++			},
++			validation: func(t *testing.T, m *mockWrapper) {
++				if m.posAccount != "DU5894187" {
++					t.Errorf("Expected position account DU5894187, got %s", m.posAccount)
++				}
++				if m.posContract.Symbol != "ESTX50" || m.posContract.ConId != 12345 {
++					t.Errorf("Expected position symbol ESTX50/conId 12345, got %+v", m.posContract)
++				}
++				if m.posPosition.String() != "5" {
++					t.Errorf("Expected position 5, got %s", m.posPosition.String())
++				}
++				if m.posAvgCost != 1234.56 {
++					t.Errorf("Expected avgCost 1234.56, got %f", m.posAvgCost)
++				}
++			},
++		},
++		{
++			name:   "position end",
++			fields: []string{"62", "1"},
++			validation: func(t *testing.T, m *mockWrapper) {
++				if m.posEndCalls != 1 {
++					t.Errorf("Expected 1 PositionEnd call, got %d", m.posEndCalls)
++				}
++			},
++		},
++		{
++			name:   "account summary",
++			fields: []string{"63", "1", "77", "DU5894187", "NetLiquidation", "100000.50", "EUR"},
++			validation: func(t *testing.T, m *mockWrapper) {
++				if m.asReqId != 77 || m.asAccount != "DU5894187" || m.asTag != "NetLiquidation" {
++					t.Errorf("Expected AS 77/DU5894187/NetLiquidation, got %d/%s/%s", m.asReqId, m.asAccount, m.asTag)
++				}
++				if m.asValue != "100000.50" || m.asCurrency != "EUR" {
++					t.Errorf("Expected AS value 100000.50/EUR, got %s/%s", m.asValue, m.asCurrency)
++				}
++			},
++		},
++		{
++			name:   "account summary end",
++			fields: []string{"64", "1", "77"},
++			validation: func(t *testing.T, m *mockWrapper) {
++				if m.asEndReqId != 77 {
++					t.Errorf("Expected AS End reqId 77, got %d", m.asEndReqId)
++				}
++			},
++		},
+ 		{
+ 			name:   "empty payload",
+ 			fields: []string{},
+diff --git a/tws/encoder.go b/tws/encoder.go
+index 164bf6c..685a495 100644
+--- a/tws/encoder.go
++++ b/tws/encoder.go
+@@ -103,6 +103,55 @@ func (e *Encoder) ReqMktData(reqId int64, contract Contract, genericTickList str
+ 	return e.writer.SendFields(fields...)
+ }
+ 
++// ReqAccountSummary requests account summary data for the given tags. The
++// server streams accountSummary messages keyed by reqId, terminated by an
++// accountSummaryEnd. group is typically "All"; tags is a comma-separated list
++// (e.g. "NetLiquidation,TotalCashValue,BuyingPower").
++func (e *Encoder) ReqAccountSummary(reqId int64, group, tags string) error {
++	const version = "1"
++	fields := []string{
++		strconv.Itoa(outReqAccountSummary),
++		version,
++		strconv.FormatInt(reqId, 10),
++		group,
++		tags,
++	}
++	return e.writer.SendFields(fields...)
++}
++
++// CancelAccountSummary cancels an account summary subscription.
++func (e *Encoder) CancelAccountSummary(reqId int64) error {
++	const version = "1"
++	fields := []string{
++		strconv.Itoa(outCancelAccountSummary),
++		version,
++		strconv.FormatInt(reqId, 10),
++	}
++	return e.writer.SendFields(fields...)
++}
++
++// ReqPositions subscribes to position updates for all accounts. Positions are
++// delivered via position messages and terminated by a positionEnd. This request
++// carries no reqId on the wire.
++func (e *Encoder) ReqPositions() error {
++	const version = "1"
++	fields := []string{
++		strconv.Itoa(outReqPositions),
++		version,
++	}
++	return e.writer.SendFields(fields...)
++}
++
++// CancelPositions cancels the position subscription.
++func (e *Encoder) CancelPositions() error {
++	const version = "1"
++	fields := []string{
++		strconv.Itoa(outCancelPositions),
++		version,
++	}
++	return e.writer.SendFields(fields...)
++}
++
+ // CancelMktData cancels a market data request.
+ func (e *Encoder) CancelMktData(reqId int64) error {
+ 	const version = "1"
+diff --git a/tws/tws_client.go b/tws/tws_client.go
+index 3b90754..a241477 100644
+--- a/tws/tws_client.go
++++ b/tws/tws_client.go
+@@ -52,6 +52,12 @@ type Client struct {
+ 	AsyncErrorCallback func(reqID, code int, msg string)
+ 	appWrapper         Wrapper
+ 
++	// positionsCh receives position/positionEnd updates for the single active
++	// ReqPositions subscription. reqPositions carries no reqId on the wire, so
++	// it cannot use the reqId-keyed dispatcher. nil when no request is active.
++	posMu       sync.Mutex
++	positionsCh chan any
++
+ 	nextIDCh  chan int64 // first nextValidId is delivered here
+ 	acctCh    chan string
+ 	errCh     chan error // a fatal error seen during connect
+@@ -436,3 +442,88 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
+ 		appWrapper.TickSize(reqId, tickType, size)
+ 	}
+ }
++
++func (c *Client) Position(account string, contract Contract, position decimal.Decimal, avgCost float64) {
++	c.posMu.Lock()
++	ch := c.positionsCh
++	c.posMu.Unlock()
++	if ch != nil {
++		select {
++		case ch <- PositionMsg{Account: account, Contract: contract, Position: position, AvgCost: avgCost}:
++		case <-c.closed:
++		}
++	}
++	c.mu.RLock()
++	appWrapper := c.appWrapper
++	c.mu.RUnlock()
++	if appWrapper != nil {
++		appWrapper.Position(account, contract, position, avgCost)
++	}
++}
++
++func (c *Client) PositionEnd() {
++	c.posMu.Lock()
++	ch := c.positionsCh
++	c.posMu.Unlock()
++	if ch != nil {
++		close(ch)
++	}
++	c.mu.RLock()
++	appWrapper := c.appWrapper
++	c.mu.RUnlock()
++	if appWrapper != nil {
++		appWrapper.PositionEnd()
++	}
++}
++
++func (c *Client) AccountSummary(reqId int64, account, tag, value, currency string) {
++	c.dispatcher.Dispatch(reqId, AccountSummaryMsg{Account: account, Tag: tag, Value: value, Currency: currency})
++	c.mu.RLock()
++	appWrapper := c.appWrapper
++	c.mu.RUnlock()
++	if appWrapper != nil {
++		appWrapper.AccountSummary(reqId, account, tag, value, currency)
++	}
++}
++
++func (c *Client) AccountSummaryEnd(reqId int64) {
++	c.dispatcher.Complete(reqId)
++	c.mu.RLock()
++	appWrapper := c.appWrapper
++	c.mu.RUnlock()
++	if appWrapper != nil {
++		appWrapper.AccountSummaryEnd(reqId)
++	}
++}
++
++// ReqPositions subscribes to account positions and returns an unbuffered channel
++// that receives PositionMsg values, closed after positionEnd. Only one positions
++// request may be active at a time. The caller must drain the channel to
++// completion. cancel via CancelPositions when done.
++func (c *Client) ReqPositions() (<-chan any, error) {
++	c.posMu.Lock()
++	if c.positionsCh != nil {
++		c.posMu.Unlock()
++		return nil, fmt.Errorf("positions request already active")
++	}
++	ch := make(chan any)
++	c.positionsCh = ch
++	c.posMu.Unlock()
++
++	if err := c.Encoder().ReqPositions(); err != nil {
++		c.posMu.Lock()
++		c.positionsCh = nil
++		c.posMu.Unlock()
++		return nil, err
++	}
++	return ch, nil
++}
++
++// CancelPositions cancels the active positions subscription and clears the
++// channel so a subsequent ReqPositions can be issued.
++func (c *Client) CancelPositions() error {
++	c.posMu.Lock()
++	c.positionsCh = nil
++	c.posMu.Unlock()
++	return c.Encoder().CancelPositions()
++}
+diff --git a/tws/wrapper.go b/tws/wrapper.go
+index 66f2a4a..2086d2e 100644
+--- a/tws/wrapper.go
++++ b/tws/wrapper.go
+@@ -21,6 +21,23 @@ type TickSizeMsg struct {
+ 	Size     decimal.Decimal
+ }
+ 
++// PositionMsg is a decoded position record delivered on a dispatcher channel.
++type PositionMsg struct {
++	Account  string
++	Contract Contract
++	Position decimal.Decimal
++	AvgCost  float64
++}
++
++// AccountSummaryMsg is a single account-summary tag value delivered on a
++// dispatcher channel.
++type AccountSummaryMsg struct {
++	Account  string
++	Tag      string
++	Value    string
++	Currency string
++}
++
+ // Wrapper is the callback interface for receiving decoded messages from TWS.
+ // It represents the Go equivalent of the Java EWrapper interface.
+ type Wrapper interface {
+@@ -32,4 +49,8 @@ type Wrapper interface {
+ 	ContractDetailsEnd(reqId int64)
+ 	TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib)
+ 	TickSize(reqId int64, tickType int, size decimal.Decimal)
++	Position(account string, contract Contract, position decimal.Decimal, avgCost float64)
++	PositionEnd()
++	AccountSummary(reqId int64, account, tag, value, currency string)
++	AccountSummaryEnd(reqId int64)
+ }
