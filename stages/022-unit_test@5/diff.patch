@@ -1,0 +1,57 @@
+diff --git a/go.mod b/go.mod
+index bc4ccb9..96b809f 100644
+--- a/go.mod
++++ b/go.mod
+@@ -6,6 +6,7 @@ require (
+ 	github.com/alpacahq/alpaca-trade-api-go/v3 v3.5.0
+ 	github.com/gin-gonic/gin v1.10.0
+ 	github.com/joho/godotenv v1.5.1
++	github.com/shopspring/decimal v1.3.1
+ 	github.com/sirupsen/logrus v1.9.3
+ 	gorm.io/driver/sqlite v1.5.6
+ 	gorm.io/gorm v1.25.12
+@@ -35,7 +36,6 @@ require (
+ 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+ 	github.com/modern-go/reflect2 v1.0.2 // indirect
+ 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+-	github.com/shopspring/decimal v1.3.1 // indirect
+ 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+ 	github.com/ugorji/go/codec v1.2.12 // indirect
+ 	golang.org/x/arch v0.8.0 // indirect
+diff --git a/services/ibkr_data.go b/services/ibkr_data.go
+index 57313e7..a8b3e07 100644
+--- a/services/ibkr_data.go
++++ b/services/ibkr_data.go
+@@ -66,17 +66,19 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string,
+ 
+ 	// TWS historical data response terminates with an empty HistoricalData message
+ 	// with ReqId > 0, Date == "", and Count == -1
+-	if err := s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false); err != nil {
++	err = s.client.Encoder().ReqHistoricalData(reqID, contract, endStr, duration, barSize, "TRADES", 1, 1, false)
++	if err != nil {
+ 		return nil, fmt.Errorf("failed to request historical data: %w", err)
+ 	}
+ 
+ 	// 3. Wait for historical data response
+ 	var bars []*interfaces.Bar
++	var lastErr error
+ 	for {
+ 		select {
+ 		case msg, ok := <-ch:
+ 			if !ok {
+-				return bars, nil
++				return bars, lastErr
+ 			}
+ 			switch m := msg.(type) {
+ 			case tws.HistoricalData:
+@@ -98,7 +100,9 @@ func (s *IbkrDataService) GetHistoricalBars(ctx context.Context, symbol string,
+ 					Volume:    int64(m.Volume),
+ 				})
+ 			case error:
+-				return nil, m
++				// If we get an error, check if it's a rate limit error (e.g., code 162)
++				// For now, keep it simple and return the error
++				lastErr = m
+ 			}
+ 		case <-ctx.Done():
+ 			return nil, ctx.Err()
