@@ -1,0 +1,604 @@
+{
+  "title": "Untitled run",
+  "spec": {
+    "run_id": "01KVD2Z0CS80MGXZNJGT6340DC",
+    "settings": {
+      "project": {
+        "name": null,
+        "description": null,
+        "metadata": {}
+      },
+      "workflow": {
+        "name": null,
+        "description": null,
+        "graph": "workflow.fabro",
+        "metadata": {}
+      },
+      "run": {
+        "goal": null,
+        "working_dir": null,
+        "metadata": {},
+        "inputs": {},
+        "model": {
+          "provider": "anthropic",
+          "name": "claude-sonnet-4-6",
+          "fallbacks": [],
+          "controls": {
+            "reasoning_effort": null,
+            "speed": null
+          }
+        },
+        "git": {
+          "author": null
+        },
+        "prepare": {
+          "commands": [],
+          "timeout_ms": 300000
+        },
+        "execution": {
+          "mode": "normal",
+          "approval": "prompt"
+        },
+        "checkpoint": {
+          "exclude_globs": [],
+          "skip_git_hooks": false
+        },
+        "clone": {
+          "enabled": true
+        },
+        "run_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "meta_branch": {
+          "enabled": true,
+          "push": true
+        },
+        "environment": {
+          "id": "default",
+          "provider": "docker",
+          "image": {
+            "docker": "buildpack-deps:noble",
+            "dockerfile": null
+          },
+          "resources": {
+            "cpu": 2,
+            "memory": "4GB",
+            "disk": null
+          },
+          "network": {
+            "mode": "allow_all",
+            "allow": []
+          },
+          "lifecycle": {
+            "preserve": false,
+            "stop_on_terminal": true,
+            "auto_stop": null
+          },
+          "labels": {},
+          "volumes": [],
+          "env": {}
+        },
+        "notifications": {},
+        "interviews": {
+          "provider": null,
+          "slack": null
+        },
+        "agent": {
+          "fabro_tools": false,
+          "permissions": null,
+          "mcps": {}
+        },
+        "hooks": [],
+        "scm": {
+          "provider": null,
+          "owner": null,
+          "repository": null,
+          "github": null
+        },
+        "pull_request": {
+          "enabled": true,
+          "draft": true,
+          "auto_merge": false,
+          "merge_strategy": "squash"
+        },
+        "artifacts": {
+          "include": []
+        },
+        "integrations": {
+          "github": {
+            "permissions": {}
+          }
+        }
+      }
+    },
+    "graph": {
+      "name": "G",
+      "nodes": {
+        "approve_plan": {
+          "id": "approve_plan",
+          "attrs": {
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "label": {
+              "String": "approve_plan"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "shape": {
+              "String": "hexagon"
+            }
+          }
+        },
+        "explain_failure": {
+          "id": "explain_failure",
+          "attrs": {
+            "shape": {
+              "String": "box"
+            },
+            "label": {
+              "String": "Analyze the test failure or review rejection. Explain clearly to the user what went wrong, and outline exactly what different approach the agent will take in the next implementation attempt to fix it."
+            },
+            "class": {
+              "String": "review"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "model": {
+              "String": "claude-opus-4-8"
+            },
+            "provider": {
+              "String": "anthropic"
+            }
+          },
+          "classes": [
+            "review"
+          ]
+        },
+        "review": {
+          "id": "review",
+          "attrs": {
+            "reasoning_effort": {
+              "String": "high"
+            },
+            "provider": {
+              "String": "anthropic"
+            },
+            "class": {
+              "String": "review"
+            },
+            "model": {
+              "String": "claude-opus-4-8"
+            },
+            "shape": {
+              "String": "box"
+            },
+            "label": {
+              "String": "Review the diff for protocol correctness against the TWS spec, concurrency safety (run/assume `-race`), dispatcher routing per CLAUDE.md, and guardrail compliance. Request changes if anything is wrong; do not rubber-stamp."
+            }
+          },
+          "classes": [
+            "review"
+          ]
+        },
+        "start": {
+          "id": "start",
+          "attrs": {
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "shape": {
+              "String": "Mdiamond"
+            },
+            "provider": {
+              "String": "gemini"
+            }
+          }
+        },
+        "push": {
+          "id": "push",
+          "attrs": {
+            "shape": {
+              "String": "box"
+            },
+            "class": {
+              "String": "command"
+            },
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "label": {
+              "String": "git push origin feature/ibkr-porting"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            }
+          },
+          "classes": [
+            "command"
+          ]
+        },
+        "unit_test": {
+          "id": "unit_test",
+          "attrs": {
+            "shape": {
+              "String": "box"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "class": {
+              "String": "command"
+            },
+            "label": {
+              "String": "go test -race ./tws/... ./services/..."
+            }
+          },
+          "classes": [
+            "command"
+          ]
+        },
+        "integration_manual": {
+          "id": "integration_manual",
+          "attrs": {
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "shape": {
+              "String": "hexagon"
+            },
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "label": {
+              "String": "integration_manual"
+            }
+          }
+        },
+        "analyze": {
+          "id": "analyze",
+          "attrs": {
+            "provider": {
+              "String": "gemini"
+            },
+            "shape": {
+              "String": "box"
+            },
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "label": {
+              "String": "Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step."
+            },
+            "reasoning_effort": {
+              "String": "low"
+            }
+          }
+        },
+        "exit": {
+          "id": "exit",
+          "attrs": {
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "shape": {
+              "String": "Msquare"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            }
+          }
+        },
+        "plan": {
+          "id": "plan",
+          "attrs": {
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "shape": {
+              "String": "box"
+            },
+            "label": {
+              "String": "Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step."
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "provider": {
+              "String": "gemini"
+            }
+          }
+        },
+        "approve_retry": {
+          "id": "approve_retry",
+          "attrs": {
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "shape": {
+              "String": "hexagon"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "label": {
+              "String": "approve_retry"
+            }
+          }
+        },
+        "implement": {
+          "id": "implement",
+          "attrs": {
+            "label": {
+              "String": "Implement only the approved plan. Follow CLAUDE.md and PROGRESS.md. Execute Phase 3 tasks (wiring up the data and trading services). One testable change. Add unit tests if applicable. **If the task involves placing/cancelling live orders (port 4001), STOP and fail — that is out of scope and forbidden.**"
+            },
+            "shape": {
+              "String": "box"
+            },
+            "class": {
+              "String": "coding"
+            },
+            "provider": {
+              "String": "gemini"
+            },
+            "model": {
+              "String": "gemini-3.1-pro-preview"
+            },
+            "reasoning_effort": {
+              "String": "high"
+            }
+          },
+          "classes": [
+            "coding"
+          ]
+        },
+        "approve_push": {
+          "id": "approve_push",
+          "attrs": {
+            "label": {
+              "String": "approve_push"
+            },
+            "reasoning_effort": {
+              "String": "low"
+            },
+            "shape": {
+              "String": "hexagon"
+            },
+            "model": {
+              "String": "gemini-3.1-flash-lite"
+            },
+            "provider": {
+              "String": "gemini"
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "from": "start",
+          "to": "analyze",
+          "attrs": {}
+        },
+        {
+          "from": "analyze",
+          "to": "plan",
+          "attrs": {}
+        },
+        {
+          "from": "plan",
+          "to": "approve_plan",
+          "attrs": {}
+        },
+        {
+          "from": "approve_plan",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "A"
+            }
+          }
+        },
+        {
+          "from": "approve_plan",
+          "to": "exit",
+          "attrs": {
+            "label": {
+              "String": "R"
+            }
+          }
+        },
+        {
+          "from": "implement",
+          "to": "unit_test",
+          "attrs": {}
+        },
+        {
+          "from": "unit_test",
+          "to": "review",
+          "attrs": {
+            "label": {
+              "String": "pass"
+            }
+          }
+        },
+        {
+          "from": "unit_test",
+          "to": "explain_failure",
+          "attrs": {
+            "label": {
+              "String": "fail"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "integration_manual",
+          "attrs": {
+            "label": {
+              "String": "pass"
+            }
+          }
+        },
+        {
+          "from": "review",
+          "to": "explain_failure",
+          "attrs": {
+            "label": {
+              "String": "fail"
+            }
+          }
+        },
+        {
+          "from": "explain_failure",
+          "to": "approve_retry",
+          "attrs": {}
+        },
+        {
+          "from": "approve_retry",
+          "to": "implement",
+          "attrs": {
+            "label": {
+              "String": "A"
+            }
+          }
+        },
+        {
+          "from": "approve_retry",
+          "to": "exit",
+          "attrs": {
+            "label": {
+              "String": "R"
+            }
+          }
+        },
+        {
+          "from": "integration_manual",
+          "to": "approve_push",
+          "attrs": {
+            "label": {
+              "String": "pass"
+            }
+          }
+        },
+        {
+          "from": "approve_push",
+          "to": "push",
+          "attrs": {
+            "label": {
+              "String": "A"
+            }
+          }
+        },
+        {
+          "from": "push",
+          "to": "exit",
+          "attrs": {}
+        }
+      ],
+      "attrs": {
+        "model_stylesheet": {
+          "String": "* { model: gemini-3.1-flash-lite; reasoning_effort: low; } .coding { model: gemini-3.1-pro-preview; reasoning_effort: high; } .review { model: claude-opus-4-8; reasoning_effort: high; }"
+        },
+        "goal": {
+          "String": ""
+        }
+      }
+    },
+    "graph_source": "digraph G {\n  graph [model_stylesheet=\"* { model: gemini-3.1-flash-lite; reasoning_effort: low; } .coding { model: gemini-3.1-pro-preview; reasoning_effort: high; } .review { model: claude-opus-4-8; reasoning_effort: high; }\"]\n\n  start [shape=Mdiamond]\n  exit [shape=Msquare]\n\n  analyze [shape=box, label=\"Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step.\"]\n  plan [shape=box, label=\"Treat CLAUDE.md + PROGRESS.md + IBKR_MIGRATION_PLAN_v2.md as the spec. Do not invent scope beyond the current step.\"]\n  \n  approve_plan [shape=hexagon, label=\"approve_plan\"]\n  \n  implement [shape=box, class=\"coding\", label=\"Implement only the approved plan. Follow CLAUDE.md and PROGRESS.md. Execute Phase 3 tasks (wiring up the data and trading services). One testable change. Add unit tests if applicable. **If the task involves placing/cancelling live orders (port 4001), STOP and fail — that is out of scope and forbidden.**\"]\n  \n  unit_test [shape=box, class=\"command\", label=\"go test -race ./tws/... ./services/...\"]\n  \n  review [shape=box, class=\"review\", label=\"Review the diff for protocol correctness against the TWS spec, concurrency safety (run/assume `-race`), dispatcher routing per CLAUDE.md, and guardrail compliance. Request changes if anything is wrong; do not rubber-stamp.\"]\n  \n  explain_failure [shape=box, class=\"review\", label=\"Analyze the test failure or review rejection. Explain clearly to the user what went wrong, and outline exactly what different approach the agent will take in the next implementation attempt to fix it.\"]\n  \n  approve_retry [shape=hexagon, label=\"approve_retry\"]\n  \n  integration_manual [shape=hexagon, label=\"integration_manual\"]\n  approve_push [shape=hexagon, label=\"approve_push\"]\n  \n  push [shape=box, class=\"command\", label=\"git push origin feature/ibkr-porting\"]\n\n  start -> analyze\n  analyze -> plan\n  plan -> approve_plan\n  approve_plan -> implement [label=\"A\"]\n  approve_plan -> exit [label=\"R\"]\n  \n  implement -> unit_test\n  \n  // Gate 1: Unit tests\n  unit_test -> review [label=\"pass\"]\n  unit_test -> explain_failure [label=\"fail\"]\n  \n  // Gate 2: Code Review\n  review -> integration_manual [label=\"pass\"]\n  review -> explain_failure [label=\"fail\"]\n  \n  // Failure analysis and manual check\n  explain_failure -> approve_retry\n  approve_retry -> implement [label=\"A\"]\n  approve_retry -> exit [label=\"R\"]\n  \n  integration_manual -> approve_push [label=\"pass\"]\n  approve_push -> push [label=\"A\"]\n  push -> exit\n}\n",
+    "workflow_slug": "workflow",
+    "source_directory": "/Users/shashi/Documents/git/OpenProphet",
+    "provenance": {
+      "server": {
+        "version": "0.254.0"
+      },
+      "client": {
+        "user_agent": "fabro-cli/0.254.0",
+        "name": "fabro-cli",
+        "version": "0.254.0"
+      },
+      "subject": {
+        "kind": "user",
+        "identity": {
+          "issuer": "fabro:dev",
+          "subject": "dev"
+        },
+        "login": "dev",
+        "auth_method": "dev_token"
+      }
+    },
+    "manifest_blob": "5e8f716b9880a18eaee483fce16dd00d3868deb35f40c0de2ede1a30e3d33d37",
+    "definition_blob": "c8ef8e8fb38c2a6cefec7ef4de9c9472830c25e52344ef101e8f5cf084054382",
+    "git": {
+      "origin_url": "https://github.com/natslash/OpenProphet",
+      "branch": "feature/ibkr-porting",
+      "sha": "7db855aba768c0ad39ea438b4233b56d6bdce000",
+      "dirty": "dirty",
+      "push_outcome": {
+        "type": "not_attempted"
+      }
+    }
+  },
+  "web_url": "http://127.0.0.1:32276/runs/01KVD2Z0CS80MGXZNJGT6340DC",
+  "start": null,
+  "status": {
+    "kind": "starting"
+  },
+  "status_updated_at": "2026-06-18T10:03:27.109253Z",
+  "last_event_at": "2026-06-18T10:03:36.053979Z",
+  "pending_control": null,
+  "checkpoints": [],
+  "conclusion": null,
+  "sandbox": {
+    "kind": "ready",
+    "plan": {
+      "provider": "docker",
+      "image": "buildpack-deps:noble"
+    },
+    "instance": {
+      "provider": "docker",
+      "image": "buildpack-deps:noble",
+      "runtime": {
+        "id": "d87a6efbf4abc1545656c42e935e11af332f2029bc03192ff45d57ca39e77cec",
+        "working_directory": "/workspace/OpenProphet",
+        "repo_cloned": true,
+        "clone_origin_url": "https://github.com/natslash/OpenProphet",
+        "clone_branch": "feature/ibkr-porting",
+        "workspace_root": "/workspace",
+        "repos_root": "/repos",
+        "primary_repo_path": "/repos/natslash/OpenProphet",
+        "primary_repo_link": "/workspace/OpenProphet"
+      }
+    }
+  },
+  "pull_request": null,
+  "superseded_by": null,
+  "pending_interviews": {},
+  "stages": {}
+}
