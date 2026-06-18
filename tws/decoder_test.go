@@ -11,6 +11,9 @@ type mockWrapper struct {
 	errCode         int
 	errMsg          string
 	currentTimeSecs int64
+	cdReqId         int64
+	cdDetails       ContractDetails
+	cdEndReqId      int64
 }
 
 func (m *mockWrapper) NextValidId(orderId int64) {
@@ -29,6 +32,15 @@ func (m *mockWrapper) Error(reqId int, code int, msg string) {
 
 func (m *mockWrapper) CurrentTime(timeInSeconds int64) {
 	m.currentTimeSecs = timeInSeconds
+}
+
+func (m *mockWrapper) ContractDetails(reqId int64, details ContractDetails) {
+	m.cdReqId = reqId
+	m.cdDetails = details
+}
+
+func (m *mockWrapper) ContractDetailsEnd(reqId int64) {
+	m.cdEndReqId = reqId
 }
 
 func TestDecoder_Decode(t *testing.T) {
@@ -73,6 +85,31 @@ func TestDecoder_Decode(t *testing.T) {
 			validation: func(t *testing.T, m *mockWrapper) {
 				if m.currentTimeSecs != 1680000000 {
 					t.Errorf("Expected time 1680000000, got %v", m.currentTimeSecs)
+				}
+			},
+		},
+		{
+			name:   "contract data",
+			fields: []string{
+				"10", "8", "42", "ESTX50", "OPT", "20260619", "5200.0", "C", "EUREX", "EUR",
+				"OESX", "ESTX50", "OESX", "12345", "1.0", "0", "10", "LMT", "EUREX", "0", "0",
+				"Euro Stoxx 50", "", "", "", "", "", "", "", "", "", "",
+			},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.cdReqId != 42 {
+					t.Errorf("Expected CD reqId 42, got %d", m.cdReqId)
+				}
+				if m.cdDetails.Contract.Symbol != "ESTX50" || m.cdDetails.Contract.ConId != 12345 {
+					t.Errorf("Expected CD symbol ESTX50, conId 12345, got %v", m.cdDetails)
+				}
+			},
+		},
+		{
+			name:   "contract data end",
+			fields: []string{"52", "1", "42"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.cdEndReqId != 42 {
+					t.Errorf("Expected CD End reqId 42, got %d", m.cdEndReqId)
 				}
 			},
 		},

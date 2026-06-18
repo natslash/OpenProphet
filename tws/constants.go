@@ -30,6 +30,7 @@ const (
 	inManagedAccts    = 15
 	inTickOptionComp  = 21
 	inCurrentTime     = 49
+	inContractDataEnd = 52
 	inPosition        = 61
 	inAccountSummary  = 63
 )

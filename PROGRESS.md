@@ -18,7 +18,7 @@
 
 ## Where we are right now
 
-**Phase 2.4.** Phase 2.3 complete (dispatcher and order ID manager implemented and tested). **Next action:** `tws/contract.go` + `reqContractDetails` for OESX (ESTX50).
+**Phase 2.5.** Phase 2.4 complete (contract and reqContractDetails for OESX). **Next action:** Market-data subscribe; parse ticks incl. **Decimal** sizes (types 5, 71).
 
 ---
 
@@ -55,7 +55,7 @@ Pure protocol. Codec is unit-testable against recorded bytes (Fabro-eligible per
 | 2.1 | `tws/tws_client.go` — handshake, `startApi`, capture `nextValidId` (+ `managedAccounts`) | ✅ | 2026-06-18 | f174446, 1486683 |
 | 2.2 | `tws/encoder.go` + `tws/decoder.go` + `tws/constants.go` — framing both ways; round-trip `reqCurrentTimeInMillis()` | ✅ | 2026-06-18 | pending |
 | 2.3 | `tws/dispatcher.go` (reqId→chan) + `tws/order_id_manager.go` (seed + atomic next) | ✅ | 2026-06-18 | pending |
-| 2.4 | `tws/contract.go` + `reqContractDetails` for OESX (ESTX50) | ⬜ | | |
+| 2.4 | `tws/contract.go` + `reqContractDetails` for OESX (ESTX50) | ✅ | 2026-06-18 | pending |
 | 2.5 | Market-data subscribe; parse ticks incl. **Decimal** sizes (types 5, 71) | ⬜ | | |
 
 **2.1 close-out notes:** connect blocks until both `nextValidId` and `managedAccounts`; `AsyncErrorCallback` routes post-connect errors (pre-connect errors stay fatal on `errCh`); single-write framing; `splitFields` preserves trailing empty fields. Unit tests: `TestSplitFields`, `TestWriteFrame`, `TestHandleMessage_AsyncError`. Verified live: server 187, account DU5894187, first valid order id 1.

@@ -3,7 +3,7 @@
 // length-prefixed, null-delimited message framing — no third-party library.
 //
 // It provides connection lifecycle management (handshake, startApi) and
-// natively integrates the encoder, decoder, and dispatcher components.
+// natively integrates the encoder and decoder components.
 package tws
 
 import (
@@ -45,6 +45,7 @@ type Client struct {
 	accounts  string
 	orderIDs  OrderIdManager
 	connected bool
+	dispatcher *Dispatcher
 
 	AsyncErrorCallback func(reqID, code int, msg string)
 	appWrapper         Wrapper
@@ -64,9 +65,10 @@ func NewClient(host string, port, clientID int) *Client {
 		port:     port,
 		clientID: clientID,
 		nextIDCh: make(chan int64, 1),
-		acctCh:   make(chan string, 1),
-		errCh:    make(chan error, 1),
-		closed:   make(chan struct{}),
+		acctCh:     make(chan string, 1),
+		errCh:      make(chan error, 1),
+		closed:     make(chan struct{}),
+		dispatcher: NewDispatcher(),
 	}
 	c.decoder = NewDecoder(c)
 	return c
@@ -171,7 +173,9 @@ func (c *Client) readLoop() {
 			c.signalClosed()
 			return
 		}
-		if err := c.decoder.Decode(splitFields(payload)); err != nil {
+		fields := splitFields(payload)
+		fmt.Printf("RECV: %q\n", fields)
+		if err := c.decoder.Decode(fields); err != nil {
 			fmt.Fprintf(os.Stderr, "tws_client: decode error: %v\n", err)
 		}
 	}
@@ -225,6 +229,11 @@ func (c *Client) Error(reqId int, code int, msg string) {
 			appWrapper.Error(reqId, code, msg)
 		}
 		return
+	}
+
+	if reqId > 0 {
+		c.dispatcher.Dispatch(int64(reqId), fmt.Errorf("TWS Error %d: %s", code, msg))
+		c.dispatcher.Complete(int64(reqId))
 	}
 
 	c.mu.RLock()
@@ -292,6 +301,7 @@ func (c *Client) signalClosed() {
 // sendFields writes one TWS message: each field null-terminated, the whole
 // body length-prefixed with a 4-byte big-endian length.
 func (c *Client) SendFields(fields ...string) error {
+	fmt.Printf("SEND: %q\n", fields)
 	body := []byte(strings.Join(fields, "\x00") + "\x00")
 	return c.writeFrame(body)
 }
@@ -344,4 +354,53 @@ func splitFields(payload []byte) []string {
 		return []string{""}
 	}
 	return strings.Split(s, "\x00")
+}
+
+// ReqContractDetails fetches contract details synchronously using the dispatcher.
+func (c *Client) ReqContractDetails(ctx context.Context, contract Contract) ([]ContractDetails, error) {
+	reqId := c.NextOrderId()
+	ch := c.dispatcher.Register(reqId)
+	
+	if err := c.Encoder().ReqContractDetails(reqId, contract); err != nil {
+		c.dispatcher.Complete(reqId)
+		return nil, err
+	}
+	
+	var results []ContractDetails
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return results, nil
+			}
+			if cd, isCd := msg.(ContractDetails); isCd {
+				results = append(results, cd)
+			} else if errWrapper, isErr := msg.(error); isErr {
+				return results, errWrapper
+			}
+		case <-ctx.Done():
+			c.dispatcher.Complete(reqId)
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func (c *Client) ContractDetails(reqId int64, details ContractDetails) {
+	c.dispatcher.Dispatch(reqId, details)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.ContractDetails(reqId, details)
+	}
+}
+
+func (c *Client) ContractDetailsEnd(reqId int64) {
+	c.dispatcher.Complete(reqId)
+	c.mu.RLock()
+	appWrapper := c.appWrapper
+	c.mu.RUnlock()
+	if appWrapper != nil {
+		appWrapper.ContractDetailsEnd(reqId)
+	}
 }

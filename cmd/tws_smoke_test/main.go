@@ -20,10 +20,12 @@ func (s *smokeTestWrapper) ManagedAccounts(accountsList string) {}
 func (s *smokeTestWrapper) Error(reqId int, code int, msg string) {
 	fmt.Printf("Error: [%d] %d %s\n", reqId, code, msg)
 }
+func (s *smokeTestWrapper) ContractDetails(reqId int64, details tws.ContractDetails) {}
+func (s *smokeTestWrapper) ContractDetailsEnd(reqId int64) {}
 
 func main() {
-	fmt.Println("Starting Phase 2.2 Smoke Test...")
-	client := tws.NewClient("127.0.0.1", 4002, 2)
+	fmt.Println("Starting Phase 2.4 Smoke Test...")
+	client := tws.NewClient("127.0.0.1", 4002, 5)
 	wrapper := &smokeTestWrapper{timeReceived: make(chan int64, 1)}
 	client.SetWrapper(wrapper)
 
@@ -35,18 +37,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Connected. Sending ReqCurrentTime...")
-	encoder := client.Encoder()
-	if err := encoder.ReqCurrentTime(); err != nil {
-		fmt.Printf("FAIL: ReqCurrentTime error: %v\n", err)
+	fmt.Println("Connected. Sending ReqContractDetails...")
+	contract := tws.Contract{Symbol: "ESTX50", SecType: tws.Option, Exchange: "EUREX", Currency: "EUR"}
+	
+	details, err := client.ReqContractDetails(ctx, contract)
+	if err != nil {
+		fmt.Printf("FAIL: ReqContractDetails error: %v\n", err)
 		os.Exit(1)
 	}
 
-	select {
-	case tMs := <-wrapper.timeReceived:
-		fmt.Printf("OK: Received CurrentTime: %d\n", tMs)
-	case <-time.After(5 * time.Second):
-		fmt.Println("FAIL: Timed out waiting for CurrentTime")
+	if len(details) > 0 {
+		fmt.Printf("OK: Received %d ContractDetails. First ConId: %d, Multiplier: %s\n", len(details), details[0].Contract.ConId, details[0].Contract.Multiplier)
+	} else {
+		fmt.Println("FAIL: Received 0 ContractDetails.")
 		os.Exit(1)
 	}
 	client.Close()
