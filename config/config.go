@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -17,6 +18,18 @@ type Config struct {
 	EnableLogging     bool
 	LogLevel          string
 	DataRetentionDays int
+
+	// Broker selection — temporary A/B aid during the IBKR build; end state is
+	// IBKR-only (Alpaca deleted at the Phase 5 cutover). Default "alpaca".
+	Broker       string // "alpaca" | "ibkr"
+	IBKRHost     string
+	IBKRPort     int // paper = 4002 (the only permitted target until Phase 6)
+	IBKRClientID int
+
+	// TradingEnabled is the master order kill-switch. When false (the default),
+	// the trading service runs in dry-run mode: order intent is logged but no
+	// order is placed/cancelled. Must be explicitly set true (Phase 4.3e).
+	TradingEnabled bool
 }
 
 var AppConfig *Config
@@ -36,6 +49,12 @@ func Load() error {
 		EnableLogging:     getEnvOrDefault("ENABLE_LOGGING", "true") == "true",
 		LogLevel:          getEnvOrDefault("LOG_LEVEL", "info"),
 		DataRetentionDays: 90,
+
+		Broker:         getEnvOrDefault("BROKER", "alpaca"),
+		IBKRHost:       getEnvOrDefault("IBKR_HOST", "127.0.0.1"),
+		IBKRPort:       getEnvAsInt("IBKR_PORT", 4002),
+		IBKRClientID:   getEnvAsInt("IBKR_CLIENT_ID", 1),
+		TradingEnabled: getEnvOrDefault("TRADING_ENABLED", "false") == "true",
 	}
 
 	return nil
@@ -44,6 +63,15 @@ func Load() error {
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvAsInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
 	}
 	return defaultValue
 }
