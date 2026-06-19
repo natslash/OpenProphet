@@ -95,7 +95,9 @@ Optional close-out: add `var _ interfaces.TradingService = (*…)(nil)` assertio
 | 4.3b | `services/ibkr_data.go` historical/latest bars over the codec. | Live bars match TWS UI (STK via TRADES, OESX via MIDPOINT); no orders. |
 | 4.3c | Safe bot wiring: `BROKER=` config, **paper-port 4002 enforced (reject 4001)**, disconnect→halt. | Bot connects, reads data, makes an assessment — **order capability withheld** (dry-run gate). |
 | 4.3d | `PositionManager` native-bracket refactor + tracking/reconciliation. | Entry orders use native TP/SL brackets without breaking DB reconciliation; manual tests, no looping. |
-| 4.3e | Supervised autonomous beat. | Hard caps (≤1 lot, max orders/run), dry-run/kill-switch, watched single beat — **explicit human authorisation required**. |
+| 4.3e | Supervised autonomous beat. | Hard caps (≤1 lot, max executions/day), dry-run/kill-switch, watched — **explicit human authorisation required**. |
+
+> **4.3e descope (review-driven):** the first supervised beat targets a **configured** OESX contract (`BEAT_SYMBOL`, e.g. `ESTX50:<expiry>:<C|P>:<strike>`) and analyses that contract's own historical bars (a verified data path) — dynamic options-chain resolution (`reqSecDefOptParams`/`GetOptionsChain`) and ESTX50-index analysis are deferred to a follow-up (overlaps Phase 5.1), since neither codec exists yet. Human authorisation is enforced by an `ADMIN_TOKEN` bearer on `/api/v1/beat/authorize/:id` (the Node agent has no token; the endpoint fails closed if the token is unset). Hard cap enforced at the execution boundary via `ExplicitQuantity` (≤1). Orders still flow through the `GatedTradingService` kill-switch, so nothing executes unless `TradingEnabled=true`. `getCurrentPrice` falls back to the latest historical bar when live quotes aren't entitled.
 
 > Phase 4 stays **human-in-the-loop, confirm-each-step**. Not a candidate for autonomous orchestration — this is the path that can send money. The 4.3a→4.3e split keeps the codec/data work (no orders) separate from the order-placing autonomous loop, which is gated behind a dry-run/kill-switch and explicit authorisation (4.3e).
 

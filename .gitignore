@@ -44,3 +44,6 @@ node_modules/
 # News summary cache
 news_summaries/*.json
 quickstart.sh
+
+# Manual harness scratch DB (cmd/test_pm)
+test_pm_db.json

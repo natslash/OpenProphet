@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 4.1–4.2 ✅, 4.3a–4.3c ✅ — next: 4.3d (PositionManager bracket refactor).** Order execution (4.1/4.2) validated live on paper: version-gated `placeOrder`/`cancelOrder`, `orderStatus`/`openOrder` confirm, a real fill + reconcile, atomic brackets with parent-cancel cascade. Historical data (4.3a codec + 4.3b service) verified live (AAPL TRADES w/ volume, OESX MIDPOINT clean series, `formatDate=2`, instrument-aware `whatToShow`, clamped durations). Safe bot wiring (4.3c): `BROKER=ibkr` connects to paper 4002 (port-enforced), reads work through the API, and the `GatedTradingService` kill-switch (default OFF) refuses orders — verified end-to-end; Alpaca path left ungated. Contract mapping for STK + OESX landed (partial Phase 5.1). **Order capability stays gated (TradingEnabled=false) until the supervised Phase 4.3e.**
+**Phase 4.1–4.2 ✅, 4.3a–4.3d ✅ — next: 4.3e (Supervised autonomous beat).** Order execution (4.1/4.2) validated live on paper: version-gated `placeOrder`/`cancelOrder`, `orderStatus`/`openOrder` confirm, a real fill + reconcile, atomic brackets with parent-cascade. Historical data (4.3a codec + 4.3b service) verified live. Safe bot wiring (4.3c): `BROKER=ibkr` connects to paper 4002 (port-enforced), reads work through the API, and the `GatedTradingService` kill-switch (default OFF) refuses orders — verified end-to-end. PositionManager bracket refactor (4.3d): entry orders seamlessly utilize native IBKR/Alpaca brackets without breaking DB reconciliation. **Order capability stays gated (TradingEnabled=false) until the supervised Phase 4.3e.**
 
 ---
 
@@ -90,7 +90,7 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 4.3a | Historical data codec (isolated, Fabro-eligible) | ✅ | 2026-06-18 | 7b032f1 |
 | 4.3b | `ibkr_data.go` historical/latest bars integration | ✅ | 2026-06-19 | 627f4ba, 381c9c3, f0b43f4, 9519673, efbe055 |
 | 4.3c | Safe Bot Wiring (Broker config, paper enforcement, disconnect monitor) | ✅ | 2026-06-19 | 5cbedfe, 72c14d2 |
-| 4.3d | `PositionManager` bracket refactor + tracking reconciliation | ⬜ | | |
+| 4.3d | `PositionManager` bracket refactor + tracking reconciliation | ✅ | 2026-06-19 | ef11214 |
 | 4.3e | Supervised autonomous beat (size caps, kill switch, watched) | ⬜ | | |
 
 **Test criteria**

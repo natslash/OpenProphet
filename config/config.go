@@ -30,6 +30,19 @@ type Config struct {
 	// the trading service runs in dry-run mode: order intent is logged but no
 	// order is placed/cancelled. Must be explicitly set true (Phase 4.3e).
 	TradingEnabled bool
+
+	// AdminToken authorises autonomous-beat trade intents. The /authorize
+	// endpoint requires "Authorization: Bearer <AdminToken>"; the Node agent
+	// must NOT have this value. If empty, authorisation fails closed (no intent
+	// can be executed) — human-only by construction.
+	AdminToken string
+
+	// Autonomous beat (Phase 4.3e). Disabled by default.
+	BeatEnabled            bool
+	BeatSymbol             string // configured target contract, e.g. "ESTX50:20260619:C:6325"
+	BeatIntervalSecs       int
+	BeatMaxDailyExecutions int
+	BeatForceSignal        bool // testing aid: force a buy signal every tick
 }
 
 var AppConfig *Config
@@ -55,6 +68,13 @@ func Load() error {
 		IBKRPort:       getEnvAsInt("IBKR_PORT", 4002),
 		IBKRClientID:   getEnvAsInt("IBKR_CLIENT_ID", 1),
 		TradingEnabled: getEnvOrDefault("TRADING_ENABLED", "false") == "true",
+
+		AdminToken:             os.Getenv("ADMIN_TOKEN"),
+		BeatEnabled:            getEnvOrDefault("BEAT_ENABLED", "false") == "true",
+		BeatSymbol:             getEnvOrDefault("BEAT_SYMBOL", "ESTX50:20260619:C:6325"),
+		BeatIntervalSecs:       getEnvAsInt("BEAT_INTERVAL_SECS", 300),
+		BeatMaxDailyExecutions: getEnvAsInt("BEAT_MAX_DAILY_EXECUTIONS", 3),
+		BeatForceSignal:        getEnvOrDefault("BEAT_FORCE_SIGNAL", "false") == "true",
 	}
 
 	return nil

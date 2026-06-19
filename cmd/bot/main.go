@@ -151,6 +151,16 @@ func main() {
 	positionManager := services.NewPositionManager(tradingService, dataService, storageService)
 	positionController := controllers.NewPositionManagementController(positionManager)
 
+	// Supervised autonomous beat (Phase 4.3e). Proposes trade intents; never
+	// executes without a token-authorised call to /api/v1/beat/authorize.
+	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, logger, services.AutonomousBeatConfig{
+		Symbol:             cfg.BeatSymbol,
+		Interval:           time.Duration(cfg.BeatIntervalSecs) * time.Second,
+		MaxDailyExecutions: cfg.BeatMaxDailyExecutions,
+		ForceSignal:        cfg.BeatForceSignal,
+	})
+	beatController := controllers.NewBeatController(autonomousBeat, cfg.AdminToken)
+
 	// Create activity logger
 	activityLogDir := os.Getenv("ACTIVITY_LOG_DIR")
 	if activityLogDir == "" {
@@ -166,7 +176,13 @@ func main() {
 	}
 
 	// Setup HTTP server
-	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController)
+	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController)
+
+	// Start the supervised beat only when explicitly enabled.
+	if cfg.BeatEnabled {
+		logger.Warn("Autonomous beat ENABLED (supervised) — intents require human token authorization")
+		go autonomousBeat.Run(ctx)
+	}
 
 	// Start data cleanup routine
 	go startDataCleanup(ctx, storageService, cfg.DataRetentionDays, logger)
@@ -196,7 +212,7 @@ func main() {
 	}
 }
 
-func setupRouter(orderController *controllers.OrderController, newsController *controllers.NewsController, intelligenceController *controllers.IntelligenceController, positionController *controllers.PositionManagementController, activityController *controllers.ActivityController, economicFeedsController *controllers.EconomicFeedsController) *gin.Engine {
+func setupRouter(orderController *controllers.OrderController, newsController *controllers.NewsController, intelligenceController *controllers.IntelligenceController, positionController *controllers.PositionManagementController, activityController *controllers.ActivityController, economicFeedsController *controllers.EconomicFeedsController, beatController *controllers.BeatController) *gin.Engine {
 	router := gin.Default()
 
 	// Enable CORS
@@ -258,6 +274,10 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 		api.GET("/intelligence/quick-market", intelligenceController.HandleGetQuickMarketIntelligence)
 		api.GET("/intelligence/analyze/:symbol", intelligenceController.HandleAnalyzeStock)
 		api.POST("/intelligence/analyze-multiple", intelligenceController.HandleAnalyzeMultipleStocks)
+
+		// Supervised autonomous beat (Phase 4.3e)
+		api.GET("/beat/intents", beatController.HandleListIntents)
+		api.POST("/beat/authorize/:intent_id", beatController.HandleAuthorize)
 
 		// Position management endpoints
 		api.POST("/positions/managed", positionController.HandlePlaceManagedPosition)

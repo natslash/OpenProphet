@@ -72,7 +72,11 @@ type PlaceManagedPositionRequest struct {
 	Symbol            string              `json:"symbol" binding:"required"`
 	Side              string              `json:"side" binding:"required"` // "buy" or "sell"
 	Strategy          string              `json:"strategy"` // "SWING_TRADE", "LONG_TERM", "DAY_TRADE"
-	AllocationDollars float64             `json:"allocation_dollars" binding:"required,gt=0"`
+	AllocationDollars float64             `json:"allocation_dollars"`
+	// ExplicitQuantity, when set, bypasses dollar-allocation sizing and fixes
+	// the order quantity exactly. The autonomous beat uses it to enforce the
+	// 1-lot hard cap at the execution boundary (validated to be exactly 1).
+	ExplicitQuantity  *int                `json:"explicit_quantity,omitempty"`
 
 	// Entry configuration
 	EntryStrategy     string              `json:"entry_strategy"` // "market", "limit"
@@ -166,7 +170,7 @@ func (pm *PositionManager) PlaceManagedPosition(ctx context.Context, req *PlaceM
 		entryPrice = *req.EntryPrice
 	}
 
-	quantity := pm.calculateQuantity(req.AllocationDollars, entryPrice)
+	quantity := pm.resolveQuantity(req, entryPrice)
 
 	// Calculate stop loss
 	stopLossPrice := pm.calculateStopLoss(entryPrice, req.StopLossPrice, req.StopLossPercent, req.Side)
@@ -636,6 +640,16 @@ func (pm *PositionManager) validateRequest(req *PlaceManagedPositionRequest) err
 		return fmt.Errorf("side must be 'buy' or 'sell'")
 	}
 
+	// Sizing: an explicit quantity (autonomous beat) is hard-capped at exactly
+	// 1 lot; otherwise a positive dollar allocation is required.
+	if req.ExplicitQuantity != nil {
+		if *req.ExplicitQuantity != 1 {
+			return fmt.Errorf("explicit_quantity must be exactly 1 (1-lot hard cap); got %d", *req.ExplicitQuantity)
+		}
+	} else if req.AllocationDollars <= 0 {
+		return fmt.Errorf("allocation_dollars must be > 0 (or set explicit_quantity)")
+	}
+
 	if req.EntryStrategy == "limit" && req.EntryPrice == nil {
 		return fmt.Errorf("entry_price required for limit orders")
 	}
@@ -653,19 +667,38 @@ func (pm *PositionManager) validateRequest(req *PlaceManagedPositionRequest) err
 
 func (pm *PositionManager) getCurrentPrice(ctx context.Context, symbol string) (float64, error) {
 	quote, err := pm.dataService.GetLatestQuote(ctx, symbol)
+	if err == nil {
+		if quote.AskPrice > 0 {
+			return quote.AskPrice, nil
+		}
+		if quote.BidPrice > 0 {
+			return quote.BidPrice, nil
+		}
+	}
+
+	// Fallback: live quotes may not be entitled (e.g. IBKR paper returns error
+	// 10089). Use the latest historical bar's close instead.
+	if bar, berr := pm.dataService.GetLatestBar(ctx, symbol); berr == nil && bar != nil && bar.Close > 0 {
+		return bar.Close, nil
+	}
+
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("no usable price for %s (live quote failed and no bar): %w", symbol, err)
 	}
-
-	if quote.AskPrice > 0 {
-		return quote.AskPrice, nil
-	}
-
-	return quote.BidPrice, nil
+	return 0, fmt.Errorf("no usable price for %s", symbol)
 }
 
 func (pm *PositionManager) calculateQuantity(allocation, price float64) float64 {
 	return math.Floor(allocation / price)
+}
+
+// resolveQuantity returns the exact ExplicitQuantity when set (the autonomous
+// beat's 1-lot cap), otherwise sizes by dollar allocation.
+func (pm *PositionManager) resolveQuantity(req *PlaceManagedPositionRequest, price float64) float64 {
+	if req.ExplicitQuantity != nil {
+		return float64(*req.ExplicitQuantity)
+	}
+	return pm.calculateQuantity(req.AllocationDollars, price)
 }
 
 func (pm *PositionManager) calculateStopLoss(entryPrice float64, stopPrice *float64, stopPercent *float64, side string) float64 {
