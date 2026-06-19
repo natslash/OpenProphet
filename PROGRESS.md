@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 4.1–4.2 ✅, 4.3a–4.3d ✅ — next: 4.3e (Supervised autonomous beat).** Order execution (4.1/4.2) validated live on paper: version-gated `placeOrder`/`cancelOrder`, `orderStatus`/`openOrder` confirm, a real fill + reconcile, atomic brackets with parent-cascade. Historical data (4.3a codec + 4.3b service) verified live. Safe bot wiring (4.3c): `BROKER=ibkr` connects to paper 4002 (port-enforced), reads work through the API, and the `GatedTradingService` kill-switch (default OFF) refuses orders — verified end-to-end. PositionManager bracket refactor (4.3d): entry orders seamlessly utilize native IBKR/Alpaca brackets without breaking DB reconciliation. **Order capability stays gated (TradingEnabled=false) until the supervised Phase 4.3e.**
+**Phase 4.1–4.3e ✅.** Order execution (4.1/4.2) validated live on paper. Historical data (4.3a codec + 4.3b service) verified live. Safe bot wiring (4.3c) connects to paper with `GatedTradingService`. PositionManager bracket refactor (4.3d) natively maps child orders. Supervised autonomous beat (4.3e) accurately analyzes market signals and securely gates execution behind an `ADMIN_TOKEN` human authorization endpoint.
 
 ---
 
@@ -91,7 +91,7 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 4.3b | `ibkr_data.go` historical/latest bars integration | ✅ | 2026-06-19 | 627f4ba, 381c9c3, f0b43f4, 9519673, efbe055 |
 | 4.3c | Safe Bot Wiring (Broker config, paper enforcement, disconnect monitor) | ✅ | 2026-06-19 | 5cbedfe, 72c14d2 |
 | 4.3d | `PositionManager` bracket refactor + tracking reconciliation | ✅ | 2026-06-19 | ef11214 |
-| 4.3e | Supervised autonomous beat (size caps, kill switch, watched) | ⬜ | | |
+| 4.3e | Supervised autonomous beat (size caps, kill switch, watched) | ✅ | 2026-06-19 | 58c055c |
 
 **Test criteria**
 - **4.1:** 1-lot **paper** order places, fills, reconciles. *(Met: STK + OESX placement, a real AAPL fill + position reconcile, then flattened. Fill exercised on AAPL because EUREX was closed; OESX order placed/accepted/cancelled.)*

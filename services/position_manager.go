@@ -703,26 +703,30 @@ func (pm *PositionManager) resolveQuantity(req *PlaceManagedPositionRequest, pri
 
 func (pm *PositionManager) calculateStopLoss(entryPrice float64, stopPrice *float64, stopPercent *float64, side string) float64 {
 	if stopPrice != nil {
-		return *stopPrice
+		return pm.roundPrice(*stopPrice)
 	}
 
 	if side == "buy" {
-		return entryPrice * (1 - *stopPercent/100.0)
+		return pm.roundPrice(entryPrice * (1 - *stopPercent/100.0))
 	}
 
-	return entryPrice * (1 + *stopPercent/100.0)
+	return pm.roundPrice(entryPrice * (1 + *stopPercent/100.0))
+}
+
+func (pm *PositionManager) roundPrice(val float64) float64 {
+	return math.Round(val*10) / 10
 }
 
 func (pm *PositionManager) calculateTakeProfit(entryPrice float64, profitPrice *float64, profitPercent *float64, side string) float64 {
 	if profitPrice != nil {
-		return *profitPrice
+		return pm.roundPrice(*profitPrice)
 	}
 
 	if side == "buy" {
-		return entryPrice * (1 + *profitPercent/100.0)
+		return pm.roundPrice(entryPrice * (1 + *profitPercent/100.0))
 	}
 
-	return entryPrice * (1 - *profitPercent/100.0)
+	return pm.roundPrice(entryPrice * (1 - *profitPercent/100.0))
 }
 
 func (pm *PositionManager) calculatePartialExitPrice(entryPrice, targetPercent float64, side string) float64 {

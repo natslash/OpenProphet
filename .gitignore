@@ -46,4 +46,4 @@ news_summaries/*.json
 quickstart.sh
 
 # Manual harness scratch DB (cmd/test_pm)
-test_pm_db.json
+test_pm_db.jsonopenprophet-bot

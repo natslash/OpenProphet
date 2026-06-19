@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"prophet-trader/interfaces"
+	"math"
 	"sync"
 	"time"
 
@@ -142,7 +143,7 @@ func (b *AutonomousBeat) signal(ctx context.Context) (side string, entry float64
 	}
 	// Far-from-market limit so the resting bracket cannot fill by accident
 	// (guardrail: test small, far from market).
-	return "buy", last * 0.5, reason, true
+	return "buy", math.Round((last * 0.5)*10)/10, reason, true
 }
 
 // ListIntents returns the currently-pending (non-expired) intents.
