@@ -328,6 +328,10 @@ func (c *Client) signalClosed() {
 	c.closeOnce.Do(func() { close(c.closed) })
 }
 
+// Closed returns a channel that is closed when the connection is torn down
+// (read-loop exit or Close()). Callers watch it to halt activity on disconnect.
+func (c *Client) Closed() <-chan struct{} { return c.closed }
+
 // --- framing helpers ---
 
 func debugLogFrame(prefix string, fields []string) {
