@@ -192,9 +192,12 @@ func calculateDuration(start, end time.Time, barSize string) string {
 }
 
 func getWhatToShow(secType tws.InstrumentType) string {
-	// For options, we will try TRADES to get volume if possible. 
-	// If it fails with 162 in practice, we might need a fallback.
+	// Options trade sparsely, so TRADES yields flat/gappy bars with ~zero
+	// volume; MIDPOINT gives a clean continuous price series for analysis.
+	// Stocks/futures/indices use TRADES for real OHLCV (incl. volume).
 	switch secType {
+	case tws.Option:
+		return "MIDPOINT"
 	default:
 		return "TRADES"
 	}
