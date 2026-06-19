@@ -168,7 +168,13 @@ func calculateDuration(start, end time.Time, barSize string) string {
 		return fmt.Sprintf("%d D", days)
 	}
 
-	days := int(diff.Hours() / 24)
+	// Sub-day durations format as "X S" (seconds) to prevent over-fetching
+	hours := diff.Hours()
+	if hours < 24 && hours > 0 {
+		return fmt.Sprintf("%d S", int(diff.Seconds()))
+	}
+
+	days := int(hours / 24)
 	if days <= 0 {
 		days = 1
 	}
@@ -186,9 +192,9 @@ func calculateDuration(start, end time.Time, barSize string) string {
 }
 
 func getWhatToShow(secType tws.InstrumentType) string {
+	// For options, we will try TRADES to get volume if possible. 
+	// If it fails with 162 in practice, we might need a fallback.
 	switch secType {
-	case tws.Option:
-		return "MIDPOINT" // Options trades can be sparse
 	default:
 		return "TRADES"
 	}
@@ -238,8 +244,9 @@ func (s *IBKRDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 }
 
 func (s *IBKRDataService) GetLatestBar(ctx context.Context, symbol string) (*interfaces.Bar, error) {
-	// 5-day lookback guarantees we cover 3-day weekends + market holidays
-	bars, err := s.GetHistoricalBars(ctx, symbol, time.Now().Add(-5*24*time.Hour), time.Now(), "1Min")
+	// 5-day lookback guarantees we cover 3-day weekends + market holidays.
+	// Using 5Min allows up to 5 days without hitting the IBKR intraday duration caps.
+	bars, err := s.GetHistoricalBars(ctx, symbol, time.Now().Add(-5*24*time.Hour), time.Now(), "5Min")
 	if err != nil {
 		return nil, err
 	}
