@@ -6,9 +6,9 @@
 
 ## Current state (read before acting)
 
-- **Done:** Phase 0, Phase 1 (seam already exists), Phase 2 (TWS wrapper), and Phase 3 (read-only services).
-- **Next:** Phase 4.1 — `placeOrder` / `cancelOrder` + `orderStatus`/`openOrder` callbacks via the dispatcher.
-- The code in this repo today: Alpaca services (live), `interfaces/` (the seam), `cmd/twscheck`, `cmd/twsconnect`, `tws/tws_client.go` (+ test). Everything else described below is **spec to build toward, not existing code** — do not assume a file exists because it is documented here.
+- **Done:** Phase 0, Phase 1 (seam exists), Phase 2 (TWS wrapper), Phase 3 (read-only services), Phase 4.1 (placeOrder/cancelOrder + orderStatus/openOrder, live-verified incl. a real fill), Phase 4.2 (atomic brackets), and Phase 4.3a–4.3b (historical-data codec + `IBKRDataService` historical/latest bars, live-verified for STK and OESX). Phase 5.1 partially landed (STK + OESX symbology mapping in `tws.ParseSymbol`/`FormatSymbol`).
+- **Next:** Phase 4.3c — safe bot wiring (`BROKER=` config, paper-port 4002 enforcement, disconnect→halt), reads only. **Gate:** build the dry-run/kill-switch first so the autonomous loop cannot place orders until the explicitly-authorised Phase 4.3e.
+- The code in this repo today includes (beyond the originals): `tws/*` (full from-scratch wrapper — client, encoder, decoder, dispatcher, wrapper, contract, order, symbology, date, historical), `services/ibkr_trading.go` + `services/ibkr_data.go` (implement the interfaces), and manual harnesses under `cmd/` (`twscheck`, `twsconnect`, `tws_smoke_test`, `test_trading`). Alpaca services remain live and are the default broker until the Phase 5 cutover.
 
 ---
 

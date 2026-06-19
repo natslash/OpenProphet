@@ -1,6 +1,6 @@
 # OpenProphet → IBKR Migration Plan v2
 
-> Supersedes the spring plan in `CLAUDE.md` / `PROGRESS.md`. Refreshed against the **actual repo tree** and **TWS API 10.44+**. Live step-by-step status lives in `PROGRESS.md`; as of 2026-06-18, Phase 0 and Phase 2.1 are done and Phase 1 is satisfied by the pre-existing seam (see Phase 1 below).
+> Supersedes the spring plan in `CLAUDE.md` / `PROGRESS.md`. Refreshed against the **actual repo tree** and **TWS API 10.44+**. Live step-by-step status lives in `PROGRESS.md`; as of 2026-06-19, Phases 0–3, 4.1, 4.2, and 4.3a–4.3b are done (order execution + brackets + historical data, live-verified on paper), Phase 1 is satisfied by the pre-existing seam, and 4.3c (safe bot wiring) is next.
 >
 > **Working rules (unchanged):** one step = one commit = one testable change · never skip ahead · mark ✅ only after the test passes · Claude confirms the full plan before writing code · no file modifications without explicit instruction · wait for confirmation before the next step.
 
@@ -90,9 +90,14 @@ Optional close-out: add `var _ interfaces.TradingService = (*…)(nil)` assertio
 |---|---|---|
 | 4.1 | `placeOrder` / `cancelOrder` + `orderStatus`/`openOrder` callbacks via the dispatcher. | 1-lot OESX **paper** order places, fills, reconciles. |
 | 4.2 | Bracket orders (the reason for leaving DEGIRO/Alpaca). | Parent + TP + SL submitted atomically; OCA behaves on partial fill. |
-| 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper. | Agent wakes → assesses → places/manages a paper trade → sleeps. |
+| 4.3 | `BROKER=ibkr` end-to-end autonomous beat on paper — **subdivided below** (review-driven). | Agent wakes → assesses → places/manages a paper trade → sleeps. |
+| 4.3a | Historical-data codec in `tws/` (encoder/decoder/wrapper/types), isolated + unit-tested. | Round-trips recorded bytes; no live socket, no orders. |
+| 4.3b | `services/ibkr_data.go` historical/latest bars over the codec. | Live bars match TWS UI (STK via TRADES, OESX via MIDPOINT); no orders. |
+| 4.3c | Safe bot wiring: `BROKER=` config, **paper-port 4002 enforced (reject 4001)**, disconnect→halt. | Bot connects, reads data, makes an assessment — **order capability withheld** (dry-run gate). |
+| 4.3d | `PositionManager` native-bracket refactor + tracking/reconciliation. | Entry orders use native TP/SL brackets without breaking DB reconciliation; manual tests, no looping. |
+| 4.3e | Supervised autonomous beat. | Hard caps (≤1 lot, max orders/run), dry-run/kill-switch, watched single beat — **explicit human authorisation required**. |
 
-> Phase 4 stays **human-in-the-loop, confirm-each-step**. Not a candidate for autonomous orchestration — this is the path that can send money.
+> Phase 4 stays **human-in-the-loop, confirm-each-step**. Not a candidate for autonomous orchestration — this is the path that can send money. The 4.3a→4.3e split keeps the codec/data work (no orders) separate from the order-placing autonomous loop, which is gated behind a dry-run/kill-switch and explicit authorisation (4.3e).
 
 ### Phase 5 — Cutover to IBKR-only
 | # | Step | Test / workable result |

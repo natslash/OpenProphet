@@ -16,7 +16,7 @@
 
 ---
 
-**Phase 4.1 ✅ — next: 4.2 (bracket orders).** Full order lifecycle validated live on paper: `placeOrder` (version-gated encoder) → `orderStatus`/`openOrder` confirm → `cancelOrder` → reconcile. Verified across **STK (AAPL)** and **OESX (ESTX50)** placement, a real **fill** + position reconciliation (1-share AAPL market, then flattened), and the 399 "queued until open" warning handled as non-fatal. Contract mapping for STK + OESX landed too (partial Phase 5.1).
+**Phase 4.1 ✅, 4.2 ✅, 4.3a ✅, 4.3b ✅ — next: 4.3c (safe bot wiring).** Order execution (4.1/4.2) validated live on paper: version-gated `placeOrder`/`cancelOrder`, `orderStatus`/`openOrder` confirm, a real fill + reconcile, atomic brackets with parent-cancel cascade. Historical data (4.3a codec + 4.3b service) verified live: AAPL daily/latest via TRADES (real volume), OESX 1-min via MIDPOINT (clean series), `formatDate=2` epoch dates, instrument-aware `whatToShow`, clamped/seconds durations. Contract mapping for STK + OESX landed (partial Phase 5.1). **4.3c gate:** build the dry-run/kill-switch so the bot loop cannot place orders until 4.3e.
 
 ---
 
@@ -87,8 +87,8 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 |------|-------------|--------|------|--------|
 | 4.1 | `placeOrder` / `cancelOrder` + `orderStatus` / `openOrder` callbacks via the dispatcher | ✅ | 2026-06-18 | 524b855, df13a9f, b1704dc, 5823969 |
 | 4.2 | Bracket orders (parent + TP + SL, OCA) | ✅ | 2026-06-18 | 84ea666 |
-| 4.3a | Historical data codec (isolated, Fabro-eligible) | ✅ | 2026-06-18 | pending |
-| 4.3b | `ibkr_data.go` historical/latest bars integration | ✅ | 2026-06-19 | pending |
+| 4.3a | Historical data codec (isolated, Fabro-eligible) | ✅ | 2026-06-18 | 7b032f1 |
+| 4.3b | `ibkr_data.go` historical/latest bars integration | ✅ | 2026-06-19 | 627f4ba, 381c9c3, f0b43f4, 9519673, efbe055 |
 | 4.3c | Safe Bot Wiring (Broker config, paper enforcement, disconnect monitor) | 🟡 | | |
 | 4.3d | `PositionManager` bracket refactor + tracking reconciliation | ⬜ | | |
 | 4.3e | Supervised autonomous beat (size caps, kill switch, watched) | ⬜ | | |
@@ -146,5 +146,6 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-18 | Step 4.1  | Warning handling (5823969): code 399 ("order will not be placed until <open>") is a non-fatal warning, not a rejection — isWarningCode keeps it off the order-confirm channel; authoritative state comes via orderStatus.
 2026-06-18 | Step 4.1  | CLOSED. Real fill + reconciliation exercised live (human-authorized, throwaway cmd, since live API data needs a subscription — 1-share AAPL market buy -> Filled @298.45 -> GetPositions shows qty 1 -> market sell -> flat). Full lifecycle proven: place/fill/cancel/reconcile across STK + OESX. Account left flat.
 2026-06-18 | Step 4.3a | Historical data codec implemented and verified live. Defined `HistoricalBar` type and updated Wrapper methods. Extended encoder with `ReqHistoricalData` mapped to TWS wire protocol. Wrote `historicalData`/`historicalDataEnd`/`historicalDataUpdate` handlers in decoder that respect the negotiated `ServerVersion`. Added test cases mapping to actual byte sequences. A standalone manual test against TWS port 4002 fetching AAPL last 5 days succeeded cleanly. Ready for integration into IBKRDataService (4.3b).
-2026-06-19 | Step 4.3b | Implemented `GetHistoricalBars` and `GetLatestBar` in `IBKRDataService` (services/ibkr_data.go). Implemented blocking sends on subscriber channels to prevent dropped bars. Mapped Alpaca durations to IBKR format cleanly and correctly requested format `2` (epoch seconds), making the TWS datetime parsing universally accurate. Ran direct smoke tests using `dataService.GetHistoricalBars()` and `dataService.GetLatestBar()` successfully over live paper-money TWS 4002.
+2026-06-19 | Step 4.3b | Implemented `GetHistoricalBars` and `GetLatestBar` in `IBKRDataService` (services/ibkr_data.go), `formatDate=2` (epoch seconds) for unambiguous timestamps. Verified live over paper TWS 4002.
+2026-06-19 | Step 4.3b (refine) | Review-driven follow-ups (381c9c3, f0b43f4, 9519673, efbe055): (1) bars now accumulate in a server-side `histBuf` and the single `HistoricalDataEnd` hands the whole slice over via `ExtData` — replaces the earlier per-bar blocking send so the read loop never blocks on a consumer and never drops bars; (2) `ParseTWSDate` extracted to `tws/date.go` + table test; (3) duration clamped for intraday and sub-day intraday windows emit `"<n> S"` (table-tested) to avoid 162/322 and over-fetch; (4) `GetLatestBar` uses `5Min`/5-day lookback (covers long weekends without hitting the 1-min cap); (5) `whatToShow` instrument-aware — MIDPOINT for options (clean series; OESX has ~0 volume), TRADES for stocks/futures/indices. Live-verified: AAPL TRADES (real volume), OESX MIDPOINT (continuous), OESX 1h→`3599 S`→60 bars. OPEN for 4.3d/e: intelligence layer must not depend on option volume (MIDPOINT bars are Vol=0).
 ```
