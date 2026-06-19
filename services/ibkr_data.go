@@ -146,18 +146,32 @@ func mapTimeframeToIBKR(tf string) string {
 
 func calculateDuration(start, end time.Time, barSize string) string {
 	diff := end.Sub(start)
-	if diff < 0 {
-		diff = 0
+	if diff <= 0 {
+		return "1 D" // defensive default
 	}
-	
-	// IBKR imposes strict limits on intraday historical data queries.
-	// Cap durations aggressively to avoid 162/322 errors.
-	if strings.HasSuffix(barSize, "min") || strings.HasSuffix(barSize, "mins") {
-		days := int(diff.Hours() / 24)
-		if days < 1 {
-			days = 1
+
+	intraday := strings.HasSuffix(barSize, "min") || strings.HasSuffix(barSize, "mins") ||
+		strings.HasSuffix(barSize, "hour") || strings.HasSuffix(barSize, "hours")
+
+	// Sub-day windows for intraday bars: request the exact number of seconds
+	// instead of rounding up to a full day (avoids over-fetching). IBKR's "S"
+	// duration unit tops out at 86400, which a sub-day window never exceeds.
+	if intraday && diff < 24*time.Hour {
+		secs := int(diff.Seconds())
+		if secs < 60 {
+			secs = 60 // ask for at least one minute of data
 		}
-		// Max 2 days for 1-minute bars, safely map 5-min to max 5 days.
+		return fmt.Sprintf("%d S", secs)
+	}
+
+	days := int(diff.Hours() / 24)
+	if days < 1 {
+		days = 1
+	}
+
+	// IBKR caps how much intraday data a single request may span; clamp to
+	// avoid 162/322 errors (1-min is the tightest).
+	if strings.HasSuffix(barSize, "min") || strings.HasSuffix(barSize, "mins") {
 		cap := 5
 		if barSize == "1 min" || barSize == "2 mins" {
 			cap = 2
@@ -168,18 +182,7 @@ func calculateDuration(start, end time.Time, barSize string) string {
 		return fmt.Sprintf("%d D", days)
 	}
 
-	// Sub-day durations format as "X S" (seconds) to prevent over-fetching
-	hours := diff.Hours()
-	if hours < 24 && hours > 0 {
-		return fmt.Sprintf("%d S", int(diff.Seconds()))
-	}
-
-	days := int(hours / 24)
-	if days <= 0 {
-		days = 1
-	}
-
-	// Simply specifying 'D' works for daily bars.
+	// Daily and larger bar sizes.
 	if days > 365 {
 		years := days / 365
 		if days%365 > 0 {
