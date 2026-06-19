@@ -81,10 +81,8 @@ func main() {
 		fmt.Printf("FAIL: GetHistoricalBars error: %v\n", err)
 		os.Exit(1)
 	}
-
 	for _, b := range bars {
-		fmt.Printf("Bar: Time=%v Open=%.2f High=%.2f Low=%.2f Close=%.2f Vol=%d\n", 
-			b.Timestamp.Local(), b.Open, b.High, b.Low, b.Close, b.Volume)
+		fmt.Printf("Bar: Time=%v Open=%.2f Close=%.2f Vol=%d\n", b.Timestamp.Local(), b.Open, b.Close, b.Volume)
 	}
 
 	fmt.Println("Requesting Latest Bar for AAPL via DataService...")
@@ -93,6 +91,19 @@ func main() {
 		fmt.Printf("FAIL: GetLatestBar error: %v\n", err)
 	} else {
 		fmt.Printf("Latest Bar: Time=%v Open=%.2f Close=%.2f\n", latest.Timestamp.Local(), latest.Open, latest.Close)
+	}
+
+	// Query a small intraday window for OESX
+	oesxSymbol := "ESTX50:20260619:C:5200"
+	oesxStart := time.Now().Add(-1 * time.Hour)
+	oesxBars, err := dataService.GetHistoricalBars(ctx, oesxSymbol, oesxStart, end, "1Min")
+	if err != nil {
+		fmt.Printf("FAIL: GetHistoricalBars OESX error: %v\n", err)
+	} else {
+		for _, b := range oesxBars {
+			fmt.Printf("OESX Bar: Time=%v Open=%.2f High=%.2f Low=%.2f Close=%.2f Vol=%d\n", 
+				b.Timestamp.Local(), b.Open, b.High, b.Low, b.Close, b.Volume)
+		}
 	}
 
 	client.Close()

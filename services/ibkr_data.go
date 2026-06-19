@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
-	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +17,7 @@ type IBKRDataService struct {
 	client  *tws.Client
 	mu      sync.RWMutex
 	streams map[int64]chan any
+	histBuf map[int64][]*interfaces.Bar
 }
 
 // Ensure IBKRDataService implements interfaces.DataService
@@ -26,6 +27,7 @@ func NewIBKRDataService(client *tws.Client) *IBKRDataService {
 	s := &IBKRDataService{
 		client:  client,
 		streams: make(map[int64]chan any),
+		histBuf: make(map[int64][]*interfaces.Bar),
 	}
 	client.AddWrapper(s)
 	return s
@@ -62,22 +64,32 @@ func (s *IBKRDataService) TickSize(reqId int64, tickType int, size decimal.Decim
 }
 
 func (s *IBKRDataService) HistoricalData(reqId int64, bar tws.HistoricalBar) {
-	s.mu.RLock()
-	ch, ok := s.streams[reqId]
-	s.mu.RUnlock()
-	if ok {
-		// Blocking send for historical data to avoid dropping bars
-		ch <- tws.HistoricalDataMsg{ReqId: reqId, Bar: bar}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Only buffer if we actually have an active subscription for this reqId
+	if _, ok := s.streams[reqId]; ok {
+		s.histBuf[reqId] = append(s.histBuf[reqId], &interfaces.Bar{
+			Timestamp: tws.ParseTWSDate(bar.Date),
+			Open:      bar.Open,
+			High:      bar.High,
+			Low:       bar.Low,
+			Close:     bar.Close,
+			Volume:    bar.Volume.IntPart(),
+			VWAP:      bar.WAP.InexactFloat64(),
+		})
 	}
 }
 
 func (s *IBKRDataService) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {
-	s.mu.RLock()
+	s.mu.Lock()
 	ch, ok := s.streams[reqId]
-	s.mu.RUnlock()
+	bars := s.histBuf[reqId]
+	delete(s.histBuf, reqId)
+	s.mu.Unlock()
+
 	if ok {
-		// Blocking send for end message
-		ch <- tws.HistoricalDataEndMsg{ReqId: reqId, Start: startDateStr, End: endDateStr}
+		// Non-blocking handoff of the entire assembled slice to avoid select/default dropping
+		ch <- tws.HistoricalDataEndMsg{ReqId: reqId, Start: startDateStr, End: endDateStr, ExtData: bars}
 	}
 }
 
@@ -107,6 +119,7 @@ func (s *IBKRDataService) unsubscribe(reqId int64) {
 		close(ch)
 		delete(s.streams, reqId)
 	}
+	delete(s.histBuf, reqId)
 	s.mu.Unlock()
 }
 
@@ -137,13 +150,30 @@ func calculateDuration(start, end time.Time, barSize string) string {
 		diff = 0
 	}
 	
+	// IBKR imposes strict limits on intraday historical data queries.
+	// Cap durations aggressively to avoid 162/322 errors.
+	if strings.HasSuffix(barSize, "min") || strings.HasSuffix(barSize, "mins") {
+		days := int(diff.Hours() / 24)
+		if days < 1 {
+			days = 1
+		}
+		// Max 2 days for 1-minute bars, safely map 5-min to max 5 days.
+		cap := 5
+		if barSize == "1 min" || barSize == "2 mins" {
+			cap = 2
+		}
+		if days > cap {
+			days = cap
+		}
+		return fmt.Sprintf("%d D", days)
+	}
+
 	days := int(diff.Hours() / 24)
 	if days <= 0 {
 		days = 1
 	}
 
-	// For intraday bars, max duration in days is limited.
-	// But simply specifying 'D' usually works for both intraday and daily bars.
+	// Simply specifying 'D' works for daily bars.
 	if days > 365 {
 		years := days / 365
 		if days%365 > 0 {
@@ -187,44 +217,15 @@ func (s *IBKRDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 		return nil, fmt.Errorf("ReqHistoricalData error: %w", err)
 	}
 
-	var bars []*interfaces.Bar
-
 	for {
 		select {
 		case msg := <-ch:
 			switch t := msg.(type) {
-			case tws.HistoricalDataMsg:
-				epochStr := t.Bar.Date
-				// If formatDate=2, date is epoch seconds string
-				// If the server doesn't honor it or it's a daily bar, it might be "20260618".
-				// Let's parse appropriately.
-				var ts time.Time
-				if len(epochStr) == 8 {
-					// YYYYMMDD fallback
-					if parsed, err := time.Parse("20060102", epochStr); err == nil {
-						ts = parsed
-					}
-				} else {
-					if epochSecs, err := strconv.ParseInt(epochStr, 10, 64); err == nil {
-						ts = time.Unix(epochSecs, 0)
-					} else {
-						// Last resort fallback
-						ts = time.Now()
-					}
-				}
-
-				bars = append(bars, &interfaces.Bar{
-					Symbol:    symbol,
-					Timestamp: ts,
-					Open:      t.Bar.Open,
-					High:      t.Bar.High,
-					Low:       t.Bar.Low,
-					Close:     t.Bar.Close,
-					Volume:    t.Bar.Volume.IntPart(),
-					VWAP:      t.Bar.WAP.InexactFloat64(),
-				})
-
 			case tws.HistoricalDataEndMsg:
+				bars, _ := t.ExtData.([]*interfaces.Bar)
+				for _, b := range bars {
+					b.Symbol = symbol
+				}
 				return bars, nil
 
 			case error:
@@ -237,9 +238,8 @@ func (s *IBKRDataService) GetHistoricalBars(ctx context.Context, symbol string, 
 }
 
 func (s *IBKRDataService) GetLatestBar(ctx context.Context, symbol string) (*interfaces.Bar, error) {
-	// For latest bar, request last 1 day of 1-minute bars (or requested timeframe, but interface doesn't pass timeframe)
-	// We'll hardcode to "1 min" for now or use GetHistoricalBars
-	bars, err := s.GetHistoricalBars(ctx, symbol, time.Now().Add(-24*time.Hour), time.Now(), "1Min")
+	// 5-day lookback guarantees we cover 3-day weekends + market holidays
+	bars, err := s.GetHistoricalBars(ctx, symbol, time.Now().Add(-5*24*time.Hour), time.Now(), "1Min")
 	if err != nil {
 		return nil, err
 	}

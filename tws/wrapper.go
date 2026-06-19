@@ -85,6 +85,7 @@ type HistoricalDataEndMsg struct {
 	ReqId   int64
 	Start   string
 	End     string
+	ExtData any
 }
 
 type HistoricalDataUpdateMsg struct {
