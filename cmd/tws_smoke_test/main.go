@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"prophet-trader/services"
 	"prophet-trader/tws"
 	"time"
+
 	"github.com/shopspring/decimal"
 )
 
@@ -65,21 +67,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Connected. Requesting Historical Data for AAPL...")
-	contract := tws.Contract{Symbol: "AAPL", SecType: tws.Stock, Exchange: "SMART", Currency: "USD"}
-	
-	reqId := client.NextOrderId()
+	fmt.Println("Connected. Initializing Data Service...")
+	dataService := services.NewIBKRDataService(client)
+
+	fmt.Println("Requesting Historical Data for AAPL via DataService...")
 	
 	// Query the last 5 days of 1-day bars
-	endDateTime := time.Now().Format("20060102 15:04:05")
-	err := client.Encoder().ReqHistoricalData(client.ServerVersion(), reqId, contract, endDateTime, "5 D", "1 day", "TRADES", 1, 1, false)
+	start := time.Now().Add(-5 * 24 * time.Hour)
+	end := time.Now()
+	
+	bars, err := dataService.GetHistoricalBars(ctx, "AAPL", start, end, "1Day")
 	if err != nil {
-		fmt.Printf("FAIL: ReqHistoricalData error: %v\n", err)
+		fmt.Printf("FAIL: GetHistoricalBars error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Wait to see bars
-	time.Sleep(5 * time.Second)
+	for _, b := range bars {
+		fmt.Printf("Bar: Time=%v Open=%.2f High=%.2f Low=%.2f Close=%.2f Vol=%d\n", 
+			b.Timestamp.Local(), b.Open, b.High, b.Low, b.Close, b.Volume)
+	}
+
+	fmt.Println("Requesting Latest Bar for AAPL via DataService...")
+	latest, err := dataService.GetLatestBar(ctx, "AAPL")
+	if err != nil {
+		fmt.Printf("FAIL: GetLatestBar error: %v\n", err)
+	} else {
+		fmt.Printf("Latest Bar: Time=%v Open=%.2f Close=%.2f\n", latest.Timestamp.Local(), latest.Open, latest.Close)
+	}
 
 	client.Close()
 	fmt.Println("Smoke test completed successfully.")
