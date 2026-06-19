@@ -73,6 +73,19 @@ func (s *AlpacaTradingService) PlaceOrder(ctx context.Context, order *interfaces
 		req.StopPrice = &stopPrice
 	}
 
+	if order.TakeProfitPrice != nil || order.StopLossPrice != nil {
+		req.OrderClass = alpaca.Bracket
+		if order.TakeProfitPrice != nil {
+			tpPrice := decimal.NewFromFloat(*order.TakeProfitPrice)
+			req.TakeProfit = &alpaca.TakeProfit{LimitPrice: &tpPrice}
+		}
+		if order.StopLossPrice != nil {
+			slPrice := decimal.NewFromFloat(*order.StopLossPrice)
+			// For basic bracket SL, we use StopPrice. LimitPrice is only if we want a StopLimit SL leg.
+			req.StopLoss = &alpaca.StopLoss{StopPrice: &slPrice}
+		}
+	}
+
 	s.logger.WithFields(logrus.Fields{
 		"symbol": order.Symbol,
 		"side":   order.Side,
@@ -86,10 +99,23 @@ func (s *AlpacaTradingService) PlaceOrder(ctx context.Context, order *interfaces
 		return nil, fmt.Errorf("failed to place order: %w", err)
 	}
 
+	var tpID, slID string
+	if alpacaOrder.Legs != nil {
+		for _, leg := range alpacaOrder.Legs {
+			if leg.Type == "limit" { // Typical for Take Profit
+				tpID = leg.ID
+			} else if leg.Type == "stop" || leg.Type == "stop_limit" { // Typical for Stop Loss
+				slID = leg.ID
+			}
+		}
+	}
+
 	return &interfaces.OrderResult{
-		OrderID: alpacaOrder.ID,
-		Status:  string(alpacaOrder.Status),
-		Message: fmt.Sprintf("Order placed successfully: %s %v shares of %s", order.Side, order.Qty, order.Symbol),
+		OrderID:           alpacaOrder.ID,
+		TakeProfitOrderID: tpID,
+		StopLossOrderID:   slID,
+		Status:            string(alpacaOrder.Status),
+		Message:           fmt.Sprintf("Order placed successfully: %s %v shares of %s", order.Side, order.Qty, order.Symbol),
 	}, nil
 }
 

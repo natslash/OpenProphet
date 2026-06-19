@@ -82,10 +82,13 @@ type OrderRequest struct {
 	StopPrice   *float64
 }
 
+// OrderResult represents the result of a placed order
 type OrderResult struct {
-	OrderID string
-	Status  string
-	Message string
+	OrderID           string
+	TakeProfitOrderID string
+	StopLossOrderID   string
+	Status            string
+	Message           string
 }
 
 type Position struct {

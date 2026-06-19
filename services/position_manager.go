@@ -256,12 +256,21 @@ func (pm *PositionManager) placeEntryOrder(ctx context.Context, position *Manage
 		order.LimitPrice = &position.EntryPrice
 	}
 
+	if position.TakeProfitPrice > 0 {
+		order.TakeProfitPrice = &position.TakeProfitPrice
+	}
+	if position.StopLossPrice > 0 {
+		order.StopLossPrice = &position.StopLossPrice
+	}
+
 	result, err := pm.tradingService.PlaceOrder(ctx, order)
 	if err != nil {
 		return err
 	}
 
 	position.EntryOrderID = result.OrderID
+	position.TakeProfitOrderID = result.TakeProfitOrderID
+	position.StopLossOrderID = result.StopLossOrderID
 	position.Status = "PENDING"
 
 	return nil
@@ -340,101 +349,21 @@ func (pm *PositionManager) checkEntryOrder(ctx context.Context, position *Manage
 			"position_id": position.ID,
 			"symbol":      position.Symbol,
 			"fill_price":  position.EntryPrice,
-		}).Info("Entry order filled - position now active")
+		}).Info("Entry order filled - native bracket risk active")
 
-		// Place risk management orders
-		pm.placeRiskOrders(ctx, position)
+		// Place partial exit order if configured (since it's not natively part of the bracket)
+		if position.PartialExit != nil && position.PartialExit.Enabled {
+			if err := pm.placePartialExitOrder(ctx, position); err != nil {
+				pm.logger.WithError(err).Error("Failed to place partial exit order")
+			}
+		}
 
 		// Save to database
 		pm.savePositionToDB(position)
 	}
 }
 
-// placeRiskOrders places stop loss and take profit orders
-func (pm *PositionManager) placeRiskOrders(ctx context.Context, position *ManagedPosition) {
-	// Place stop loss order
-	if err := pm.placeStopLossOrder(ctx, position); err != nil {
-		pm.logger.WithError(err).Error("Failed to place stop loss order")
-	}
-
-	// Place take profit order
-	if err := pm.placeTakeProfitOrder(ctx, position); err != nil {
-		pm.logger.WithError(err).Error("Failed to place take profit order")
-	}
-
-	// Place partial exit order if configured
-	if position.PartialExit != nil && position.PartialExit.Enabled {
-		if err := pm.placePartialExitOrder(ctx, position); err != nil {
-			pm.logger.WithError(err).Error("Failed to place partial exit order")
-		}
-	}
-}
-
-// placeStopLossOrder places or updates stop loss order
-func (pm *PositionManager) placeStopLossOrder(ctx context.Context, position *ManagedPosition) error {
-	exitSide := "sell"
-	if position.Side == "sell" {
-		exitSide = "buy"
-	}
-
-	order := &interfaces.Order{
-		Symbol:      position.Symbol,
-		Qty:         position.RemainingQty,
-		Side:        exitSide,
-		Type:        "stop",
-		TimeInForce: "gtc",
-		StopPrice:   &position.StopLossPrice,
-		Status:      "pending",
-		SubmittedAt: time.Now(),
-	}
-
-	result, err := pm.tradingService.PlaceOrder(ctx, order)
-	if err != nil {
-		return err
-	}
-
-	position.StopLossOrderID = result.OrderID
-	pm.logger.WithFields(logrus.Fields{
-		"position_id": position.ID,
-		"order_id":    result.OrderID,
-		"stop_price":  position.StopLossPrice,
-	}).Info("Stop loss order placed")
-
-	return nil
-}
-
-// placeTakeProfitOrder places take profit limit order
-func (pm *PositionManager) placeTakeProfitOrder(ctx context.Context, position *ManagedPosition) error {
-	exitSide := "sell"
-	if position.Side == "sell" {
-		exitSide = "buy"
-	}
-
-	order := &interfaces.Order{
-		Symbol:      position.Symbol,
-		Qty:         position.RemainingQty,
-		Side:        exitSide,
-		Type:        "limit",
-		TimeInForce: "gtc",
-		LimitPrice:  &position.TakeProfitPrice,
-		Status:      "pending",
-		SubmittedAt: time.Now(),
-	}
-
-	result, err := pm.tradingService.PlaceOrder(ctx, order)
-	if err != nil {
-		return err
-	}
-
-	position.TakeProfitOrderID = result.OrderID
-	pm.logger.WithFields(logrus.Fields{
-		"position_id": position.ID,
-		"order_id":    result.OrderID,
-		"limit_price": position.TakeProfitPrice,
-	}).Info("Take profit order placed")
-
-	return nil
-}
+// placeRiskOrders, placeStopLossOrder, and placeTakeProfitOrder deleted - native brackets now used.
 
 // placePartialExitOrder places partial exit order
 func (pm *PositionManager) placePartialExitOrder(ctx context.Context, position *ManagedPosition) error {
@@ -474,14 +403,37 @@ func (pm *PositionManager) placePartialExitOrder(ctx context.Context, position *
 
 // manageRiskOrders checks and updates risk management orders
 func (pm *PositionManager) manageRiskOrders(ctx context.Context, position *ManagedPosition) {
-	// Check stop loss order status
+	// Fallback for native brackets: if the orders vanish or fill, the broker position goes to 0.
+	brokerPositions, err := pm.tradingService.GetPositions(ctx)
+	if err == nil {
+		var foundQty float64
+		for _, bp := range brokerPositions {
+			if bp.Symbol == position.Symbol {
+				foundQty = bp.Qty
+				break
+			}
+		}
+
+		if foundQty == 0 {
+			position.Status = "CLOSED"
+			position.RemainingQty = 0
+			now := time.Now()
+			position.ClosedAt = &now
+			pm.logger.WithField("position_id", position.ID).Info("Position natively closed by bracket")
+			pm.savePositionToDB(position)
+			return
+		}
+	}
+
+	// Also explicitly check stop loss order status (if ID is known and it's still available in GetOrder)
 	if position.StopLossOrderID != "" {
 		order, err := pm.tradingService.GetOrder(ctx, position.StopLossOrderID)
 		if err == nil && order.Status == "filled" {
 			position.Status = "STOPPED_OUT"
 			now := time.Now()
 			position.ClosedAt = &now
-			pm.logger.WithField("position_id", position.ID).Info("Position stopped out")
+			position.RemainingQty = 0
+			pm.logger.WithField("position_id", position.ID).Info("Position stopped out natively")
 			pm.savePositionToDB(position)
 			return
 		}
@@ -494,7 +446,8 @@ func (pm *PositionManager) manageRiskOrders(ctx context.Context, position *Manag
 			position.Status = "CLOSED"
 			now := time.Now()
 			position.ClosedAt = &now
-			pm.logger.WithField("position_id", position.ID).Info("Position closed at profit target")
+			position.RemainingQty = 0
+			pm.logger.WithField("position_id", position.ID).Info("Position closed natively at profit target")
 			pm.savePositionToDB(position)
 			return
 		}
@@ -518,41 +471,9 @@ func (pm *PositionManager) manageRiskOrders(ctx context.Context, position *Manag
 
 // updateTrailingStop updates trailing stop loss based on current price
 func (pm *PositionManager) updateTrailingStop(ctx context.Context, position *ManagedPosition) {
-	if position.Side == "buy" {
-		// For long positions, raise stop as price rises
-		newStopPrice := position.CurrentPrice * (1 - position.TrailingPercent/100.0)
-		if newStopPrice > position.StopLossPrice {
-			// Cancel old stop loss order
-			if position.StopLossOrderID != "" {
-				pm.tradingService.CancelOrder(ctx, position.StopLossOrderID)
-			}
-
-			// Update stop price and place new order
-			position.StopLossPrice = newStopPrice
-			pm.placeStopLossOrder(ctx, position)
-
-			pm.logger.WithFields(logrus.Fields{
-				"position_id":    position.ID,
-				"new_stop_price": newStopPrice,
-			}).Info("Trailing stop updated")
-		}
-	} else {
-		// For short positions, lower stop as price falls
-		newStopPrice := position.CurrentPrice * (1 + position.TrailingPercent/100.0)
-		if newStopPrice < position.StopLossPrice {
-			if position.StopLossOrderID != "" {
-				pm.tradingService.CancelOrder(ctx, position.StopLossOrderID)
-			}
-
-			position.StopLossPrice = newStopPrice
-			pm.placeStopLossOrder(ctx, position)
-
-			pm.logger.WithFields(logrus.Fields{
-				"position_id":    position.ID,
-				"new_stop_price": newStopPrice,
-			}).Info("Trailing stop updated")
-		}
-	}
+	// TODO(Phase 4.4): Native trailing stops for brackets require sending an Order Modification
+	// for the specific SL child leg instead of placing a brand new order.
+	pm.logger.WithField("position_id", position.ID).Warn("Trailing stops are currently disabled pending native bracket modification support.")
 }
 
 // updatePositionPrice updates current price and unrealized P&L

@@ -194,10 +194,20 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 			switch t := rm.msg.(type) {
 			case tws.OrderStatusMsg:
 				if rm.id == parentID {
+					var tpStr, slStr string
+					if tpID > 0 {
+						tpStr = fmt.Sprintf("%d", tpID)
+					}
+					if slID > 0 {
+						slStr = fmt.Sprintf("%d", slID)
+					}
+
 					return &interfaces.OrderResult{
-						OrderID: strconv.FormatInt(parentID, 10),
-						Status:  t.Status,
-						Message: "Order acknowledged by TWS",
+						OrderID:           fmt.Sprintf("%d", parentID),
+						TakeProfitOrderID: tpStr,
+						StopLossOrderID:   slStr,
+						Status:            "submitted",
+						Message:           fmt.Sprintf("Parent order %d submitted; awaiting fills", parentID),
 					}, nil
 				}
 			case error:
@@ -206,11 +216,21 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 				return nil, fmt.Errorf("order %d rejected by TWS: %w", rm.id, t)
 			}
 		case <-confirmCtx.Done():
+			var tpStr, slStr string
+			if tpID > 0 {
+				tpStr = fmt.Sprintf("%d", tpID)
+			}
+			if slID > 0 {
+				slStr = fmt.Sprintf("%d", slID)
+			}
+
 			// Sent but unacknowledged.
 			return &interfaces.OrderResult{
-				OrderID: strconv.FormatInt(parentID, 10),
-				Status:  "PendingConfirm",
-				Message: "Order sent; no acknowledgement yet — reconcile via ListOrders",
+				OrderID:           strconv.FormatInt(parentID, 10),
+				TakeProfitOrderID: tpStr,
+				StopLossOrderID:   slStr,
+				Status:            "PendingConfirm",
+				Message:           "Order sent; no acknowledgement yet — reconcile via ListOrders",
 			}, nil
 		}
 	}
