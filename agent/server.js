@@ -760,20 +760,48 @@ Use /newagent to open the agent builder!`;
       return res.json({ ok: true, text: `Stopped agent on sandbox ${sandbox.name}` });
     }
     
+    const lowerTrimmed = trimmed.toLowerCase();
+
     // /status - show status of all sandboxes
-    if (trimmed === '/status' || trimmed === '/portfolio' || trimmed === '/portfolios') {
+    if (lowerTrimmed === '/status' || lowerTrimmed === '/sandboxes') {
       const sandboxes = getSandboxes();
-      const account = getActiveAccount();
-      let msg = 'Portfolio Status:\n';
-      msg += `\nActive: ${account?.name || 'none'} (${account?.paper ? 'paper' : 'live'})\n`;
-      msg += '\nSandbox Status:\n';
+      let msg = 'Sandbox Status:\n';
       for (const s of sandboxes) {
         const isActive = getActiveSandbox()?.id === s.id;
         const runtime = orchestrator.getSandboxRuntime(s.id);
         const state = isActive ? harness.state.toJSON() : (runtime ? runtime.harness.state.toJSON() : { running: false, beat: 0 });
-        msg += `\n${s.name}: ${state.running ? 'running' : 'stopped'} (beat #${state.beat || 0})`;
+        msg += `\n- ${s.name} (${s.id})\n  Account: ${s.accountId}\n  Status: ${state.running ? 'running' : 'stopped'}\n  Agent: ${s.agent?.activeAgentId || 'default'}\n`;
       }
       return res.json({ ok: true, text: msg });
+    }
+
+    if (lowerTrimmed === '/portfolio' || lowerTrimmed === '/portfolios') {
+      try {
+        const goPort = process.env.PORT || '4534';
+        
+        const accRes = await fetch(`http://localhost:${goPort}/api/v1/account`);
+        const accData = await accRes.json();
+        
+        const posRes = await fetch(`http://localhost:${goPort}/api/v1/positions`);
+        const posData = await posRes.json();
+        
+        let msg = `📊 **Portfolio Status** (Account: ${accData.ID || 'Unknown'})\n`;
+        msg += `💰 Net Liquidation: €${(accData.PortfolioValue || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n`;
+        msg += `💵 Available Cash: €${(accData.Cash || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n`;
+        msg += `🚀 Buying Power: €${(accData.BuyingPower || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n`;
+        
+        msg += `📈 **Open Positions**:\n`;
+        if (!posData || posData.length === 0) {
+           msg += 'No open positions.\n';
+        } else {
+           for (const p of posData) {
+             msg += `- ${p.Symbol}: ${p.Qty} shares @ €${p.AvgEntryPrice ? p.AvgEntryPrice.toFixed(2) : '0.00'}\n`;
+           }
+        }
+        return res.json({ ok: true, text: msg });
+      } catch (e) {
+        return res.json({ ok: true, text: 'Failed to fetch portfolio data: ' + e.message });
+      }
     }
 
     const result = await harness.sendMessage(trimmed);
@@ -892,11 +920,54 @@ app.post('/api/sandboxes/:id/message', async (req, res) => {
       return res.json({ ok: true, builder: true });
     }
     
+    const lowerTrimmed = trimmed.toLowerCase();
+
     // /agents command
-    if (trimmed === '/agents') {
+    if (lowerTrimmed === '/agents') {
       const agents = config.agents || [];
       let msg = 'Available agents:\n' + agents.map(a => `- ${a.name} (${a.id})`).join('\n');
       return res.json({ ok: true, text: msg });
+    }
+
+    if (lowerTrimmed === '/sandboxes' || lowerTrimmed === '/status') {
+      const sandboxes = getSandboxes();
+      let msg = 'Sandbox Status:\n';
+      for (const s of sandboxes) {
+        const isActive = getActiveSandbox()?.id === s.id;
+        const runtime = orchestrator.getSandboxRuntime(s.id);
+        const state = isActive ? harness.state.toJSON() : (runtime ? runtime.harness.state.toJSON() : { running: false, beat: 0 });
+        msg += `\n- ${s.name} (${s.id})\n  Account: ${s.accountId}\n  Status: ${state.running ? 'running' : 'stopped'}\n  Agent: ${s.agent?.activeAgentId || 'default'}\n`;
+      }
+      return res.json({ ok: true, text: msg });
+    }
+
+    if (lowerTrimmed === '/portfolio' || lowerTrimmed === '/portfolios') {
+      try {
+        const goPort = process.env.PORT || '4534';
+        
+        const accRes = await fetch(`http://localhost:${goPort}/api/v1/account`);
+        const accData = await accRes.json();
+        
+        const posRes = await fetch(`http://localhost:${goPort}/api/v1/positions`);
+        const posData = await posRes.json();
+        
+        let msg = `📊 **Portfolio Status** (Account: ${accData.ID || 'Unknown'})\n`;
+        msg += `💰 Net Liquidation: €${(accData.PortfolioValue || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n`;
+        msg += `💵 Available Cash: €${(accData.Cash || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n`;
+        msg += `🚀 Buying Power: €${(accData.BuyingPower || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n`;
+        
+        msg += `📈 **Open Positions**:\n`;
+        if (!posData || posData.length === 0) {
+           msg += 'No open positions.\n';
+        } else {
+           for (const p of posData) {
+             msg += `- ${p.Symbol}: ${p.Qty} shares @ €${p.AvgEntryPrice ? p.AvgEntryPrice.toFixed(2) : '0.00'}\n`;
+           }
+        }
+        return res.json({ ok: true, text: msg });
+      } catch (e) {
+        return res.json({ ok: true, text: 'Failed to fetch portfolio data: ' + e.message });
+      }
     }
 
     const result = isActiveSandbox(sandboxId)
@@ -1246,6 +1317,21 @@ app.post('/api/models/refresh', async (req, res) => {
     for (const line of lines) {
       const id = line.trim();
       if (!id || seen.has(id)) continue;
+      
+      // Filter models: No GPT, keep Gemini and select Claude models
+      if (id.startsWith('openai/') || id.startsWith('openrouter/') || id.startsWith('opencode/')) continue;
+      
+      // Keep only up to 3 Claude variants (Opus, Sonnet, Haiku) and Gemini
+      const isAllowed = [
+        'anthropic/claude-3-opus',
+        'anthropic/claude-3-5-sonnet',
+        'anthropic/claude-3-haiku',
+        'google/gemini-1.5-pro',
+        'google/gemini-2.0-flash',
+        'google/gemini-pro'
+      ].some(allowed => id.startsWith(allowed));
+      
+      if (!isAllowed) continue;
       seen.add(id);
       
       let name = id;
@@ -1255,26 +1341,17 @@ app.post('/api/models/refresh', async (req, res) => {
         const model = id.replace('anthropic/', '');
         if (model.includes('opus')) {
           name = `Claude Opus ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Opus model';
+          description = 'Anthropic Opus model (Powerful)';
         } else if (model.includes('sonnet')) {
           name = `Claude Sonnet ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Sonnet model';
+          description = 'Anthropic Sonnet model (Balanced)';
         } else if (model.includes('haiku')) {
           name = `Claude Haiku ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Haiku model';
+          description = 'Anthropic Haiku model (Fast)';
         }
-      } else if (id.startsWith('openai/')) {
-        name = id.replace('openai/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        description = 'OpenAI model';
       } else if (id.startsWith('google/')) {
-        name = 'Gemini ' + id.replace('google/', '').replace(/-/g, ' ');
-        description = 'Google model';
-      } else if (id.startsWith('openrouter/')) {
-        name = id.replace('openrouter/', '').replace(/:/g, ' ').replace(/-/g, ' ');
-        description = 'OpenRouter model';
-      } else if (id.startsWith('opencode/')) {
-        name = id.replace('opencode/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        description = 'OpenCode provider model';
+        name = 'Gemini ' + id.replace('google/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        description = 'Google Gemini model (Excellent for trading logic)';
       } else {
         name = id.split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         description = 'Available model';

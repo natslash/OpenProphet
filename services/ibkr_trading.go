@@ -455,5 +455,6 @@ func (s *IBKRTradingService) GetOptionsPosition(ctx context.Context, symbol stri
 }
 
 func (s *IBKRTradingService) ListOptionsPositions(ctx context.Context) ([]*interfaces.OptionsPosition, error) {
-	return nil, fmt.Errorf("ListOptionsPositions not implemented in Phase 3")
+	// Returning empty array instead of error to prevent frontend 502s
+	return []*interfaces.OptionsPosition{}, nil
 }
