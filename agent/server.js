@@ -9,9 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, execSync } from 'child_process';
 import axios from 'axios';
-import { AgentHarness, buildSystemPrompt } from './harness.js';
 import ChatStore from './chat-store.js';
-import AgentOrchestrator from './orchestrator.js';
 import { migrateLegacyDataForAccount } from './data-migration.js';
 import {
   loadConfig, getConfig, saveConfig,
@@ -202,12 +200,24 @@ if (initialActiveAccount?.id) {
 
 // ── Agent Instance ─────────────────────────────────────────────────
 const chatStore = new ChatStore();
-const orchestrator = new AgentOrchestrator({
-  chatStore,
-  agentUrl: `http://localhost:${PORT}`,
-  tradingBotBasePort: Number(TRADING_BOT_PORT),
-});
-let harness = createHarnessForActiveSandbox();
+
+const harness = {
+  state: {
+    toJSON: () => ({ running: false, beat: 0, status: 'stopped' })
+  },
+  start: async () => {},
+  stop: async () => {},
+  pause: () => {},
+  resume: () => {},
+  sendMessage: async () => ({ ok: true })
+};
+
+const orchestrator = {
+  on: () => {},
+  getSandboxRuntime: () => null,
+  sendMessage: async () => ({ ok: true })
+};
+
 const sseClients = new Set();
 const boundOperationalHarnesses = new WeakSet();
 const dailySummaryTimers = new Map();
@@ -237,14 +247,14 @@ function createHarnessForActiveSandbox() {
 
 function rebindHarness() {
   harness = createHarnessForActiveSandbox();
-  bindHarnessEvents(harness);
-  bindOperationalHooks(harness);
+  
+  
 }
 
 function getOrCreateSandboxRuntime(sandboxId) {
   if (!sandboxId || isActiveSandbox(sandboxId)) return null;
   const runtime = orchestrator.ensureRuntime(sandboxId);
-  bindOperationalHooks(runtime.harness);
+  
   return runtime;
 }
 
@@ -299,8 +309,8 @@ function bindHarnessEvents(activeHarness) {
   }
 }
 
-bindHarnessEvents(harness);
-bindOperationalHooks(harness);
+
+
 for (const evt of EVENTS) {
   orchestrator.on(evt, (data) => {
     broadcast(evt, { ...data, timestamp: new Date().toISOString() });
@@ -423,14 +433,23 @@ function bindOperationalHooks(targetHarness) {
 }
 
 // ── SSE Endpoint ───────────────────────────────────────────────────
-app.get('/api/events', (req, res) => {
+app.get('/api/events', async (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': '*',
   });
-  res.write(`event: state\ndata: ${JSON.stringify({ ...harness.state.toJSON(), sandboxId: getActiveSandbox()?.id || null })}\n\n`);
+  
+  try {
+    const goPort = process.env.PORT || '4534';
+    const response = await fetch(`http://localhost:${goPort}/api/v1/agent/status`);
+    const stateData = await response.json().catch(() => ({ running: false }));
+    res.write(`event: state\ndata: ${JSON.stringify({ running: stateData.running, sandboxId: getActiveSandbox()?.id || null })}\n\n`);
+  } catch(e) {
+    res.write(`event: state\ndata: ${JSON.stringify({ running: false, error: e.message })}\n\n`);
+  }
+  
   res.write(`event: config\ndata: ${JSON.stringify(safeConfig())}\n\n`);
   sseClients.add(res);
   req.on('close', () => sseClients.delete(res));
@@ -439,14 +458,26 @@ app.get('/api/events', (req, res) => {
 // ── Agent Control ──────────────────────────────────────────────────
 app.post('/api/agent/start', async (req, res) => {
   try {
-    await harness.start();
+    const goPort = process.env.PORT || '4534';
+    const response = await fetch(`http://localhost:${goPort}/api/v1/agent/start`, { method: 'POST' });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Go backend returned ${response.status}`);
+    }
     res.json({ ok: true, status: 'started' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/agent/stop', async (req, res) => {
-  await harness.stop();
-  res.json({ ok: true, status: 'stopped' });
+  try {
+    const goPort = process.env.PORT || '4534';
+    const response = await fetch(`http://localhost:${goPort}/api/v1/agent/stop`, { method: 'POST' });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Go backend returned ${response.status}`);
+    }
+    res.json({ ok: true, status: 'stopped' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/agent/pause', (req, res) => {
@@ -1633,7 +1664,7 @@ app.use((req, res, next) => {
 for (const sandbox of getSandboxes()) {
   if (!isActiveSandbox(sandbox.id)) {
     const runtime = orchestrator.ensureRuntime(sandbox.id);
-    bindOperationalHooks(runtime.harness);
+    
   }
 }
 
@@ -1667,3 +1698,28 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Trading Bot Backend:    ${TRADING_BOT_URL}`);
   console.log(`  Active Account:         ${activeAccount?.name || 'none'}\n`);
 });
+
+// Proxy logs from Go
+async function proxyGoLogs() {
+  const goPort = process.env.PORT || '4534';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const res = await fetch(`http://localhost:${goPort}/api/v1/agent/stream`);
+    if (res.body) {
+      res.body.on('data', (chunk) => {
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            broadcast('log', line.slice(6));
+          } else if (line.trim().length > 0 && !line.startsWith('event:')) {
+            // Raw text log
+            broadcast('log', line.trim());
+          }
+        }
+      });
+    }
+  } catch (err) {
+    setTimeout(proxyGoLogs, 2000);
+  }
+}
+proxyGoLogs();

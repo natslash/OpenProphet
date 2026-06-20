@@ -128,13 +128,11 @@ func main() {
 
 	// Supervised autonomous beat (Phase 4.3e). Proposes trade intents; never
 	// executes without a token-authorised call to /api/v1/beat/authorize.
-	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, logger, services.AutonomousBeatConfig{
-		Symbol:             cfg.BeatSymbol,
+	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, tradingService, logger, services.AutonomousBeatConfig{
 		Interval:           time.Duration(cfg.BeatIntervalSecs) * time.Second,
 		MaxDailyExecutions: cfg.BeatMaxDailyExecutions,
-		ForceSignal:        cfg.BeatForceSignal,
 	})
-	beatController := controllers.NewBeatController(autonomousBeat, cfg.AdminToken)
+	beatController := controllers.NewBeatController(autonomousBeat)
 
 	// Create activity logger
 	activityLogDir := os.Getenv("ACTIVITY_LOG_DIR")
@@ -155,8 +153,8 @@ func main() {
 
 	// Start the supervised beat only when explicitly enabled.
 	if cfg.BeatEnabled {
-		logger.Warn("Autonomous beat ENABLED (supervised) — intents require human token authorization")
-		go autonomousBeat.Run(ctx)
+		logger.Warn("Autonomous beat ENABLED — Starting native AI agent in background")
+		go autonomousBeat.Start()
 	}
 
 	// Start data cleanup routine
@@ -250,9 +248,11 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 		api.GET("/intelligence/analyze/:symbol", intelligenceController.HandleAnalyzeStock)
 		api.POST("/intelligence/analyze-multiple", intelligenceController.HandleAnalyzeMultipleStocks)
 
-		// Supervised autonomous beat (Phase 4.3e)
-		api.GET("/beat/intents", beatController.HandleListIntents)
-		api.POST("/beat/authorize/:intent_id", beatController.HandleAuthorize)
+		// Native AI Agent endpoints
+		api.POST("/agent/start", beatController.HandleStart)
+		api.POST("/agent/stop", beatController.HandleStop)
+		api.GET("/agent/status", beatController.HandleStatus)
+		api.GET("/agent/stream", beatController.HandleStreamLogs)
 
 		// Position management endpoints
 		api.POST("/positions/managed", positionController.HandlePlaceManagedPosition)

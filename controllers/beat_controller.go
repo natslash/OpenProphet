@@ -1,52 +1,94 @@
 package controllers
 
 import (
-	"crypto/subtle"
+	"bufio"
+	"fmt"
+	"io"
+	"os"
 	"strings"
+	"time"
 
 	"prophet-trader/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-// BeatController exposes the supervised-beat endpoints. The authorize endpoint
-// is the human-in-the-loop gate: it requires a bearer admin token the Node
-// agent does not have, and fails closed if no token is configured.
 type BeatController struct {
-	beat       *services.AutonomousBeat
-	adminToken string
+	beat *services.AutonomousBeat
 }
 
-func NewBeatController(beat *services.AutonomousBeat, adminToken string) *BeatController {
-	return &BeatController{beat: beat, adminToken: adminToken}
+func NewBeatController(beat *services.AutonomousBeat) *BeatController {
+	return &BeatController{beat: beat}
 }
 
-// HandleListIntents returns pending intents (read-only; for the human to find
-// the intent id to authorize).
-func (bc *BeatController) HandleListIntents(c *gin.Context) {
-	c.JSON(200, gin.H{"intents": bc.beat.ListIntents()})
-}
-
-// HandleAuthorize executes a pending intent after verifying the admin token.
-func (bc *BeatController) HandleAuthorize(c *gin.Context) {
-	// Fail closed: with no admin token configured, no intent can be authorized.
-	if bc.adminToken == "" {
-		c.JSON(403, gin.H{"error": "authorization disabled: ADMIN_TOKEN is not configured"})
+func (bc *BeatController) HandleStart(c *gin.Context) {
+	if bc.beat.IsRunning() {
+		c.JSON(400, gin.H{"error": "Agent is already running"})
 		return
 	}
-	const prefix = "Bearer "
-	auth := c.GetHeader("Authorization")
-	if !strings.HasPrefix(auth, prefix) ||
-		subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth, prefix)), []byte(bc.adminToken)) != 1 {
-		c.JSON(401, gin.H{"error": "unauthorized: valid admin bearer token required"})
-		return
-	}
-
-	id := c.Param("intent_id")
-	pos, err := bc.beat.Authorize(c.Request.Context(), id)
+	err := bc.beat.Start()
 	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"status": "executed", "position": pos})
+	c.JSON(200, gin.H{"status": "Agent started"})
+}
+
+func (bc *BeatController) HandleStop(c *gin.Context) {
+	if !bc.beat.IsRunning() {
+		c.JSON(400, gin.H{"error": "Agent is not running"})
+		return
+	}
+	err := bc.beat.Stop()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "Agent stopped"})
+}
+
+func (bc *BeatController) HandleStatus(c *gin.Context) {
+	c.JSON(200, gin.H{"running": bc.beat.IsRunning()})
+}
+
+func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+
+	file, err := os.Open("bot.log")
+	if err != nil {
+		c.SSEvent("error", fmt.Sprintf("failed to open log file: %v", err))
+		return
+	}
+	defer file.Close()
+
+	// Seek to end of file to tail
+	file.Seek(0, io.SeekEnd)
+
+	reader := bufio.NewReader(file)
+	clientGone := c.Writer.CloseNotify()
+
+	for {
+		select {
+		case <-clientGone:
+			return
+		default:
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					// Sleep briefly and check again for new logs
+					time.Sleep(500 * time.Millisecond)
+					continue
+				}
+				// Other error, stop streaming
+				return
+			}
+			line = strings.TrimSpace(line)
+			if line != "" {
+				c.SSEvent("log", line)
+				c.Writer.Flush()
+			}
+		}
+	}
 }
