@@ -166,7 +166,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 					argsBytes = block.Input
 				}
 				
-				resStr, toolErr := HandleToolCall(ctx, block.Name, argsBytes, b.data, b.pm, b.trading)
+				resStr, toolErr := HandleToolCall(ctx, block.Name, argsBytes, b.data, b.pm, b.trading, b.client)
 				
 				var resultParam anthropic.ContentBlockParamUnion
 				if toolErr != nil {

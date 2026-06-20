@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"prophet-trader/interfaces"
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -73,11 +74,24 @@ func BuildAgentTools() []anthropic.ToolUnionParam {
 				},
 			},
 		},
+		{
+			OfTool: &anthropic.ToolParam{
+				Name:        "jim_rogers",
+				Description: anthropic.String("Consult another agent (e.g. 'stratagem' or 'daedalus') to analyze data or review risk. They will return a text response."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]interface{}{
+						"target_agent_id": map[string]interface{}{"type": "string"},
+						"prompt":          map[string]interface{}{"type": "string"},
+					},
+					Required: []string{"target_agent_id", "prompt"},
+				},
+			},
+		},
 	}
 }
 
 // HandleToolCall executes the local method and returns the JSON string result
-func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService) (string, error) {
+func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, client *AnthropicClient) (string, error) {
 	switch toolName {
 	case "get_account":
 		acc, err := trading.GetAccount(ctx)
@@ -144,6 +158,56 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			return "", err
 		}
 		return fmt.Sprintf(`{"order_id": "%s"}`, res.OrderID), nil
+
+	case "jim_rogers":
+		var req struct {
+			TargetAgentID string `json:"target_agent_id"`
+			Prompt        string `json:"prompt"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+
+		configData, err := os.ReadFile("data/agent-config.json")
+		if err != nil {
+			return "", fmt.Errorf("failed to read agent config: %v", err)
+		}
+		var cfg struct {
+			Agents []struct {
+				ID                 string `json:"id"`
+				CustomSystemPrompt string `json:"customSystemPrompt"`
+			} `json:"agents"`
+		}
+		if err := json.Unmarshal(configData, &cfg); err != nil {
+			return "", fmt.Errorf("failed to parse agent config: %v", err)
+		}
+		var sysPrompt string
+		for _, a := range cfg.Agents {
+			if a.ID == req.TargetAgentID {
+				sysPrompt = a.CustomSystemPrompt
+				break
+			}
+		}
+		if sysPrompt == "" {
+			return "", fmt.Errorf("agent %s not found in config", req.TargetAgentID)
+		}
+
+		if client == nil {
+			return "", fmt.Errorf("anthropic client not initialized for jim_rogers tool")
+		}
+
+		messages := []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(req.Prompt)),
+		}
+		
+		msg, err := client.ExecuteAgentTurn(ctx, sysPrompt, messages, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to consult agent: %v", err)
+		}
+		if len(msg.Content) > 0 {
+			return msg.Content[0].Text, nil
+		}
+		return "No response from agent", nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)

@@ -1,345 +1,69 @@
 # Trading Rules
 
-**Updated:** November 26, 2025
-**Style:** Aggressive discretionary options trading with scalping overlay
+**Updated:** June 20, 2026
+**Style:** The "45/7 Premium Seller" Framework
 
 ---
 
 ## Core Philosophy
 
-- **Options-only trading** - No stock positions
-- **Long bias** - Calls preferred, occasional puts for hedging
-- **Active management** - Multiple positions, frequent monitoring
-- **Discretionary execution** - Rules are guidelines, not hard constraints
-- **Pattern Day Trader** - Unlimited day trades with $100K+ equity
+- **Strategy Focus:** Premium selling (credit spreads, naked puts, covered calls, iron condors).
+- **Data-Driven Edge:** We capitalize on the statistical edge found in the 0-7 day hold window (~89% win rate).
+- **Tri-Agent Governance:** The CEO allocates and executes; Stratagem finds the trades; Daedalus vetoes and enforces risk limits.
 
 ---
 
-## Position Sizing
+## Capital Allocation & Position Constraints
 
-**Rule:** Maximum 15% of portfolio per position
-- Calculate: `position_value / portfolio_value ≤ 0.15`
-- Example: $100K portfolio → max $15K per position
-- Rationale: Allows concentrated bets on high-conviction setups
+**Rule:** Maximum 10% of portfolio per trade/instrument.
+- Ensure no single trade or underlying instrument exposes the portfolio to >10% capital risk.
 
-**Rule:** Maximum 40% in any single category
-- Stock Options (mostly selling premium): SpaceX, Palantir, Deutsche Telekom, Deutsche Bank, Tech (NVDA/AMD/TSLA)
-- Index Options (mostly selling premium): Euro Stoxx50, SPY, QQQ
-- Prevents: Overexposure to a single asset class or correlation wipeouts
-- Allow: Multiple positions in strong trending underlyings
+**Rule:** Maximum 40% deployed capital at any time.
+- Prevents over-leverage and correlation wipeouts.
 
-**Rule:** Maximum 10 positions simultaneously
-- Simplifies: Portfolio management and monitoring
-- Prevents: Over-diversification (diworsification)
-- Focus: Quality over quantity
+**Rule:** Minimum 60% cash buffer.
+- Provides dry powder for new opportunities and serves as a hard buffer against tail-risk events.
 
 ---
 
-## Day Trading
+## Entry Strategy: The 45 DTE Sweet Spot
 
-**Rule:** Unlimited day trades (Pattern Day Trader status)
-- Requirement: Maintain $25K+ equity at all times
-- Current status: $108K portfolio ✅
-- Monitor: Don't abuse - each round trip has costs
-- Target: <5 scalps per session to maintain selectivity
-
-**Why:** Full flexibility to enter/exit positions same-day without restrictions
+**Rule:** Target ~45 DTE for trade entries.
+- **Why:** 45 days to expiration is the mathematical sweet spot where theta (time decay) accelerates meaningfully, but gamma risk (the rate at which directional exposure changes) remains manageable.
+- Collect rich premium without the violent P&L swings common in the final two weeks of an option's life.
 
 ---
 
-## Risk Management
+## Exit Strategy: The Golden Window (0-7 Days)
 
-**Rule:** Manual discretionary stops (no automatic -15%)
-- Monitor: Positions 2-3x per day (open, midday, close)
-- Cut losers: When thesis breaks or position down >15%
-- Examples from today: QQQ -15.6% (cut immediately), MSTR/TSLA/NVDA (cut when weak)
+**Rule:** Manage winners early (The 50% Rule).
+- Target closing the position if it reaches 50% of the maximum theoretical profit.
+- Take the credit, free up the capital, and remove the risk.
 
-**Rule:** Take profits at +25-50% or on technical signals
-- Partial exits: Consider 50% reduction at +25%, let rest run
-- Full exits: Lock profits before major events (holidays, earnings, weekends)
-- Don't get greedy: A winner can become a loser quickly
-
-**Rule:** Maximum -5% portfolio loss per day
-- Hard stop: If portfolio drops 5% intraday, cease trading
-- Reset: Come back next session with clear head
-- Prevent: Revenge trading and emotional spirals
+**Rule:** Close within ~7 days.
+- **Why:** Historical ESTX50 data proves edge degradation beyond 7 days, turning negative past 14 days. 
+- Try to capture the premium and exit the trade within the first 7 days. Do not hold just to squeeze out the final pennies of premium.
 
 ---
 
-## Options Selection
+## Risk Management: The Daedalus Protocols
 
-### **Swing Positions (Core Holdings)**
+**Rule:** The 100% Premium Erosion Hard Stop.
+- **Do not panic early:** Allow trades room to breathe. Gamma and delta will cause initial fluctuations.
+- **Systemic Cut:** If the premium collected is 100% eroded (e.g., an option sold for $1.00 reaches a buy-back price of $2.00), the trade MUST be closed immediately. This caps the loss at 1x the initial credit.
+- This forces nimble decision-making without emotional panic selling.
 
-**Rule:** 50-120 DTE for swing positions
-- Rationale: Minimize theta decay, time for thesis to develop
-- Sweet spot: 60-90 DTE (monthlies 2-3 months out)
-- Examples from today: Jan positions (51 DTE), March positions (114 DTE)
-
-**Rule:** Delta 0.40-0.70 preferred (ATM to slightly ITM)
-- Avoid: Deep OTM lottery tickets (delta <0.30)
-- Avoid: Deep ITM inefficiency (delta >0.80)
-- Sweet spot: ATM calls with leverage and probability
+**Rule:** The Strict Time-Stop (Maximum 21 DTE).
+- If a trade has not hit its profit target or stop loss, it MUST be closed or rolled no later than 21 DTE.
+- **Why:** Inside 21 DTE, gamma risk spikes dramatically. A small adverse price move can wipe out weeks of accumulated theta gains instantly.
+- Furthermore, holding past 14 days breaks the empirical data edge. The average losing trade was held for 24 days. Daedalus will veto holding any trade past this window.
 
 ---
 
-### **Scalp Positions (Short-Term)**
-
-**Rule:** 2-5 DTE allowed for scalps
-- Purpose: Capture intraday/overnight momentum
-- Risk: High theta decay, must close same day or next day
-- Examples from today: SPY/QQQ 2 DTE scalps (11/28 exp on 11/26)
-
-**Rule:** Close all scalps by EOD or by -15% stop
-- No overnight holds: On 1-2 DTE options (too much weekend/gap risk)
-- Exception: 3-5 DTE can hold overnight if strong conviction
-- Always set mental stop: Exit immediately if down >15%
-
----
-
-### **Liquidity & Spreads**
-
-**Rule:** Bid-ask spread <10% of mid-price
-- Check: `(ask - bid) / mid < 0.10`
-- Prevents: Slippage eating into profits
-- Examples: SPY/QQQ/NVDA options (tight spreads)
-
-**Rule:** LIMIT ORDERS ONLY
-- Never: Use market orders on options (too much slippage)
-- Always: Set limit at mid-price or better
-- Patient: Let order fill, don't chase
-
----
-
-## Trade Execution
-
-**Rule:** Opening volatility trading allowed (9:30-9:45 AM)
-- Rationale: Best momentum and volume during first 15 minutes
-- Caution: Use limit orders, don't chase gaps
-- Examples from today: 9:30 AM scalp entries on SPY/QQQ
-
-**Rule:** Maximum 10 trades per day (entries + exits)
-- Prevents: Over-trading and transaction cost bleed
-- Focus: Quality setups, not quantity
-- Track: Each trade costs ~$5-10 in fees + slippage
-
-**Rule:** Maximum 5 scalp entries per day
-- Core positions: Can open 5+ swing trades if high conviction
-- Scalps: Limit to 5 per day to maintain discipline
-- Rationale: Scalping is high-cost, need high win rate
-
----
-
-## Decision Logging
-
-**Rule:** Log all major decisions to `decisive_actions/`
-- Before: Major position entries (optional but recommended)
-- After: End of day summary, major exits, strategic decisions
-- Format: Use `mcp__prophet__log_decision` tool
-- Purpose: Audit trail, learning from mistakes
-
-**Rule:** Log daily activity to `activity_logs/`
-- Track: Position checks, analysis, intelligence gathering
-- Format: Use `mcp__prophet__log_activity` tool
-- Review: Weekly to identify patterns
-
----
-
-## Agent Consultation (Optional)
-
-Agents are **advisory, not required**. Use them when you want:
-
-### **1. Strategic Analysis (CEO Agent)**
-- Portfolio-level strategy decisions
-- Capital allocation across multiple positions
-- Risk assessment before major deployments
-- Post-mortem analysis of bad trades
-
-### **2. Technical Setup Identification (Strategy Agent)**
-- High-conviction directional setups
-- Technical confluence analysis
-- Entry/exit price recommendations
-- Risk/reward optimization
-
-### **3. Risk De-Risking (Consultant/Daedalus Agent)**
-- Pressure-test your assumptions
-- Identify blind spots and biases
-- Challenge emotional trades
-- Behavioral pattern recognition
-
-**When to use:**
-- Before deploying >$20K in new positions
-- After 3 consecutive losses
-- When feeling emotional or uncertain
-- Weekly portfolio review
-
-**When NOT needed:**
-- Routine position management
-- Small scalp trades (<$5K)
-- Taking profits on winners
-- Following pre-defined exits
-
----
-
-## Overnight & Weekend Positions
-
-**Rule:** Review all positions at 12:50 PM on early close days, 3:50 PM on normal days
-- Decide: Hold overnight or close?
-- Consider: Overnight news risk, earnings, economic data
-- Weekend: Close <7 DTE positions by Friday close if uncomfortable
-
-**Rule:** Close <3 DTE positions before holidays/weekends
-- Rationale: Gap risk over 3-4 day weekends
-- Examples from today: Closed all 2 DTE scalps, held 51-114 DTE swings
-- Exception: Can hold 3-7 DTE if high conviction and willing to accept gap risk
-
----
-
-## Profit-Taking Strategy
-
-**Rule:** Lock partial profits at +25%
-- Action: Consider closing 50% of position
-- Benefit: Take some off table, let rest run
-- Move stop: On remaining position to breakeven
-
-**Rule:** Full exit at +50% or on technical breakdown
-- Don't be greedy: 50% is an excellent win
-- Technical: If trend breaks, take profits even if no target hit
-- Protect: Winners can become losers quickly
-
-**Rule:** Before major events (holidays, earnings)
-- Today's example: Closed December SPY calls (+22%, +34%) before Thanksgiving
-- Rationale: 4-day weekend gap risk, lock in gains
-- Keep: Only positions with 50+ DTE and willing to hold through event
-
----
-
-## Loss-Cutting Discipline
-
-**Rule:** Cut losers when thesis breaks OR down >15%
-- Thesis break: Expected catalyst didn't materialize, technical structure failed
-- Down >15%: Automatic exit regardless of thesis
-- No hope: Don't hold and hope it comes back
-
-**Rule:** Cut all positions if daily loss hits -5%
-- Circuit breaker: Prevents catastrophic loss days
-- Reset: Stop trading, come back tomorrow
-- Reflect: What went wrong? Discipline failure or bad luck?
-
-**Rule:** No revenge trading
-- Definition: Re-entering same symbol within 2 hours after stop out
-- Why: Emotional decision, usually loses more money
-- Cool off: Wait until next session or at least 2 hours
-
----
-
-## Transaction Cost Management
-
-**Rule:** Target <5% transaction costs per trade
-- Calculate: `(fees + slippage) / gross profit < 0.05`
-- Minimize: Use limit orders, trade liquid options, hold longer
-- Track: Monthly transaction cost budget = $200
-
-**Rule:** Hold scalps at least until profitable or stop hit
-- Avoid: Panic exits on minor pullbacks
-- Allow: Thesis time to develop (at least 30 minutes to 1 hour)
-- Exception: If down >10% and momentum clearly broken, cut early
-
----
-
-## Position Management
-
-**Rule:** Check positions 2-3x per day
-- Open (9:30-10:00 AM): Review overnight action
-- Midday (12:00-1:00 PM): Check if any stops need adjusting
-- Close (3:30-4:00 PM): Decide holds vs. closes
-
-**Rule:** Don't obsessively watch positions
-- Avoid: Staring at screens and reacting to every tick
-- Trust: Your thesis and stops
-- Detach: Emotional attachment leads to bad decisions
-
----
-
-## Portfolio Construction
-
-**Rule:** Maintain 50-70% cash at all times
-- Rationale: Dry powder for opportunities
-- Prevents: Being fully invested at market tops
-- Allows: Deploying capital when great setups appear
-
-**Rule:** Diversify across time frames
-- Core swings: 50-120 DTE positions (60-70% of deployed capital)
-- Short-term: 2-7 DTE scalps (30-40% of deployed capital)
-- Balance: Theta decay vs. leverage
-
-**Rule:** Diversify across stock and index options (but allow concentration)
-- Balance: Don't put all capital into options on a single underlying
-- Allow: Up to 40% in one hot stock if trending hard
-- Examples: SPY, Euro Stoxx50, Palantir, SpaceX, Deutsche Telekom
-
----
-
-## Behavioral Discipline
-
-**Rule:** No trading when emotional
-- Angry, frustrated, anxious, euphoric = bad decisions
-- Step away: Take a walk, come back in 30 minutes
-- Reset: Clear head required for good trading
-
-**Rule:** No "I need to make back losses" thinking
-- Each trade: Independent decision
-- Sunk costs: Ignore previous losses
-- Focus: Best trade right now, not making back yesterday
-
-**Rule:** Accept that losses are part of trading
-- Win rate: Target 40-60% (most trades will lose)
-- What matters: Profit factor (winners bigger than losers)
-- Today's example: QQQ -$960, SPY +$1,920 = net +$960
-
----
-
-## Weekly Review (Sunday)
-
-**Rule:** Review all trades from the week
-- What worked: Which setups, which decisions
-- What didn't: Mistakes, violations, emotional trades
-- Patterns: Am I repeating same mistakes?
-
-**Rule:** Update rules if needed
-- Evolve: Based on actual behavior and results
-- Document: What you're actually doing, not aspirational rules
-- Simplify: Remove rules you never follow
-
----
-
-## Simple Pre-Trade Checklist
-
-- [ ] Position size under 15% of portfolio?
-- [ ] Total positions under 10?
-- [ ] Daily trades under 10?
-- [ ] Limit order at mid-price or better?
-- [ ] Stop loss level mentally defined?
-- [ ] Profit target mentally defined?
-- [ ] Spread <10% of mid-price?
-- [ ] Liquid options with volume?
-- [ ] Clear thesis (why this trade, why now)?
-
-**If any answer is NO, reconsider the trade.**
-
----
-
-## Key Lessons from Today (November 26, 2025)
-
-✅ **Cut losers fast** - QQQ scalp -15.6%, cut immediately
-✅ **Let winners run** - SPY scalp went -$180 → +$1,920
-✅ **Lock profits before holidays** - Closed December positions
-✅ **Clean portfolio** - Cut all losing positions (MSTR, TSLA, NVDA, SPY put)
-✅ **No theta risk** - All remaining positions 51-114 DTE
-✅ **Use limit orders** - Zero market orders, zero slippage disasters
-✅ **Log decisions** - Documented HOLD_ALL decision at 11:50 AM
-
----
-
-**The goal is profitable trading with manageable risk.**
-
-These rules reflect what you're actually doing. Adjust based on results. Stay flexible, stay disciplined.
+## Tri-Agent Governance Workflow
+
+1. **Stratagem** scans for premium selling opportunities across indices and high-conviction equities, exclusively seeking ~45 DTE setups.
+2. **Stratagem** drafts a proposal with exact entry limits, calculating the 50% max profit target and the 100% premium erosion hard stop.
+3. **Daedalus** reviews the proposal. It verifies the 10% capital limit, the 40% portfolio cap, and validates that the stop levels are mathematical, not emotional.
+4. **Daedalus** monitors open positions daily, screaming for an exit if a trade approaches day 7 or hits the 100% erosion mark.
+5. **CEO** reviews the Daedalus-approved proposals and executes the trades, maintaining final say over portfolio direction.
