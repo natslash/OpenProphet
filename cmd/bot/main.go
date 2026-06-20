@@ -11,7 +11,6 @@ import (
 	"prophet-trader/interfaces"
 	"prophet-trader/services"
 	"prophet-trader/tws"
-	"strings"
 	"syscall"
 	"time"
 
@@ -41,64 +40,40 @@ func main() {
 	logger.Info("Starting Prophet Trader Bot...")
 
 	// Initialize services
-	logger.WithField("broker", cfg.Broker).Info("Initializing services...")
+	logger.Info("Initializing services...")
 
 	var tradingService interfaces.TradingService
 	var dataService interfaces.DataService
 
-	switch strings.ToLower(cfg.Broker) {
-	case "ibkr":
-		// Guardrail: paper only (4002) until Phase 6. Refuse any other port.
-		if cfg.IBKRPort != 4002 {
-			logger.Fatalf("IBKR_PORT=%d refused — only paper (4002) is permitted (live is Phase 6)", cfg.IBKRPort)
-		}
-		logger.WithFields(logrus.Fields{
-			"host": cfg.IBKRHost, "port": cfg.IBKRPort, "clientID": cfg.IBKRClientID,
-		}).Info("Connecting to IB Gateway (paper)...")
-
-		client := tws.NewClient(cfg.IBKRHost, cfg.IBKRPort, cfg.IBKRClientID)
-		connectCtx, connectCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		if err := client.Connect(connectCtx); err != nil {
-			connectCancel()
-			logger.Fatal("Failed to connect to IB Gateway (paper):", err)
-		}
-		connectCancel()
-		logger.Info("Connected to IB Gateway (paper).")
-
-		// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
-		gated := services.NewGatedTradingService(services.NewIBKRTradingService(client), cfg.TradingEnabled)
-		tradingService = gated
-		dataService = services.NewIBKRDataService(client)
-
-		// Disconnect -> halt: stop sending orders if the socket drops (IB
-		// Gateway restarts daily; tws.Client.Connect is one-shot).
-		go func() {
-			<-client.Closed()
-			gated.Disable("IB Gateway connection closed")
-			logger.Error("IB Gateway disconnected — order placement halted")
-		}()
-
-	default: // "alpaca" — the existing live broker, left ungated.
-		if cfg.AlpacaAPIKey == "" || cfg.AlpacaSecretKey == "" {
-			logger.Fatal("Alpaca API credentials not configured. Please set ALPACA_API_KEY and ALPACA_SECRET_KEY")
-		}
-		at, err := services.NewAlpacaTradingService(
-			cfg.AlpacaAPIKey,
-			cfg.AlpacaSecretKey,
-			cfg.AlpacaBaseURL,
-			cfg.AlpacaPaper,
-		)
-		if err != nil {
-			logger.Warn("Failed to create trading service (will retry on requests):", err)
-		}
-		if at != nil { // avoid a typed-nil interface when construction failed
-			tradingService = at
-		}
-		dataService = services.NewAlpacaDataService(
-			cfg.AlpacaAPIKey,
-			cfg.AlpacaSecretKey,
-		)
+	// Guardrail: paper only (4002) until Phase 6. Refuse any other port.
+	if cfg.IBKRPort != 4002 {
+		logger.Fatalf("IBKR_PORT=%d refused — only paper (4002) is permitted (live is Phase 6)", cfg.IBKRPort)
 	}
+	logger.WithFields(logrus.Fields{
+		"host": cfg.IBKRHost, "port": cfg.IBKRPort, "clientID": cfg.IBKRClientID,
+	}).Info("Connecting to IB Gateway (paper)...")
+
+	client := tws.NewClient(cfg.IBKRHost, cfg.IBKRPort, cfg.IBKRClientID)
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	if err := client.Connect(connectCtx); err != nil {
+		connectCancel()
+		logger.Fatal("Failed to connect to IB Gateway (paper):", err)
+	}
+	connectCancel()
+	logger.Info("Connected to IB Gateway (paper).")
+
+	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
+	gated := services.NewGatedTradingService(services.NewIBKRTradingService(client), cfg.TradingEnabled)
+	tradingService = gated
+	dataService = services.NewIBKRDataService(client)
+
+	// Disconnect -> halt: stop sending orders if the socket drops (IB
+	// Gateway restarts daily; tws.Client.Connect is one-shot).
+	go func() {
+		<-client.Closed()
+		gated.Disable("IB Gateway connection closed")
+		logger.Error("IB Gateway disconnected — order placement halted")
+	}()
 
 	// Create storage service
 	storageService, err := database.NewLocalStorage(cfg.DatabasePath)
@@ -128,7 +103,7 @@ func main() {
 	intelligenceController := controllers.NewIntelligenceController(newsService, geminiService, analysisService, stockAnalysisService, dataService)
 
 	// Test account connection
-	logger.WithField("broker", cfg.Broker).Info("Testing broker connection...")
+	logger.Info("Testing broker connection...")
 	if tradingService != nil {
 		if account, err := orderController.GetAccount(); err != nil {
 			logger.Warn("Failed to read account (trading may be unavailable):", err)

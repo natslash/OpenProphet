@@ -66,25 +66,25 @@ func NewNewsService() *NewsService {
 
 // GetGoogleNews fetches the latest news from Google News RSS feed
 func (ns *NewsService) GetGoogleNews() ([]NewsItem, error) {
-	url := "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+	url := "https://news.google.com/rss?hl=en-GB&gl=DE&ceid=DE:en"
 	return ns.fetchRSSFeed(url)
 }
 
 // GetGoogleNewsByTopic fetches news for a specific topic
 // Topics: WORLD, NATION, BUSINESS, TECHNOLOGY, ENTERTAINMENT, SPORTS, SCIENCE, HEALTH
 func (ns *NewsService) GetGoogleNewsByTopic(topic string) ([]NewsItem, error) {
-	url := fmt.Sprintf("https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en")
+	url := fmt.Sprintf("https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en")
 
 	// Topic-specific URLs
 	topicURLs := map[string]string{
-		"WORLD":         "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"NATION":        "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNRGxqTjNjd0VnSmxiaWdBUAE?hl=en-US&gl=US&ceid=US:en",
-		"BUSINESS":      "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"TECHNOLOGY":    "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"ENTERTAINMENT": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"SPORTS":        "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"SCIENCE":       "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp0Y1RjU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en",
-		"HEALTH":        "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNR3QwTlRFd0VnSmxiaWdBUAE?hl=en-US&gl=US&ceid=US:en",
+		"WORLD":         "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"NATION":        "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNRGxqTjNjd0VnSmxiaWdBUAE?hl=en-GB&gl=DE&ceid=DE:en",
+		"BUSINESS":      "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"TECHNOLOGY":    "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"ENTERTAINMENT": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"SPORTS":        "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"SCIENCE":       "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp0Y1RjU0FtVnVHZ0pWVXlnQVAB?hl=en-GB&gl=DE&ceid=DE:en",
+		"HEALTH":        "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNR3QwTlRFd0VnSmxiaWdBUAE?hl=en-GB&gl=DE&ceid=DE:en",
 	}
 
 	if topicURL, ok := topicURLs[topic]; ok {
@@ -98,7 +98,7 @@ func (ns *NewsService) GetGoogleNewsByTopic(topic string) ([]NewsItem, error) {
 func (ns *NewsService) GetGoogleNewsSearch(query string) ([]NewsItem, error) {
 	// Use url.QueryEscape to properly encode the query parameter
 	encodedQuery := url.QueryEscape(query)
-	urlString := fmt.Sprintf("https://news.google.com/rss/search?q=%s&hl=en-US&gl=US&ceid=US:en", encodedQuery)
+	urlString := fmt.Sprintf("https://news.google.com/rss/search?q=%s&hl=en-GB&gl=DE&ceid=DE:en", encodedQuery)
 	return ns.fetchRSSFeed(urlString)
 }
 

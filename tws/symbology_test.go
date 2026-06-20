@@ -15,6 +15,16 @@ func TestParseSymbol(t *testing.T) {
 			want: Contract{Symbol: "AAPL", SecType: Stock, Exchange: "SMART", Currency: "USD"},
 		},
 		{
+			name: "eu stock",
+			in:   "EU:DTE",
+			want: Contract{Symbol: "DTE", SecType: Stock, Exchange: "SMART", Currency: "EUR"},
+		},
+		{
+			name: "future",
+			in:   "FUT:OESX:20260619",
+			want: Contract{Symbol: "OESX", SecType: Future, Exchange: "EUREX", Currency: "EUR", LastTradeDateOrContractMonth: "20260619"},
+		},
+		{
 			name: "estx50 call",
 			in:   "ESTX50:20260619:C:6325",
 			want: Contract{
@@ -58,7 +68,7 @@ func TestParseSymbol(t *testing.T) {
 }
 
 func TestFormatSymbolRoundTrip(t *testing.T) {
-	for _, s := range []string{"AAPL", "ESTX50:20260619:C:6325", "ESTX50:20260619:P:4800"} {
+	for _, s := range []string{"AAPL", "EU:DTE", "FUT:OESX:20260619", "ESTX50:20260619:C:6325", "ESTX50:20260619:P:4800"} {
 		c, err := ParseSymbol(s)
 		if err != nil {
 			t.Fatalf("ParseSymbol(%q): %v", s, err)

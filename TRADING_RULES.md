@@ -22,10 +22,11 @@
 - Example: $100K portfolio → max $15K per position
 - Rationale: Allows concentrated bets on high-conviction setups
 
-**Rule:** Maximum 40% in any single sector
-- Sectors: Tech (NVDA/AMD/TSLA), Crypto (MSTR/MARA/COIN), Broad Market (SPY/QQQ)
-- Prevents: Sector-wide correlation wipeouts
-- Allow: Multiple positions in strong trending sectors
+**Rule:** Maximum 40% in any single category
+- Stock Options (mostly selling premium): SpaceX, Palantir, Deutsche Telekom, Deutsche Bank, Tech (NVDA/AMD/TSLA)
+- Index Options (mostly selling premium): Euro Stoxx50, SPY, QQQ
+- Prevents: Overexposure to a single asset class or correlation wipeouts
+- Allow: Multiple positions in strong trending underlyings
 
 **Rule:** Maximum 10 positions simultaneously
 - Simplifies: Portfolio management and monitoring
@@ -55,7 +56,7 @@
 
 **Rule:** Take profits at +25-50% or on technical signals
 - Partial exits: Consider 50% reduction at +25%, let rest run
-- Full exits: Lock profits before major events (holidays, earnings)
+- Full exits: Lock profits before major events (holidays, earnings, weekends)
 - Don't get greedy: A winner can become a loser quickly
 
 **Rule:** Maximum -5% portfolio loss per day
@@ -271,10 +272,10 @@ Agents are **advisory, not required**. Use them when you want:
 - Short-term: 2-7 DTE scalps (30-40% of deployed capital)
 - Balance: Theta decay vs. leverage
 
-**Rule:** Diversify across sectors (but allow concentration)
-- Preferred: 3-5 different underlyings
-- Allow: Up to 40% in one hot sector if trending hard
-- Examples from today: SPY, AMD, NVDA, COIN, PLTR, AMZN (6 underlyings)
+**Rule:** Diversify across stock and index options (but allow concentration)
+- Balance: Don't put all capital into options on a single underlying
+- Allow: Up to 40% in one hot stock if trending hard
+- Examples: SPY, Euro Stoxx50, Palantir, SpaceX, Deutsche Telekom
 
 ---
 

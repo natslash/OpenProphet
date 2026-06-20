@@ -14,6 +14,8 @@ import (
 // Conventions:
 //
 //	"AAPL"                     → US stock: STK / SMART / USD
+//	"EU:DTE"                   → EU stock: STK / SMART / EUR
+//	"FUT:OESX:20260619"        → Future: FUT / EUREX / EUR
 //	"ESTX50:20260619:C:6325"   → EURO STOXX 50 index option (OESX): underlying
 //	                             ESTX50, EUREX, EUR, multiplier 10, tradingClass
 //	                             OESX. Form: ESTX50:<YYYYMMDD>:<C|P>:<strike>
@@ -43,6 +45,31 @@ func ParseSymbol(symbol string) (Contract, error) {
 		}, nil
 	}
 
+	if parts[0] == "EU" {
+		if len(parts) != 2 {
+			return Contract{}, fmt.Errorf("invalid EU stock symbol %q: want EU:<TICKER>", symbol)
+		}
+		return Contract{
+			Symbol:   parts[1],
+			SecType:  Stock,
+			Exchange: "SMART",
+			Currency: "EUR",
+		}, nil
+	}
+
+	if parts[0] == "FUT" {
+		if len(parts) != 3 {
+			return Contract{}, fmt.Errorf("invalid FUT symbol %q: want FUT:<SYMBOL>:<YYYYMMDD>", symbol)
+		}
+		return Contract{
+			Symbol:                       parts[1],
+			SecType:                      Future,
+			Exchange:                     "EUREX", // Defaulting to EUREX for European focus
+			Currency:                     "EUR",
+			LastTradeDateOrContractMonth: parts[2],
+		}, nil
+	}
+
 	if parts[0] == estoxxSymbol {
 		if len(parts) != 4 {
 			return Contract{}, fmt.Errorf("invalid ESTX50 option symbol %q: want %s:<YYYYMMDD>:<C|P>:<strike>", symbol, estoxxSymbol)
@@ -69,7 +96,7 @@ func ParseSymbol(symbol string) (Contract, error) {
 		}, nil
 	}
 
-	return Contract{}, fmt.Errorf("unrecognized symbol %q (want a bare ticker like AAPL, or %s:<YYYYMMDD>:<C|P>:<strike>)", symbol, estoxxSymbol)
+	return Contract{}, fmt.Errorf("unrecognized symbol %q (want a bare ticker like AAPL, EU:<TICKER>, FUT:<SYMBOL>:<YYYYMMDD>, or %s:<YYYYMMDD>:<C|P>:<strike>)", symbol, estoxxSymbol)
 }
 
 // FormatSymbol is the inverse of ParseSymbol for the contract types we map, so
@@ -79,6 +106,12 @@ func FormatSymbol(c Contract) string {
 		return fmt.Sprintf("%s:%s:%s:%s", estoxxSymbol,
 			c.LastTradeDateOrContractMonth, c.Right,
 			strconv.FormatFloat(c.Strike, 'f', -1, 64))
+	}
+	if c.SecType == Stock && c.Currency == "EUR" {
+		return fmt.Sprintf("EU:%s", c.Symbol)
+	}
+	if c.SecType == Future {
+		return fmt.Sprintf("FUT:%s:%s", c.Symbol, c.LastTradeDateOrContractMonth)
 	}
 	return c.Symbol
 }

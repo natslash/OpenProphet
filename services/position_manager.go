@@ -161,7 +161,14 @@ func (pm *PositionManager) PlaceManagedPosition(ctx context.Context, req *PlaceM
 	// Get current price for calculations
 	currentPrice, err := pm.getCurrentPrice(ctx, req.Symbol)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current price: %w", err)
+		// Graceful degradation: If we have an explicit entry limit price, use that as the baseline
+		// instead of completely failing the placement (especially useful for off-hours/weekend trading).
+		if req.EntryPrice != nil {
+			pm.logger.WithError(err).Warn("Failed to fetch live quote, falling back to explicit entry price")
+			currentPrice = *req.EntryPrice
+		} else {
+			return nil, fmt.Errorf("failed to get current price and no entry price provided: %w", err)
+		}
 	}
 
 	// Calculate position parameters

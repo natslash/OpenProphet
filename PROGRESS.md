@@ -108,9 +108,9 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 | Step | Description | Status | Date | Commit |
 |------|-------------|--------|------|--------|
-| 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options | 🟡 | 2026-06-18 | 6439d47, a4f865f |
-| 5.2 | News/feeds → European sources; remove the dead `reqFundamentalData` path | ⬜ | | |
-| 5.3 | Switch wiring to IBKR and **delete the Alpaca services** (IBKR-only; the `BROKER=` flag was only a temporary A/B aid during the build) | ⬜ | | |
+| 5.1 | Contract mapping for US/EU stocks + futures alongside OESX options | ✅ | 2026-06-19 | |
+| 5.2 | News/feeds → European sources; remove the dead `reqFundamentalData` path | ✅ | 2026-06-19 | |
+| 5.3 | Switch wiring to IBKR and **delete the Alpaca services** (IBKR-only) | ✅ | 2026-06-19 | |
 
 **Test criteria**
 - **5.1:** Each instrument type round-trips contractDetails + a paper order. *(Done: US stock + OESX option via tws.ParseSymbol/FormatSymbol. Remaining: EU stocks, futures.)*
@@ -126,6 +126,12 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 6.1 | Live (port 4001) behind an explicit double-confirm guard | ⬜ | | |
 | 6.2 | Java backend migration (optional, separate effort) | ⬜ | | |
 | 6.3 | Merge the Claude Code CLI swap track | ⬜ | | |
+
+---
+
+## Backlog (Unranked)
+
+- **Multi-Leg Option Combos**: Support for net credit/debit limit orders (BAG routing) for option spreads.
 
 ---
 
@@ -149,4 +155,5 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 2026-06-19 | Step 4.3b | Implemented `GetHistoricalBars` and `GetLatestBar` in `IBKRDataService` (services/ibkr_data.go), `formatDate=2` (epoch seconds) for unambiguous timestamps. Verified live over paper TWS 4002.
 2026-06-19 | Step 4.3c | Safe bot wiring (5cbedfe, 72c14d2). config gains Broker/IBKRHost/IBKRPort/IBKRClientID + TradingEnabled (master kill-switch, default false). New GatedTradingService wraps the trading service: when disabled it logs order intent and refuses PlaceOrder/CancelOrder/PlaceOptionsOrder (reads pass through), with runtime Disable() for disconnect→halt; unit-tested. cmd/bot selects broker via BROKER=: ibkr enforces paper port 4002 (Fatal otherwise), connects tws.Client, wires IBKRDataService + gate-wrapped IBKRTradingService, and halts orders on client.Closed(); alpaca path unchanged and ungated. Added tws.Client.Closed(). Supervised smoke (BROKER=ibkr, gate OFF) verified live: connects to paper, GET /api/v1/account returns the real DU***4187 balances, /positions OK, and POST /orders/buy is refused by the gate ("trading disabled (dry-run mode)") — no order placed. Orders stay gated until 4.3e.
 2026-06-19 | Step 4.3b (refine) | Review-driven follow-ups (381c9c3, f0b43f4, 9519673, efbe055): (1) bars now accumulate in a server-side `histBuf` and the single `HistoricalDataEnd` hands the whole slice over via `ExtData` — replaces the earlier per-bar blocking send so the read loop never blocks on a consumer and never drops bars; (2) `ParseTWSDate` extracted to `tws/date.go` + table test; (3) duration clamped for intraday and sub-day intraday windows emit `"<n> S"` (table-tested) to avoid 162/322 and over-fetch; (4) `GetLatestBar` uses `5Min`/5-day lookback (covers long weekends without hitting the 1-min cap); (5) `whatToShow` instrument-aware — MIDPOINT for options (clean series; OESX has ~0 volume), TRADES for stocks/futures/indices. Live-verified: AAPL TRADES (real volume), OESX MIDPOINT (continuous), OESX 1h→`3599 S`→60 bars. OPEN for 4.3d/e: intelligence layer must not depend on option volume (MIDPOINT bars are Vol=0).
+2026-06-19 | Phase 5   | Cutover to IBKR-only complete. Implemented `EU:` and `FUT:` symbology mapping. Updated Google News endpoints to fetch DE/en-GB European feeds. Deleted Alpaca services, stripped out `Broker` dynamic wiring in `cmd/bot` and updated configs. Bot compiles and runs seamlessly against IB Gateway (port 4002).
 ```

@@ -189,6 +189,9 @@ func (c *Client) readLoop() {
 			return nil
 		}()
 		if err != nil {
+			c.mu.Lock()
+			c.connected = false
+			c.mu.Unlock()
 			c.signalClosed()
 			return
 		}
@@ -317,6 +320,9 @@ func (c *Client) Accounts() string {
 }
 
 func (c *Client) Close() error {
+	c.mu.Lock()
+	c.connected = false
+	c.mu.Unlock()
 	c.signalClosed()
 	if c.conn != nil {
 		return c.conn.Close()
