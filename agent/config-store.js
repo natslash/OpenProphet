@@ -216,6 +216,8 @@ function defaultModels() {
   
   return [
     { id: 'anthropic/claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Best speed + intelligence, $3/$15 per MTok' },
+    { id: 'anthropic/claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Next generation Opus, $15/$75 per MTok' },
+    { id: 'google/gemini-3-1-pro', name: 'Gemini 3.1 Pro', description: 'Google Advanced Pro Model' },
     { id: 'anthropic/claude-opus-4-6', name: 'Claude Opus 4.6', description: 'Most intelligent, best for agents, $5/$25 per MTok' },
     { id: 'anthropic/claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fastest, near-frontier, $1/$5 per MTok' },
     { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5 (Legacy)', description: 'Previous gen Sonnet, $3/$15 per MTok' },

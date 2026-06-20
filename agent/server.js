@@ -209,12 +209,14 @@ const harness = {
   stop: async () => {},
   pause: () => {},
   resume: () => {},
+  reloadConfig: async () => {},
   sendMessage: async () => ({ ok: true })
 };
 
 const orchestrator = {
   on: () => {},
   getSandboxRuntime: () => null,
+  runtimes: new Map(),
   sendMessage: async () => ({ ok: true })
 };
 
@@ -276,14 +278,18 @@ function getGoClientForSandbox(sandboxId) {
 async function refreshHarnessConfigForSandbox(sandboxId, options = {}) {
   const targetHarness = getHarnessForSandbox(sandboxId);
   if (!targetHarness) return;
-  await targetHarness.reloadConfig(options);
+  if (typeof targetHarness.reloadConfig === 'function') {
+    await targetHarness.reloadConfig(options);
+  }
 }
 
 async function refreshAllHarnessConfigs(options = {}) {
   const tasks = [];
-  if (harness) tasks.push(harness.reloadConfig(options));
-  for (const runtime of orchestrator.runtimes.values()) {
-    if (runtime.harness) tasks.push(runtime.harness.reloadConfig(options));
+  if (harness && typeof harness.reloadConfig === 'function') tasks.push(harness.reloadConfig(options));
+  if (orchestrator.runtimes) {
+    for (const runtime of orchestrator.runtimes.values()) {
+      if (runtime.harness && typeof runtime.harness.reloadConfig === 'function') tasks.push(runtime.harness.reloadConfig(options));
+    }
   }
   await Promise.allSettled(tasks);
 }
@@ -442,10 +448,11 @@ app.get('/api/events', async (req, res) => {
   });
   
   try {
-    const goPort = process.env.PORT || '4534';
+    const goPort = TRADING_BOT_PORT;
     const response = await fetch(`http://localhost:${goPort}/api/v1/agent/status`);
     const stateData = await response.json().catch(() => ({ running: false }));
     res.write(`event: state\ndata: ${JSON.stringify({ running: stateData.running, sandboxId: getActiveSandbox()?.id || null })}\n\n`);
+    res.write(`event: status\ndata: ${JSON.stringify({ status: stateData.running ? 'active' : 'stopped', sandboxId: getActiveSandbox()?.id || null })}\n\n`);
   } catch(e) {
     res.write(`event: state\ndata: ${JSON.stringify({ running: false, error: e.message })}\n\n`);
   }
@@ -458,7 +465,7 @@ app.get('/api/events', async (req, res) => {
 // ── Agent Control ──────────────────────────────────────────────────
 app.post('/api/agent/start', async (req, res) => {
   try {
-    const goPort = process.env.PORT || '4534';
+    const goPort = TRADING_BOT_PORT;
     const response = await fetch(`http://localhost:${goPort}/api/v1/agent/start`, { method: 'POST' });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
@@ -470,7 +477,7 @@ app.post('/api/agent/start', async (req, res) => {
 
 app.post('/api/agent/stop', async (req, res) => {
   try {
-    const goPort = process.env.PORT || '4534';
+    const goPort = TRADING_BOT_PORT;
     const response = await fetch(`http://localhost:${goPort}/api/v1/agent/stop`, { method: 'POST' });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
@@ -537,6 +544,23 @@ app.post('/api/manager/message', async (req, res) => {
     if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
 
     const config = getConfig();
+
+    const trimmed = message.trim();
+    const lowerTrimmed = trimmed.toLowerCase();
+
+    // /help - show available commands
+    if (lowerTrimmed === '/help' || lowerTrimmed === '/?') {
+      const helpText = `Manager commands:
+/help - Show this help message
+/newagent - Create a new agent
+/editagent <id> - Edit an existing agent
+/agents - List all agents
+/sandboxes - List all sandboxes (portfolios)
+
+Any other text will be sent to the AI Manager.`;
+      return res.json({ ok: true, text: helpText });
+    }
+
     const mgr = config.manager || {};
     const model = mgr.model || config.activeModel || 'anthropic/claude-sonnet-4-6';
     const ocModel = model.includes('/') ? model : `anthropic/${model}`;
@@ -808,7 +832,7 @@ Use /newagent to open the agent builder!`;
 
     if (lowerTrimmed === '/portfolio' || lowerTrimmed === '/portfolios') {
       try {
-        const goPort = process.env.PORT || '4534';
+        const goPort = TRADING_BOT_PORT;
         
         const accRes = await fetch(`http://localhost:${goPort}/api/v1/account`);
         const accData = await accRes.json();
@@ -953,6 +977,24 @@ app.post('/api/sandboxes/:id/message', async (req, res) => {
     
     const lowerTrimmed = trimmed.toLowerCase();
 
+    // /help - show available commands
+    if (lowerTrimmed === '/help' || lowerTrimmed === '/?') {
+      const helpText = `Available commands:
+
+/newagent - Create a new agent
+/editagent <id> - Edit an existing agent
+/agents - List all agents
+/sandboxes - List all sandboxes (portfolios)
+/status - Show status of all portfolios
+/portfolios - Show portfolio and positions
+
+Models: ${(config.models || []).length} available
+Providers: ${[...new Set((config.models || []).map(m => m.id.split('/')[0]))].join(', ')}
+
+Any other text will be sent to the agent.`;
+      return res.json({ ok: true, text: helpText });
+    }
+
     // /agents command
     if (lowerTrimmed === '/agents') {
       const agents = config.agents || [];
@@ -974,7 +1016,7 @@ app.post('/api/sandboxes/:id/message', async (req, res) => {
 
     if (lowerTrimmed === '/portfolio' || lowerTrimmed === '/portfolios') {
       try {
-        const goPort = process.env.PORT || '4534';
+        const goPort = TRADING_BOT_PORT;
         
         const accRes = await fetch(`http://localhost:${goPort}/api/v1/account`);
         const accData = await accRes.json();
@@ -1142,6 +1184,22 @@ function safeConfig() {
 app.get('/api/config', (req, res) => {
   res.json(safeConfig());
 });
+
+async function buildSystemPrompt(agentConfig, context = {}) {
+  if (!agentConfig) return 'No agent configured.';
+  let prompt = agentConfig.prompt || '';
+  
+  if (agentConfig.strategies && agentConfig.strategies.length > 0) {
+    prompt += '\n\n## Strategy Rules\n';
+    for (const strategyId of agentConfig.strategies) {
+      const strategy = context.getStrategyById ? context.getStrategyById(strategyId) : null;
+      if (strategy && strategy.rules) {
+        prompt += `\n### ${strategy.name}\n${strategy.rules}\n`;
+      }
+    }
+  }
+  return prompt;
+}
 
 // System prompt preview
 app.get('/api/agent/prompt-preview', async (req, res) => {
@@ -1624,9 +1682,12 @@ app.post('/api/auth/logout', (req, res) => {
 // ── Health ──────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
   let botHealthy = false;
+  let botRunning = false;
   try {
     await goAxios.get('/health', { timeout: 3000 });
     botHealthy = true;
+    const statRes = await goAxios.get('/api/v1/agent/status', { timeout: 3000 });
+    botRunning = statRes.data?.running || false;
   } catch {}
   const account = getActiveAccount();
   const sandboxStates = getSandboxes().map(sandbox => ({
@@ -1634,7 +1695,7 @@ app.get('/api/health', async (req, res) => {
     port: isActiveSandbox(sandbox.id) ? Number(TRADING_BOT_PORT) : orchestrator.getSandboxRuntime(sandbox.id)?.port || null,
     goReady: isActiveSandbox(sandbox.id) ? goReady : (orchestrator.getSandboxRuntime(sandbox.id)?.goReady || false),
     goPid: isActiveSandbox(sandbox.id) ? (goProc?.pid || null) : (orchestrator.getSandboxRuntime(sandbox.id)?.goProc?.pid || null),
-    state: isActiveSandbox(sandbox.id) ? harness.state.toJSON() : (orchestrator.getSandboxRuntime(sandbox.id)?.harness.state.toJSON() || null),
+    state: isActiveSandbox(sandbox.id) ? { running: botRunning, status: botRunning ? 'active' : 'stopped' } : (orchestrator.getSandboxRuntime(sandbox.id)?.harness.state.toJSON() || null),
   }));
   res.json({
     agent: 'healthy',
@@ -1701,7 +1762,7 @@ app.listen(PORT, '0.0.0.0', () => {
 
 // Proxy logs from Go
 async function proxyGoLogs() {
-  const goPort = process.env.PORT || '4534';
+  const goPort = TRADING_BOT_PORT;
   try {
     const fetch = (await import('node-fetch')).default;
     const res = await fetch(`http://localhost:${goPort}/api/v1/agent/stream`);

@@ -1282,7 +1282,8 @@ function updateState(s) {
   _set('stat-trades', s.stats?.trades || 0);
   _set('stat-errors', s.stats?.errors || 0);
   _set('hb-interval', fmtInt(s.heartbeatSeconds));
-  _set('footer-model', (s.activeModel || '--').replace('claude-', '').split('-202')[0]);
+  const dispModel = s.activeModel || sandboxScoped.agent?.model || config.activeModel || '--';
+  _set('footer-model', dispModel.replace('anthropic/', '').replace('claude-', '').replace('google/', '').split('-202')[0]);
   updatePhase(s.phase);
   updateButtons(s.running ? (s.paused ? 'paused' : 'started') : 'stopped');
   if (s.recentTrades) s.recentTrades.forEach(t => addTradeCard(t));
@@ -1636,7 +1637,8 @@ function renderAll() {
   renderSandboxTabs();
   renderAgents(); renderStrategies(); renderAccounts();
   renderHeartbeat(); renderPermissions(); renderSlack(); renderPromptPreview();
-  document.getElementById('footer-model').textContent = ((sandboxScoped.agent?.model || config.activeModel || '--')).replace('claude-','').split('-202')[0];
+  const dispModelAll = sandboxScoped.agent?.model || config.activeModel || '--';
+  document.getElementById('footer-model').textContent = dispModelAll.replace('anthropic/', '').replace('claude-','').replace('google/', '').split('-202')[0];
 }
 
 const sandboxTerminals = {}; // { sandboxId: { el, logs[] } }
