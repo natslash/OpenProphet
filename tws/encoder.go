@@ -107,6 +107,18 @@ func (e *Encoder) ReqMktData(reqId int64, contract Contract, genericTickList str
 	return e.writer.SendFields(fields...)
 }
 
+// ReqMarketDataType sets the market data type for subsequent requests.
+// 1 = Live, 2 = Frozen, 3 = Delayed, 4 = Delayed and frozen
+func (e *Encoder) ReqMarketDataType(marketDataType int) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqMarketDataType),
+		version,
+		strconv.Itoa(marketDataType),
+	}
+	return e.writer.SendFields(fields...)
+}
+
 // CancelMktData cancels a market data request.
 func (e *Encoder) CancelMktData(reqId int64) error {
 	const version = "1"

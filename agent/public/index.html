@@ -157,18 +157,48 @@
     .terminal-panel.active { display: flex; height: 100%; }
 
     .terminal-split {
-      display: flex; flex: 1; overflow: hidden; min-height: 0;
+      display: flex; flex-direction: row; flex: 1; overflow: hidden; min-height: 0;
     }
+
+    .chat-pane {
+      flex: 1; overflow-y: auto; padding: 16px; background: var(--paper);
+      display: flex; flex-direction: column; gap: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chat-pane::-webkit-scrollbar { width: 4px; }
+    .chat-pane::-webkit-scrollbar-thumb { background: var(--rule); }
+
+    .chat-bubble {
+      max-width: 85%; padding: 12px 16px; border-radius: 12px;
+      font-size: 14px; line-height: 1.5; font-family: 'Source Sans 3', sans-serif;
+      word-wrap: break-word; position: relative;
+    }
+    .chat-bubble-user {
+      align-self: flex-end; background: var(--accent); color: #fff;
+      border-bottom-right-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .chat-bubble-ai {
+      align-self: flex-start; background: var(--paper-darker); color: var(--ink);
+      border-bottom-left-radius: 4px; border: 1px solid var(--border); box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .chat-time {
+      font-size: 10px; opacity: 0.7; margin-top: 6px; display: block; text-align: right;
+    }
+    .chat-bubble-ai .chat-time { text-align: left; }
+
 
     .terminal {
       flex: 1; overflow-y: auto; padding: 12px 16px;
-      background: var(--paper); font-family: 'IBM Plex Mono', monospace;
+      background: var(--code-bg); font-family: 'IBM Plex Mono', monospace;
       -webkit-overflow-scrolling: touch; min-height: 0;
+      border-left: 1px solid var(--border);
     }
     .terminal::-webkit-scrollbar { width: 4px; }
     .terminal::-webkit-scrollbar-thumb { background: var(--rule); }
 
     .log-entry { padding: 3px 0; font-size: 12px; line-height: 1.65; word-break: break-word; overflow-wrap: break-word; }
+    .log-entry.beat { color: var(--ink-faint); display: none; }
+    .show-beats .log-entry.beat { display: block; }
     .log-entry .time { color: var(--ink-faint); margin-right: 8px; font-size: 10.5px; }
     .log-entry.thought { color: var(--ink-muted); font-style: italic; }
     .log-entry.info { color: var(--ink-light); }
@@ -700,6 +730,44 @@
         </div>
 
         <div class="section" style="margin-top:24px">
+          <div class="section-title">Backend Engine Settings</div>
+          <p style="font-size:13px;color:var(--ink-muted);margin-bottom:12px">Configure LLM polling on managed positions</p>
+          <div class="config-card">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group">
+                <label>LLM Provider</label>
+                <select id="env-provider" onchange="updateEnvModelOptions(); saveEnvConfig()">
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>LLM Model</label>
+                <select id="env-model" onchange="saveEnvConfig()">
+                  <!-- Populated by JS -->
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Enable Autonomous Polling</label>
+                <input type="checkbox" id="env-polling-enabled" onchange="saveEnvConfig()" style="margin-top: 8px;">
+              </div>
+              <div class="form-group">
+                <label>Polling Interval (Secs)</label>
+                <input type="number" id="env-polling-interval" min="60" max="86400" onchange="saveEnvConfig()">
+              </div>
+              <div class="form-group">
+                <label>Enable Trading</label>
+                <input type="checkbox" id="env-trading-enabled" onchange="saveEnvConfig()" style="margin-top: 8px;">
+              </div>
+            </div>
+            <div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between;">
+              <div class="form-hint">Note: Changing these settings applies instantly. Polling injects portfolio reviews automatically.</div>
+              <button class="btn sm" onclick="restartBackend()" style="border-color: var(--warning); color: var(--warning);">Restart Backend</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section" style="margin-top:24px">
           <div class="section-title">Agent Permissions &amp; Guardrails</div>
           <p style="font-size:13px;color:var(--ink-muted);margin-bottom:12px">Control what the agent is allowed to do</p>
           <div class="config-card">
@@ -1157,22 +1225,41 @@ function connectSSE() {
     const html = `<div class="log-entry ${d.level||'info'}"><span class="time">${fmtTime()}</span>${esc(d.message)}</div>`;
     logToSandbox(sid, html);
     log(formatSandboxPrefix(d) + d.message, d.level || 'info');
+    console.log(`%c[Backend Log] %c${d.message}`, 'color: #3d5a80; font-weight: bold;', d.level === 'error' ? 'color: red;' : 'color: inherit;');
   });
   es.addEventListener('agent_text', e => {
     const d = JSON.parse(e.data);
     const sid = d.sandboxId || getEffectiveSandboxId();
+    const t = document.getElementById('thinking-' + sid);
+    if (t) t.remove();
     d.text.split('\n').forEach(l => { 
       if(l.trim()) {
-        logToSandbox(sid, `<div class="log-entry text"><span class="time">${fmtTime()}</span>${esc(l)}</div>`);
+        chatToSandbox(sid, `<div class="chat-bubble chat-bubble-ai">${esc(l)}<span class="chat-time">${fmtTime()}</span></div>`);
+        logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(l)}</div>`);
         log(formatSandboxPrefix(d) + l, 'text');
+        console.log(`%c[Agent Output] %c${l}`, 'color: #5a7a9e; font-weight: bold;', 'color: inherit;');
       }
     });
+  });
+  es.addEventListener('agent_tool', e => {
+    const d = JSON.parse(e.data);
+    const sid = d.sandboxId || getEffectiveSandboxId();
+    const t = document.getElementById('thinking-' + sid);
+    if (t) t.remove();
+    const args = d.args ? ' ' + JSON.stringify(d.args).substring(0, 120) : '';
+    logToSandbox(sid, `<div class="log-entry system"><span class="time">${fmtTime()}</span>Tool: ${d.tool}${args}</div>`);
+    log(formatSandboxPrefix(d) + 'Tool: ' + d.tool + args, 'system');
+    console.groupCollapsed(`%c[Tool Call] %c${d.tool}`, 'color: #4a9a5a; font-weight: bold;', 'font-weight: normal;');
+    console.log('Arguments:', d.args);
+    console.log('Sandbox ID:', sid);
+    console.groupEnd();
   });
   es.addEventListener('beat_start', e => {
     const d = JSON.parse(e.data);
     const sid = d.sandboxId || getEffectiveSandboxId();
     logToSandbox(sid, `<div class="log-entry beat"><span class="time">${fmtTime()}</span>Heartbeat #${d.beat} | ${d.phase}</div>`);
     log(formatSandboxPrefix(d) + 'Heartbeat #' + d.beat + ' | ' + d.phase, 'beat');
+    console.group(`%c[Heartbeat Start] %cBeat #${d.beat} | ${d.phase}`, 'color: #8a6d3b; font-weight: bold;', 'font-weight: normal;');
     const countEl = document.querySelector(`[data-stat="${sid}-hb-count"]`);
     if (countEl) countEl.textContent = d.beat;
     if (!d.sandboxId || d.sandboxId === getEffectiveSandboxId()) _set('hb-count', d.beat);
@@ -1182,6 +1269,7 @@ function connectSSE() {
     const sid = d.sandboxId || getEffectiveSandboxId();
     logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>Beat #${d.beat} complete</div>`);
     log(formatSandboxPrefix(d) + 'Beat #' + d.beat + ' complete', 'info');
+    console.groupEnd();
     if (!d.sandboxId || d.sandboxId === getEffectiveSandboxId()) refreshPortfolio();
   });
   es.addEventListener('tool_call', e => {
@@ -1234,7 +1322,7 @@ function connectSSE() {
     if (thinkEl) thinkEl.remove();
     const d = JSON.parse(e.data);
     if (d.text) d.text.split('\n').forEach(function(l) {
-      if (l.trim()) logToSandbox('_manager', '<div class="log-entry text"><span class="time">' + fmtTime() + '</span>' + esc(l) + '</div>');
+      if (l.trim()) chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai">' + esc(l) + '<span class="chat-time">' + fmtTime() + '</span></div>');
     });
   });
   es.addEventListener('manager_tool', e => {
@@ -1655,7 +1743,7 @@ function ensureSandboxTerminal(sandboxId, label) {
   wrapper.style.height = '100%';
   wrapper.style.overflow = 'hidden';
   wrapper.innerHTML = `
-    <div class="terminal-search-bar">
+    <div class="terminal-search-bar" style="display:none">
       <input type="text" placeholder="Search logs..." oninput="filterTerminalFor('${sandboxId}')" autocomplete="off" data-search="${sandboxId}">
       <select onchange="filterTerminalFor('${sandboxId}')" data-level="${sandboxId}">
         <option value="all">All levels</option>
@@ -1668,7 +1756,13 @@ function ensureSandboxTerminal(sandboxId, label) {
       <button class="btn-clear" onclick="document.querySelector('[data-search=${sandboxId}]').value='';filterTerminalFor('${sandboxId}')" title="Clear">Clear</button>
     </div>
     <div class="terminal-split">
-      <div class="terminal" data-terminal="${sandboxId}">
+      <div class="chat-pane" id="chat-${sandboxId}" data-chatpane="${sandboxId}">
+        <div class="chat-bubble chat-bubble-ai">
+          Welcome to the new chat interface!
+          <span class="chat-time">System</span>
+        </div>
+      </div>
+      <div class="terminal" data-terminal="${sandboxId}" style="display:none">
         <div class="log-entry info"><span class="time">--:--:--</span>${esc(label)} ready. Press Start to begin.</div>
       </div>
       <div class="sidebar">
@@ -1726,11 +1820,13 @@ function ensureSandboxTerminal(sandboxId, label) {
     <div class="chat-input-bar">
       <input type="text" placeholder="/help for commands..." onkeydown="if(event.key==='Enter')sendMessageTo('${sandboxId}')" autocomplete="off" data-chat="${sandboxId}">
       <button class="btn primary sm" onclick="sendMessageTo('${sandboxId}')">Send</button>
+      <button class="btn sm" onclick="toggleConsole('${sandboxId}')" title="Toggle System Logs" style="margin-left:auto;">&#128435; Logs</button>
+      <label style="font-size:11px;margin-left:8px;color:var(--ink-muted);cursor:pointer;"><input type="checkbox" onchange="toggleHeartbeats(this, '${sandboxId}')"> Show Heartbeats</label>
     </div>
     <button class="sidebar-toggle" onclick="toggleMobileSidebar('${sandboxId}')">&#9776;</button>
     <div class="sidebar-overlay" data-overlay="${sandboxId}" onclick="toggleMobileSidebar('${sandboxId}')"></div>`;
   container.appendChild(wrapper);
-  sandboxTerminals[sandboxId] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]') };
+  sandboxTerminals[sandboxId] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]'), chatEl: wrapper.querySelector('[data-chatpane]') };
   return sandboxTerminals[sandboxId];
 }
 
@@ -1801,15 +1897,17 @@ function ensureManagerTerminal() {
     + '<button class="btn sm primary" onclick="saveManagerPrompt()" style="margin-top:4px;font-size:10px">Save</button>'
     + '</div>'
     + '<div class="terminal-split">'
-    + '<div class="terminal" data-terminal="_manager" style="flex:1">'
-    + '<div class="log-entry info"><span class="time">--:--:--</span>Manager ready. Configure agents, strategies, and research here.</div>'
+    + '<div class="chat-pane" data-chatpane="_manager"><div class="chat-bubble chat-bubble-ai">Manager ready. Configure agents, strategies, and research here.<span class="chat-time">System</span></div></div>'
+    + '<div class="terminal" data-terminal="_manager" style="display:none" style="flex:1">'
+    + '<div class="log-entry info"><span class="time">--:--:--</span>Manager backend logs...</div>'
     + '</div></div>'
     + '<div class="chat-input-bar">'
     + '<input type="text" placeholder="Ask the manager to create agents, strategies, research..." onkeydown="if(event.key===\'Enter\')sendManagerMessage()" autocomplete="off" id="manager-chat-input">'
     + '<button class="btn primary sm" onclick="sendManagerMessage()">Send</button>'
+    + '<button class="btn sm" onclick="toggleConsole(\'_manager\')" title="Toggle System Logs" style="margin-left:auto;">&#128435; Logs</button>'
     + '</div>';
   container.appendChild(wrapper);
-  sandboxTerminals['_manager'] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]') };
+  sandboxTerminals['_manager'] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]'), chatEl: wrapper.querySelector('[data-chatpane]') };
 }
 
 function updateManagerModelDropdown() {
@@ -1867,8 +1965,8 @@ async function sendManagerMessage() {
   if (!message) return;
   input.value = '';
   _managerThinking = true;
-  logToSandbox('_manager', '<div class="log-entry user"><span class="time">' + fmtTime() + '</span>' + esc(message) + '</div>');
-  logToSandbox('_manager', '<div class="log-entry info" id="manager-thinking"><span class="time">' + fmtTime() + '</span><span style="color:var(--ink-faint)">Thinking...</span></div>');
+  chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-user">' + esc(message) + '<span class="chat-time">' + fmtTime() + '</span></div>');
+  chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai" id="manager-thinking"><span style="color:var(--ink-faint)">Thinking...</span><span class="chat-time">' + fmtTime() + '</span></div>');
   // Disable input while thinking
   input.disabled = true;
   input.placeholder = 'Manager is thinking...';
@@ -1889,7 +1987,7 @@ async function sendManagerMessage() {
     input.placeholder = 'Ask the manager to create agents, strategies, research...';
     const thinkEl = document.getElementById('manager-thinking');
     if (thinkEl) thinkEl.remove();
-    logToSandbox('_manager', '<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Error: ' + esc(e.message) + '</div>');
+    chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai" style="background:var(--error-bg);color:var(--error);border-color:var(--error)">Error: ' + esc(e.message) + '<span class="chat-time">' + fmtTime() + '</span></div>');
   }
 }
 
@@ -1934,6 +2032,33 @@ async function switchSandboxTab(sandboxId) {
   
   renderSandboxTabs();
   renderAccounts();
+}
+
+function chatToSandbox(sandboxId, html) {
+  const t = sandboxTerminals[sandboxId];
+  if (!t || !t.chatEl) return;
+  t.chatEl.insertAdjacentHTML('beforeend', html);
+  t.chatEl.scrollTop = t.chatEl.scrollHeight;
+}
+
+function toggleConsole(sandboxId) {
+  const t = sandboxTerminals[sandboxId];
+  if (!t) return;
+  const isHidden = t.termEl.style.display === 'none';
+  t.termEl.style.display = isHidden ? 'block' : 'none';
+  // Also hide the search bar
+  const searchBar = t.el.querySelector('.terminal-search-bar');
+  if (searchBar) searchBar.style.display = isHidden ? 'flex' : 'none';
+}
+
+function toggleHeartbeats(checkbox, sandboxId) {
+  const t = sandboxTerminals[sandboxId];
+  if (!t || !t.termEl) return;
+  if (checkbox.checked) {
+    t.termEl.classList.add('show-beats');
+  } else {
+    t.termEl.classList.remove('show-beats');
+  }
 }
 
 function logToSandbox(sandboxId, html) {
@@ -2013,11 +2138,15 @@ async function setSessionMode(sandboxId, mode) {
 }
 
 async function sendMessageTo(sandboxId) {
-  const input = document.querySelector(`[data-chat="${sandboxId}"]`);
+  const wrapper = document.getElementById('term-wrap-' + sandboxId);
+  const input = wrapper ? wrapper.querySelector('.chat-input-bar input') : null;
   if (!input) return;
   const message = input.value.trim();
   if (!message) return;
   input.value = '';
+  input.disabled = true;
+  chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-user">${esc(message)}<span class="chat-time">${fmtTime()}</span></div>`);
+  chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai" id="thinking-${sandboxId}"><span style="color:var(--ink-faint)">Thinking...</span><span class="chat-time">${fmtTime()}</span></div>`);
   try {
     const r = await fetch('/api/sandboxes/' + encodeURIComponent(sandboxId) + '/message', {
       method: 'POST',
@@ -2025,10 +2154,28 @@ async function sendMessageTo(sandboxId) {
       body: JSON.stringify({ message }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Failed');
-    if (d.text) logToSandbox(sandboxId, `<div class="log-entry info"><span class="time">${fmtTime()}</span>${esc(d.text)}</div>`);
+    if (!r.ok) {
+      const t = document.getElementById(`thinking-${sandboxId}`);
+      if (t) t.remove();
+      throw new Error(d.error || 'Failed');
+    }
+    // Only remove thinking indicator immediately if it's a synchronous command
+    if (message.startsWith('/')) {
+      const t = document.getElementById(`thinking-${sandboxId}`);
+      if (t) t.remove();
+      if (d.text) chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai">${esc(d.text)}<span class="chat-time">${fmtTime()}</span></div>`);
+    } else {
+      // Async message sent to agent. Keep thinking bubble.
+      if (d.text) logToSandbox(sandboxId, `<div class="log-entry info"><span class="time">${fmtTime()}</span>${esc(d.text)}</div>`);
+    }
+    input.disabled = false;
+    input.focus();
   } catch (e) {
-    logToSandbox(sandboxId, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Failed to send: ${esc(e.message)}</div>`);
+    const t = document.getElementById(`thinking-${sandboxId}`);
+    if (t) t.remove();
+    input.disabled = false;
+    input.focus();
+    chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai" style="background:var(--error-bg);color:var(--error);border-color:var(--error)">Failed to send: ${esc(e.message)}<span class="chat-time">${fmtTime()}</span></div>`);
   }
 }
 
@@ -3032,6 +3179,80 @@ function clearTerminalSearch() {
   document.getElementById('search-count').textContent = '';
 }
 
+const envModels = {
+  anthropic: [
+    { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }
+  ],
+  gemini: [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
+    { value: 'gemini-pro-latest', label: 'Gemini Pro (Latest)' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' }
+  ]
+};
+
+function updateEnvModelOptions(selectedModel) {
+  const provider = document.getElementById('env-provider').value;
+  const select = document.getElementById('env-model');
+  select.innerHTML = '';
+  const options = envModels[provider] || [];
+  options.forEach(opt => {
+    const el = document.createElement('option');
+    el.value = opt.value;
+    el.textContent = opt.label;
+    select.appendChild(el);
+  });
+  if (selectedModel) {
+    select.value = selectedModel;
+  }
+}
+
+async function loadEnvConfig() {
+  try {
+    const r = await fetch('/api/env');
+    const d = await r.json();
+    document.getElementById('env-provider').value = d.LLM_PROVIDER || 'anthropic';
+    updateEnvModelOptions(d.LLM_MODEL);
+    document.getElementById('env-polling-enabled').checked = !!d.LLM_POLLING_ENABLED;
+    document.getElementById('env-polling-interval').value = d.LLM_POLLING_INTERVAL_SECS || 3600;
+    document.getElementById('env-trading-enabled').checked = !!d.TRADING_ENABLED;
+  } catch (e) {
+    console.warn("Failed to load env config", e);
+  }
+}
+
+async function saveEnvConfig() {
+  try {
+    const body = {
+      LLM_PROVIDER: document.getElementById('env-provider').value,
+      LLM_MODEL: document.getElementById('env-model').value,
+      LLM_POLLING_ENABLED: document.getElementById('env-polling-enabled').checked,
+      LLM_POLLING_INTERVAL_SECS: parseInt(document.getElementById('env-polling-interval').value || '3600', 10),
+      TRADING_ENABLED: document.getElementById('env-trading-enabled').checked
+    };
+    await fetch('/api/env', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    showToast('Backend Engine settings saved. Remember to click "Restart Backend" if you changed the provider or model.', 'success');
+  } catch (e) {
+    showToast('Failed to save settings: ' + e.message, 'error');
+  }
+}
+
+async function restartBackend() {
+  if (!confirm('Are you sure you want to restart the trading backend?')) return;
+  try {
+    await fetch('/api/backend/restart', { method: 'POST' });
+    showToast('Restart signal sent to backend...', 'info');
+  } catch (e) {
+    showToast('Failed to send restart signal: ' + e.message, 'error');
+  }
+}
+
 // ── Init ───────────────────────────────────
 let _pollIntervals = [];
 function startPolling() {
@@ -3044,7 +3265,7 @@ function startPolling() {
     setInterval(checkAuth, 30000),
   ];
   // Run immediately on start
-  updateClock(); refreshPortfolio(); checkHealth(); checkAuth();
+  updateClock(); refreshPortfolio(); checkHealth(); checkAuth(); loadEnvConfig();
 }
 function stopPolling() {
   _pollIntervals.forEach(id => clearInterval(id));

@@ -62,6 +62,11 @@ func main() {
 	connectCancel()
 	logger.Info("Connected to IB Gateway (paper).")
 
+	// Set market data type to delayed (3) by default, or else we get 10089 errors on paper accounts without subscriptions
+	if err := client.Encoder().ReqMarketDataType(3); err != nil {
+		logger.Warn("Failed to set market data type to delayed:", err)
+	}
+
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
 	gated := services.NewGatedTradingService(services.NewIBKRTradingService(client), cfg.TradingEnabled)
 	tradingService = gated
@@ -131,6 +136,8 @@ func main() {
 	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, tradingService, logger, services.AutonomousBeatConfig{
 		Interval:           time.Duration(cfg.BeatIntervalSecs) * time.Second,
 		MaxDailyExecutions: cfg.BeatMaxDailyExecutions,
+		LLMPollingEnabled:  cfg.LLMPollingEnabled,
+		LLMPollingInterval: time.Duration(cfg.LLMPollingIntervalSecs) * time.Second,
 	})
 	beatController := controllers.NewBeatController(autonomousBeat)
 
@@ -252,6 +259,7 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 		api.POST("/agent/start", beatController.HandleStart)
 		api.POST("/agent/stop", beatController.HandleStop)
 		api.GET("/agent/status", beatController.HandleStatus)
+		api.POST("/agent/message", beatController.HandleMessage)
 		api.GET("/agent/stream", beatController.HandleStreamLogs)
 
 		// Position management endpoints

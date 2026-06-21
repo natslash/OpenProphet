@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { spawn, execSync } from 'child_process';
 import axios from 'axios';
 import ChatStore from './chat-store.js';
+import { readEnv, writeEnv } from './env-api.js';
 import { migrateLegacyDataForAccount } from './data-migration.js';
 import {
   loadConfig, getConfig, saveConfig,
@@ -110,18 +111,32 @@ async function startGoBackend(account) {
 
   goProc.stdout.on('data', (d) => {
     const msg = d.toString().trim();
-    if (msg) console.log(`  [go] ${msg}`);
+    if (msg) {
+      console.log(`  [go] ${msg}`);
+      broadcast('agent_log', {
+        message: msg,
+        level: 'info',
+        timestamp: new Date().toISOString()
+      });
+    }
   });
   goProc.stderr.on('data', (d) => {
     const msg = d.toString().trim();
-    if (msg) console.log(`  [go-err] ${msg}`);
+    if (msg) {
+      console.log(`  [go-err] ${msg}`);
+      broadcast('agent_log', {
+        message: msg,
+        level: msg.toLowerCase().includes('error') ? 'error' : (msg.toLowerCase().includes('warn') ? 'warning' : 'info'),
+        timestamp: new Date().toISOString()
+      });
+    }
   });
   goProc.on('exit', (code, signal) => {
     console.log(`  Go backend exited (code: ${code}, signal: ${signal})`);
     goReady = false;
     goProc = null;
     // Auto-restart on unexpected crash (not manual stop)
-    if (code !== 0 && code !== null && signal !== 'SIGTERM') {
+    if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGKILL') {
       console.log('  Go backend crashed — auto-restarting in 5s...');
       broadcast('agent_log', {
         message: 'Trading backend crashed — auto-restarting in 5s...',
@@ -160,6 +175,23 @@ async function startGoBackend(account) {
   });
   return false;
 }
+
+app.post('/api/backend/restart', (req, res) => {
+  const acc = getActiveAccount();
+  if (goProc) {
+    console.log('  Manual restart requested: killing Go backend...');
+    goProc.removeAllListeners('exit');
+    goProc.on('exit', () => {
+      goReady = false;
+      goProc = null;
+      if (acc) startGoBackend(acc);
+    });
+    goProc.kill('SIGTERM');
+  } else {
+    if (acc) startGoBackend(acc);
+  }
+  res.json({ ok: true });
+});
 
 async function stopGoBackend() {
   if (goProc) {
@@ -683,11 +715,23 @@ ${message.trim()}${customPromptAddition}`;
           if (evt.sessionID) {
             _managerSessionId = evt.sessionID;
           }
-        } catch {}
+        } catch (e) {
+          console.log('[Manager Raw Out]', line);
+        }
       }
     });
 
-    proc.stderr.on('data', () => {});
+    proc.stderr.on('data', (chunk) => {
+      console.error('[Manager Error]', chunk.toString());
+    });
+    
+    proc.on('error', (err) => {
+      console.error('[Manager Spawn Error]', err);
+      broadcast('manager_text', { text: `Error starting manager: ${err.message}` });
+      broadcast('manager_done', {});
+      if (_managerProc === proc) _managerProc = null;
+    });
+
     proc.on('close', () => {
       if (_managerProc === proc) _managerProc = null;
       // Update session tracking
@@ -981,6 +1025,8 @@ app.post('/api/sandboxes/:id/message', async (req, res) => {
     if (lowerTrimmed === '/help' || lowerTrimmed === '/?') {
       const helpText = `Available commands:
 
+/start - Start the agent heartbeat
+/stop - Stop the agent heartbeat
 /newagent - Create a new agent
 /editagent <id> - Edit an existing agent
 /agents - List all agents
@@ -993,6 +1039,35 @@ Providers: ${[...new Set((config.models || []).map(m => m.id.split('/')[0]))].jo
 
 Any other text will be sent to the agent.`;
       return res.json({ ok: true, text: helpText });
+    }
+
+    if (lowerTrimmed === '/stop') {
+      try {
+        if (isActiveSandbox(sandboxId)) {
+          await stopGoBackend();
+          await harness.stop();
+        } else {
+          await orchestrator.stopSandbox(sandboxId);
+        }
+        return res.json({ ok: true, sandboxId, text: 'Agent stopped manually.' });
+      } catch (err) {
+        return res.json({ ok: true, sandboxId, text: 'Failed to stop agent: ' + err.message });
+      }
+    }
+
+    if (lowerTrimmed === '/start') {
+      try {
+        if (isActiveSandbox(sandboxId)) {
+          const account = getActiveAccount();
+          if (!goReady && account) await startGoBackend(account);
+          await harness.start();
+        } else {
+          await orchestrator.startSandbox(sandboxId);
+        }
+        return res.json({ ok: true, sandboxId, text: 'Agent started.' });
+      } catch (err) {
+        return res.json({ ok: true, sandboxId, text: 'Failed to start agent: ' + err.message });
+      }
     }
 
     // /agents command
@@ -1043,10 +1118,26 @@ Any other text will be sent to the agent.`;
       }
     }
 
-    const result = isActiveSandbox(sandboxId)
-      ? await harness.sendMessage(trimmed)
-      : await orchestrator.sendMessage(sandboxId, trimmed);
-    res.json({ ok: true, sandboxId, ...result });
+    if (isActiveSandbox(sandboxId)) {
+      try {
+        const goPort = TRADING_BOT_PORT;
+        const goRes = await fetch(`http://localhost:${goPort}/api/v1/agent/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: trimmed })
+        });
+        if (!goRes.ok) {
+          const d = await goRes.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to send instruction to autonomous agent.');
+        }
+        return res.json({ ok: true, sandboxId, text: 'Instruction sent to autonomous agent.' });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+    } else {
+      const result = await orchestrator.sendMessage(sandboxId, trimmed);
+      res.json({ ok: true, sandboxId, ...result });
+    }
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -1180,7 +1271,36 @@ function safeConfig() {
   return cfg;
 }
 
-// ── Config CRUD ────────────────────────────────────────────────────
+// ── Env & Config CRUD ────────────────────────────────────────────────────
+app.get('/api/env', async (req, res) => {
+  const env = await readEnv();
+  res.json({
+    LLM_POLLING_ENABLED: env.LLM_POLLING_ENABLED === 'true',
+    LLM_POLLING_INTERVAL_SECS: parseInt(env.LLM_POLLING_INTERVAL_SECS || '3600', 10),
+    LLM_PROVIDER: env.LLM_PROVIDER || 'anthropic',
+    LLM_MODEL: env.LLM_MODEL || '',
+    BEAT_ENABLED: env.BEAT_ENABLED === 'true',
+    TRADING_ENABLED: env.TRADING_ENABLED === 'true'
+  });
+});
+
+app.post('/api/env', async (req, res) => {
+  const updates = req.body;
+  const envUpdates = {};
+  if (updates.LLM_POLLING_ENABLED !== undefined) envUpdates.LLM_POLLING_ENABLED = updates.LLM_POLLING_ENABLED ? 'true' : 'false';
+  if (updates.LLM_POLLING_INTERVAL_SECS !== undefined) envUpdates.LLM_POLLING_INTERVAL_SECS = updates.LLM_POLLING_INTERVAL_SECS.toString();
+  if (updates.LLM_PROVIDER !== undefined) envUpdates.LLM_PROVIDER = updates.LLM_PROVIDER;
+  if (updates.LLM_MODEL !== undefined) envUpdates.LLM_MODEL = updates.LLM_MODEL;
+  if (updates.BEAT_ENABLED !== undefined) envUpdates.BEAT_ENABLED = updates.BEAT_ENABLED ? 'true' : 'false';
+  if (updates.TRADING_ENABLED !== undefined) envUpdates.TRADING_ENABLED = updates.TRADING_ENABLED ? 'true' : 'false';
+  
+  await writeEnv(envUpdates);
+  for (const [k, v] of Object.entries(envUpdates)) {
+    process.env[k] = v;
+  }
+  res.json({ ok: true });
+});
+
 app.get('/api/config', (req, res) => {
   res.json(safeConfig());
 });
@@ -1709,7 +1829,15 @@ app.get('/api/health', async (req, res) => {
 });
 
 // Serve static files (after API routes)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // SPA fallback - serve index.html for non-API routes
 app.use((req, res, next) => {
@@ -1760,27 +1888,72 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Active Account:         ${activeAccount?.name || 'none'}\n`);
 });
 
-// Proxy logs from Go
+// Proxy logs from Go.
+// The Go backend is (re)started on account switch, the restart button, crash
+// auto-restart, and the daily IB Gateway restart. Each restart is a *new*
+// process with a *new* /agent/stream, so this proxy must reconnect whenever the
+// current stream ends or errors — otherwise agent_text and every other agent
+// event silently stop reaching the dashboard after the first restart.
+let _goLogsConnected = false;
+function reconnectGoLogs() {
+  if (!_goLogsConnected) return; // a (re)connect attempt is already scheduled/running
+  _goLogsConnected = false;
+  setTimeout(proxyGoLogs, 2000);
+}
+
 async function proxyGoLogs() {
   const goPort = TRADING_BOT_PORT;
+  if (_goLogsConnected) return; // avoid overlapping streams
+  _goLogsConnected = true;
   try {
     const fetch = (await import('node-fetch')).default;
     const res = await fetch(`http://localhost:${goPort}/api/v1/agent/stream`);
-    if (res.body) {
-      res.body.on('data', (chunk) => {
-        const lines = chunk.toString().split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            broadcast('log', line.slice(6));
-          } else if (line.trim().length > 0 && !line.startsWith('event:')) {
-            // Raw text log
-            broadcast('log', line.trim());
+    if (!res.body) {
+      reconnectGoLogs();
+      return;
+    }
+    let buffer = '';
+    res.body.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+
+        let dataStr = "";
+        if (line.startsWith('data: ')) {
+          dataStr = line.slice(6);
+        } else if (line.startsWith('data:')) {
+          dataStr = line.slice(5);
+        } else if (line.trim().length > 0 && !line.startsWith('event:')) {
+          dataStr = line.trim();
+        }
+
+        if (dataStr) {
+          try {
+            const d = JSON.parse(dataStr);
+            if (d.event && d.data) {
+              // The Go backend always serves the *active* sandbox and emits an
+              // empty sandboxId. Stamp the real id so the frontend routes the
+              // event to the originating sandbox's pane instead of "whatever
+              // tab is currently selected" (matches bindHarnessEvents).
+              const sandboxId = d.data.sandboxId || getActiveSandbox()?.id || null;
+              broadcast(d.event, { ...d.data, sandboxId });
+            } else {
+              broadcast('log', dataStr);
+            }
+          } catch (e) {
+            broadcast('log', dataStr);
           }
         }
-      });
-    }
+      }
+    });
+    // Reconnect when the Go process restarts (stream ends/errors).
+    res.body.on('end', reconnectGoLogs);
+    res.body.on('close', reconnectGoLogs);
+    res.body.on('error', reconnectGoLogs);
   } catch (err) {
-    setTimeout(proxyGoLogs, 2000);
+    reconnectGoLogs();
   }
 }
 proxyGoLogs();
