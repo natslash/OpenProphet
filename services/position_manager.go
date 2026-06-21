@@ -8,6 +8,7 @@ import (
 	"prophet-trader/database"
 	"prophet-trader/interfaces"
 	"prophet-trader/models"
+	"strings"
 	"sync"
 	"time"
 
@@ -307,6 +308,15 @@ func (pm *PositionManager) MonitorPositions(ctx context.Context) {
 
 // checkPositions checks all positions and manages their risk orders
 func (pm *PositionManager) checkPositions(ctx context.Context) {
+	// 1. Poll live quotes for all active positions first
+	if err := pm.pollActiveQuotes(ctx); err != nil {
+		if err.Error() == "HTTP 429: Too Many Requests" || err.Error() == "HTTP 429" {
+			pm.logger.Warn("Rate limited by IBKR, pausing checkPositions for backoff")
+			time.Sleep(5 * time.Second) // Exponential backoff in caller loop
+			return
+		}
+	}
+
 	pm.mu.RLock()
 	positions := make([]*ManagedPosition, 0, len(pm.positions))
 	for _, pos := range pm.positions {
@@ -322,12 +332,6 @@ func (pm *PositionManager) checkPositions(ctx context.Context) {
 		// Check if entry order filled
 		if position.Status == "PENDING" {
 			pm.checkEntryOrder(ctx, position)
-			continue
-		}
-
-		// Update current price and P&L
-		if err := pm.updatePositionPrice(ctx, position); err != nil {
-			pm.logger.WithError(err).WithField("symbol", position.Symbol).Error("Failed to update position price")
 			continue
 		}
 
@@ -506,6 +510,29 @@ func (pm *PositionManager) updatePositionPrice(ctx context.Context, position *Ma
 
 	position.UpdatedAt = time.Now()
 
+	return nil
+}
+
+// pollActiveQuotes iterates over active positions and updates their prices
+func (pm *PositionManager) pollActiveQuotes(ctx context.Context) error {
+	pm.mu.RLock()
+	var activePositions []*ManagedPosition
+	for _, pos := range pm.positions {
+		if pos.Status == "ACTIVE" || pos.Status == "PARTIAL" {
+			activePositions = append(activePositions, pos)
+		}
+	}
+	pm.mu.RUnlock()
+
+	for _, pos := range activePositions {
+		if err := pm.updatePositionPrice(ctx, pos); err != nil {
+			pm.logger.WithError(err).WithField("symbol", pos.Symbol).Warn("Failed to poll quote")
+			// Return immediately on rate limit to trigger backoff
+			if strings.Contains(err.Error(), "HTTP 429") {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
