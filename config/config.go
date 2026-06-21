@@ -37,6 +37,13 @@ type Config struct {
 	BeatIntervalSecs       int
 	BeatMaxDailyExecutions int
 	BeatForceSignal        bool // testing aid: force a buy signal every tick
+	
+	// Review Portfolio Polling
+	LLMPollingEnabled      bool
+	LLMPollingIntervalSecs int
+	
+	LLMProvider string
+	LLMModel    string
 }
 
 var AppConfig *Config
@@ -64,6 +71,12 @@ func Load() error {
 		BeatIntervalSecs:       getEnvAsInt("BEAT_INTERVAL_SECS", 300),
 		BeatMaxDailyExecutions: getEnvAsInt("BEAT_MAX_DAILY_EXECUTIONS", 3),
 		BeatForceSignal:        getEnvOrDefault("BEAT_FORCE_SIGNAL", "false") == "true",
+		
+		LLMPollingEnabled:      getEnvOrDefault("LLM_POLLING_ENABLED", "false") == "true",
+		LLMPollingIntervalSecs: getEnvAsInt("LLM_POLLING_INTERVAL_SECS", 3600),
+		
+		LLMProvider:            getEnvOrDefault("LLM_PROVIDER", "anthropic"),
+		LLMModel:               getEnvOrDefault("LLM_MODEL", ""),
 	}
 
 	return nil

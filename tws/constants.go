@@ -14,6 +14,7 @@ const (
 	outReqContractDetails   = 9
 	outReqHistoricalData    = 20
 	outReqCurrentTime       = 49
+	outReqMarketDataType    = 59
 	outStartAPI             = 71
 )
 

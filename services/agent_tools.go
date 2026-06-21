@@ -5,93 +5,114 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 	"prophet-trader/interfaces"
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
-func BuildAgentTools() []anthropic.ToolUnionParam {
-	return []anthropic.ToolUnionParam{
+func BuildAgentTools() []interfaces.LLMTool {
+	return []interfaces.LLMTool{
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "get_account",
-				Description: anthropic.String("Get the current account status including BuyingPower, Cash, and NetLiquidation"),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{},
-				},
+			Name:        "get_account",
+			Description: "Get the current account status including BuyingPower, Cash, and NetLiquidation",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "get_positions",
-				Description: anthropic.String("Get all open stock positions"),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{},
-				},
+			Name:        "get_positions",
+			Description: "Get all open stock positions",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "get_options_positions",
-				Description: anthropic.String("Get all open options positions"),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{},
-				},
+			Name:        "get_options_positions",
+			Description: "Get all open options positions",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "place_managed_position",
-				Description: anthropic.String("Place a new managed stock position. side must be 'buy' or 'sell'. EntryStrategy must be 'limit' or 'market'. EntryPrice is optional for limit."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{
-						"symbol":              map[string]interface{}{"type": "string", "description": "e.g. AAPL"},
-						"side":                map[string]interface{}{"type": "string", "enum": []string{"buy", "sell"}},
-						"strategy":            map[string]interface{}{"type": "string", "enum": []string{"DAY_TRADE", "SWING_TRADE"}},
-						"entry_strategy":      map[string]interface{}{"type": "string", "enum": []string{"limit", "market"}},
-						"entry_price":         map[string]interface{}{"type": "number"},
-						"stop_loss_percent":   map[string]interface{}{"type": "number"},
-						"take_profit_percent": map[string]interface{}{"type": "number"},
-						"notes":               map[string]interface{}{"type": "string"},
-						"quantity":            map[string]interface{}{"type": "integer"},
-					},
-					Required: []string{"symbol", "side", "strategy", "entry_strategy", "quantity"},
+			Name:        "place_managed_position",
+			Description: "Place a new managed stock position. side must be 'buy' or 'sell'. EntryStrategy must be 'limit' or 'market'. EntryPrice is optional for limit.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":              map[string]interface{}{"type": "string", "description": "e.g. AAPL"},
+					"side":                map[string]interface{}{"type": "string", "enum": []string{"buy", "sell"}},
+					"strategy":            map[string]interface{}{"type": "string", "enum": []string{"DAY_TRADE", "SWING_TRADE"}},
+					"entry_strategy":      map[string]interface{}{"type": "string", "enum": []string{"limit", "market"}},
+					"entry_price":         map[string]interface{}{"type": "number"},
+					"stop_loss_percent":   map[string]interface{}{"type": "number"},
+					"take_profit_percent": map[string]interface{}{"type": "number"},
+					"notes":               map[string]interface{}{"type": "string"},
+					"quantity":            map[string]interface{}{"type": "integer"},
 				},
+				"required": []string{"symbol", "side", "strategy", "entry_strategy", "quantity"},
 			},
 		},
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "place_options_order",
-				Description: anthropic.String("Place a new options order. Symbol must be formatted like ESTX50:20260619:C:6325"),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{
-						"symbol": map[string]interface{}{"type": "string", "description": "e.g. ESTX50:20260619:C:6325"},
-						"action": map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}},
-						"qty":    map[string]interface{}{"type": "integer"},
-						"order_type": map[string]interface{}{"type": "string", "enum": []string{"MKT", "LMT", "MIDPRICE"}},
-						"lmt_price": map[string]interface{}{"type": "number"},
-					},
-					Required: []string{"symbol", "action", "qty", "order_type"},
+			Name:        "get_quote",
+			Description: "Get the current live or latest market quote for a specific symbol (e.g. 'ESTX50', 'AAPL')",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol": map[string]interface{}{"type": "string"},
 				},
+				"required": []string{"symbol"},
 			},
 		},
 		{
-			OfTool: &anthropic.ToolParam{
-				Name:        "jim_rogers",
-				Description: anthropic.String("Consult another agent (e.g. 'stratagem' or 'daedalus') to analyze data or review risk. They will return a text response."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]interface{}{
-						"target_agent_id": map[string]interface{}{"type": "string"},
-						"prompt":          map[string]interface{}{"type": "string"},
-					},
-					Required: []string{"target_agent_id", "prompt"},
+			Name:        "get_options_chain",
+			Description: "Get the options chain (available strikes and expirations) for an underlying symbol",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":     map[string]interface{}{"type": "string", "description": "e.g. 'ESTX50'"},
+					"expiration": map[string]interface{}{"type": "string", "description": "e.g. '20260816' (YYYYMMDD)"},
 				},
+				"required": []string{"symbol", "expiration"},
+			},
+		},
+		{
+			Name:        "place_options_order",
+			Description: "Place a new options order. Symbol must be formatted like ESTX50:20260619:C:6325",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":     map[string]interface{}{"type": "string", "description": "e.g. ESTX50:20260619:C:6325"},
+					"action":     map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}},
+					"qty":        map[string]interface{}{"type": "integer"},
+					"order_type": map[string]interface{}{"type": "string", "enum": []string{"MKT", "LMT", "MIDPRICE"}},
+					"lmt_price":  map[string]interface{}{"type": "number"},
+				},
+				"required": []string{"symbol", "action", "qty", "order_type"},
+			},
+		},
+		{
+			Name:        "jim_rogers",
+			Description: "Consult another agent (e.g. 'stratagem' or 'daedalus') to analyze data or review risk. They will return a text response.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"target_agent_id": map[string]interface{}{"type": "string"},
+					"prompt":          map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"target_agent_id", "prompt"},
 			},
 		},
 	}
 }
 
+func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider) (string, error) {
+	return HandleToolCall(ctx, toolName, args, data, pm, trading, llm)
+}
+
 // HandleToolCall executes the local method and returns the JSON string result
-func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, client *AnthropicClient) (string, error) {
+func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider) (string, error) {
 	switch toolName {
 	case "get_account":
 		acc, err := trading.GetAccount(ctx)
@@ -140,17 +161,17 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
-		
+
 		var lmtPricePtr *float64
 		if req.OrderType == "LMT" {
 			lmtPricePtr = &req.LmtPrice
 		}
-		
+
 		order := &interfaces.OptionsOrder{
-			Symbol: req.Symbol,
-			Qty:    req.Qty,
-			Side:   req.Action,
-			Type:   req.OrderType,
+			Symbol:     req.Symbol,
+			Qty:        req.Qty,
+			Side:       req.Action,
+			Type:       req.OrderType,
 			LimitPrice: lmtPricePtr,
 		}
 		res, err := trading.PlaceOptionsOrder(ctx, order)
@@ -158,6 +179,47 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			return "", err
 		}
 		return fmt.Sprintf(`{"order_id": "%s"}`, res.OrderID), nil
+
+	case "get_quote":
+		var req struct {
+			Symbol string `json:"symbol"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if data == nil {
+			return "", fmt.Errorf("data service not initialized")
+		}
+		quote, err := data.GetLatestQuote(ctx, req.Symbol)
+		if err != nil {
+			return "", err
+		}
+		b, _ := json.Marshal(quote)
+		return string(b), nil
+
+	case "get_options_chain":
+		var req struct {
+			Symbol     string `json:"symbol"`
+			Expiration string `json:"expiration"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if trading == nil {
+			return "", fmt.Errorf("trading service not initialized")
+		}
+		// Try to parse expiration
+		exp, err := time.Parse("20060102", req.Expiration)
+		if err != nil {
+			// fallback, just use now
+			exp = time.Now().Add(45 * 24 * time.Hour)
+		}
+		chain, err := trading.GetOptionsChain(ctx, req.Symbol, exp)
+		if err != nil {
+			return "", err
+		}
+		b, _ := json.Marshal(chain)
+		return string(b), nil
 
 	case "jim_rogers":
 		var req struct {
@@ -192,22 +254,21 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			return "", fmt.Errorf("agent %s not found in config", req.TargetAgentID)
 		}
 
-		if client == nil {
-			return "", fmt.Errorf("anthropic client not initialized for jim_rogers tool")
+		if llm == nil {
+			return "", fmt.Errorf("llm provider not initialized for jim_rogers tool")
 		}
 
-		messages := []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(req.Prompt)),
+		messages := []interfaces.LLMMessage{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: req.Prompt},
 		}
-		
-		msg, err := client.ExecuteAgentTurn(ctx, sysPrompt, messages, nil)
+
+		resp, err := llm.GenerateResponse(ctx, messages, nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to consult agent: %v", err)
 		}
-		if len(msg.Content) > 0 {
-			return msg.Content[0].Text, nil
-		}
-		return "No response from agent", nil
+		
+		return resp.Content, nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)

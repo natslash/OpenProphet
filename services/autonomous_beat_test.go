@@ -2,11 +2,12 @@ package services
 
 import (
 	"context"
-	"testing"
 	"strings"
+	"testing"
 
-	"prophet-trader/interfaces"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"prophet-trader/interfaces"
 )
 
 // mockTradingService for tool test
@@ -36,4 +37,35 @@ func TestHandleToolCall_UnknownTool(t *testing.T) {
 	_, err := HandleToolCall(context.Background(), "some_unknown_tool", []byte(`{}`), nil, nil, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown tool")
+}
+
+// mockLLMProvider
+type mockLLMProvider struct {
+	called bool
+}
+
+func (m *mockLLMProvider) GetName() string { return "mock" }
+func (m *mockLLMProvider) GenerateResponse(ctx context.Context, messages []interfaces.LLMMessage, tools []interfaces.LLMTool) (*interfaces.LLMResponse, error) {
+	m.called = true
+	return &interfaces.LLMResponse{
+		Content: "test response",
+	}, nil
+}
+
+func TestAutonomousBeat_LLMPolling(t *testing.T) {
+	mockLLM := &mockLLMProvider{}
+	
+	beat := &AutonomousBeat{
+		llm: mockLLM,
+		logger: logrus.New(),
+		cfg: AutonomousBeatConfig{
+			LLMPollingEnabled: true,
+			LLMPollingInterval: 0, // Fire immediately
+		},
+	}
+	
+	// tick should trigger the LLM since pending is empty but polling is enabled
+	beat.tick(context.Background())
+	
+	assert.True(t, mockLLM.called)
 }
