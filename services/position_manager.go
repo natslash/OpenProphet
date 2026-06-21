@@ -418,6 +418,39 @@ func (pm *PositionManager) placePartialExitOrder(ctx context.Context, position *
 
 // manageRiskOrders checks and updates risk management orders
 func (pm *PositionManager) manageRiskOrders(ctx context.Context, position *ManagedPosition) {
+	// Deterministic Programmatic Fallback Rules
+	if position.CurrentPrice > 0 {
+		hitStopLoss := (position.Side == "buy" && position.CurrentPrice <= position.StopLossPrice) ||
+			(position.Side == "sell" && position.CurrentPrice >= position.StopLossPrice)
+
+		hitTakeProfit := (position.TakeProfitPrice > 0) &&
+			((position.Side == "buy" && position.CurrentPrice >= position.TakeProfitPrice) ||
+				(position.Side == "sell" && position.CurrentPrice <= position.TakeProfitPrice))
+
+		if hitTakeProfit {
+			pm.logger.WithFields(logrus.Fields{
+				"position_id":   position.ID,
+				"current_price": position.CurrentPrice,
+				"target_price":  position.TakeProfitPrice,
+			}).Info("Programmatic Take Profit Triggered - Executing Market Sell")
+			
+			// We trigger CloseManagedPosition which handles cancelling brackets and placing the market exit
+			pm.CloseManagedPosition(ctx, position.ID)
+			return
+		}
+
+		if hitStopLoss {
+			pm.logger.WithFields(logrus.Fields{
+				"position_id":   position.ID,
+				"current_price": position.CurrentPrice,
+				"stop_price":    position.StopLossPrice,
+			}).Info("Programmatic Stop Loss Triggered - Executing Market Sell")
+			
+			pm.CloseManagedPosition(ctx, position.ID)
+			return
+		}
+	}
+
 	// Fallback for native brackets: if the orders vanish or fill, the broker position goes to 0.
 	brokerPositions, err := pm.tradingService.GetPositions(ctx)
 	if err == nil {
