@@ -132,6 +132,10 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 ## Backlog (Unranked)
 
 - **Multi-Leg Option Combos**: Support for net credit/debit limit orders (BAG routing) for option spreads.
+- **Agent Dialogue UX**: Group conversations together to prevent long message chains.
+- **Agent Identity UI**: Show messages by role (CEO, Stratagem, Daedalus) to keep dialogues tidy and understandable.
+- **Trading Safety Checks**: Tidy up "Enable Trading" logic to ensure no trades are placed when trading is disabled (make live vs dry-run mode explicitly clear).
+- **Dashboard UI Overhaul**: General UX/UI improvements for the frontend.
 
 ---
 
