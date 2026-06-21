@@ -1869,14 +1869,14 @@ if (activeAccount) {
 process.on('SIGTERM', async () => {
   console.log('\n  Shutting down...');
   await harness.stop();
-  await orchestrator.shutdown();
+  if (orchestrator.shutdown) await orchestrator.shutdown();
   await stopGoBackend();
   process.exit(0);
 });
 process.on('SIGINT', async () => {
   console.log('\n  Shutting down...');
   await harness.stop();
-  await orchestrator.shutdown();
+  if (orchestrator.shutdown) await orchestrator.shutdown();
   await stopGoBackend();
   process.exit(0);
 });
@@ -1906,14 +1906,22 @@ async function proxyGoLogs() {
   if (_goLogsConnected) return; // avoid overlapping streams
   _goLogsConnected = true;
   try {
-    const fetch = (await import('node-fetch')).default;
-    const res = await fetch(`http://localhost:${goPort}/api/v1/agent/stream`);
-    if (!res.body) {
+    // Use axios with a streaming response (Node Readable). The previous code
+    // did `import('node-fetch')`, but node-fetch is not a dependency, so the
+    // import threw on every attempt and this proxy never connected — which is
+    // why agent_text never reached the chat pane (only agent_log, via Go
+    // stdout, did). axios is already a dependency and gives us a Node stream
+    // with the .on('data'/'end'/'error') API used below.
+    const res = await axios.get(`http://localhost:${goPort}/api/v1/agent/stream`, {
+      responseType: 'stream',
+    });
+    const body = res.data;
+    if (!body) {
       reconnectGoLogs();
       return;
     }
     let buffer = '';
-    res.body.on('data', (chunk) => {
+    body.on('data', (chunk) => {
       buffer += chunk.toString();
       let newlineIndex;
       while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
@@ -1949,9 +1957,9 @@ async function proxyGoLogs() {
       }
     });
     // Reconnect when the Go process restarts (stream ends/errors).
-    res.body.on('end', reconnectGoLogs);
-    res.body.on('close', reconnectGoLogs);
-    res.body.on('error', reconnectGoLogs);
+    body.on('end', reconnectGoLogs);
+    body.on('close', reconnectGoLogs);
+    body.on('error', reconnectGoLogs);
   } catch (err) {
     reconnectGoLogs();
   }
