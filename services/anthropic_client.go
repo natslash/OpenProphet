@@ -59,7 +59,30 @@ func (ac *AnthropicClient) GenerateResponse(ctx context.Context, messages []inte
 				anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(toolResultBlocks...))
 				toolResultBlocks = nil
 			}
-			anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+
+			if msg.Role == "assistant" {
+				var blocks []anthropic.ContentBlockParamUnion
+				if msg.Content != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+				}
+				for _, tc := range msg.ToolCalls {
+					var args map[string]interface{}
+					if len(tc.Arguments) > 0 {
+						json.Unmarshal(tc.Arguments, &args)
+					}
+					if args == nil {
+						args = map[string]interface{}{}
+					}
+					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, args, tc.Name))
+				}
+				if len(blocks) > 0 {
+					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(blocks...))
+				}
+			} else {
+				if msg.Content != "" {
+					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+				}
+			}
 		}
 	}
 	

@@ -59,28 +59,32 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 			}
 			model.SystemInstruction = systemInstruction
 		} else if msg.ToolResultID != "" {
-			// It's a tool response
-			var resultMap map[string]any
-			// Attempt to parse JSON content or just return it as a string
-			if err := json.Unmarshal([]byte(msg.Content), &resultMap); err != nil {
-				resultMap = map[string]any{"result": msg.Content}
-			}
 			history = append(history, &genai.Content{
-				Role:  "function",
-				Parts: []genai.Part{genai.FunctionResponse{
-					Name:     msg.ToolResultID,
-					Response: resultMap,
-				}},
+				Role: "user",
+				Parts: []genai.Part{genai.Text(fmt.Sprintf("Tool Result for '%s':\n%s", msg.ToolResultID, msg.Content))},
 			})
 		} else {
 			role := "user"
+			var parts []genai.Part
 			if msg.Role == "assistant" {
 				role = "model"
+				if msg.Content != "" {
+					parts = append(parts, genai.Text(msg.Content))
+				}
+				for _, tc := range msg.ToolCalls {
+					parts = append(parts, genai.Text(fmt.Sprintf("[Executed Tool: %s]\nArguments: %s", tc.Name, string(tc.Arguments))))
+				}
+			} else {
+				parts = append(parts, genai.Text(msg.Content))
 			}
-			history = append(history, &genai.Content{
-				Role:  role,
-				Parts: []genai.Part{genai.Text(msg.Content)},
-			})
+
+			// Do not append empty messages to history
+			if len(parts) > 0 {
+				history = append(history, &genai.Content{
+					Role:  role,
+					Parts: parts,
+				})
+			}
 		}
 	}
 

@@ -212,8 +212,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 		// Append LLM's response to the conversation
 		messages = append(messages, interfaces.LLMMessage{
-			Role:    "assistant",
-			Content: resp.Content,
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
 		})
 
 		if resp.Content != "" {
