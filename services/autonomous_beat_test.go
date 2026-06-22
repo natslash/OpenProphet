@@ -120,6 +120,84 @@ func TestAutonomousBeat_NoForcedSummaryWhenConcluded(t *testing.T) {
 	assert.True(t, mockLLM.called)
 }
 
+// jimSpamLLM always asks for jim_rogers (while tools are offered) and records
+// whether it was ever told it hit the consultation cap.
+type jimSpamLLM struct{ sawCapMessage bool }
+
+func (m *jimSpamLLM) GetName() string { return "jim-spam" }
+func (m *jimSpamLLM) GenerateResponse(ctx context.Context, messages []interfaces.LLMMessage, tools []interfaces.LLMTool) (*interfaces.LLMResponse, error) {
+	for _, msg := range messages {
+		if strings.Contains(msg.Content, "limit for consulting other agents") {
+			m.sawCapMessage = true
+		}
+	}
+	if len(tools) == 0 {
+		return &interfaces.LLMResponse{Content: "final"}, nil // forced summary turn
+	}
+	return &interfaces.LLMResponse{
+		ToolCalls: []interfaces.LLMToolCall{{ID: "j", Name: "jim_rogers", Arguments: []byte(`{"target_agent_id":"x","prompt":"y"}`)}},
+	}, nil
+}
+
+func TestAutonomousBeat_CapsJimRogers(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.PanicLevel)
+	mock := &jimSpamLLM{}
+	beat := &AutonomousBeat{llm: mock, trading: &mockTradingService{}, logger: logger, cfg: AutonomousBeatConfig{}}
+	beat.InjectMessage("recommend")
+
+	beat.tick(context.Background())
+
+	assert.True(t, mock.sawCapMessage, "agent should be told it hit the jim_rogers cap after %d consultations", maxJimRogersPerCycle)
+}
+
+// flatTradingMock confirms an empty book; heldTradingMock reports one position.
+type flatTradingMock struct{ interfaces.TradingService }
+
+func (flatTradingMock) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
+	return nil, nil
+}
+func (flatTradingMock) ListOptionsPositions(ctx context.Context) ([]*interfaces.OptionsPosition, error) {
+	return nil, nil
+}
+
+type heldTradingMock struct{ interfaces.TradingService }
+
+func (heldTradingMock) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
+	return []*interfaces.Position{{Symbol: "ESTX50"}}, nil
+}
+func (heldTradingMock) ListOptionsPositions(ctx context.Context) ([]*interfaces.OptionsPosition, error) {
+	return nil, nil
+}
+
+func TestAutonomousBeat_SkipsReviewWhenFlat(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.PanicLevel)
+	mock := &mockLLMProvider{}
+	beat := &AutonomousBeat{
+		llm: mock, trading: flatTradingMock{}, logger: logger,
+		cfg: AutonomousBeatConfig{LLMPollingEnabled: true, LLMPollingInterval: 0},
+	}
+
+	beat.tick(context.Background()) // no pending msg → polling path; flat → should skip
+
+	assert.False(t, mock.called, "automated review must be skipped when the book is flat")
+}
+
+func TestAutonomousBeat_RunsReviewWhenHoldingPositions(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.PanicLevel)
+	mock := &mockLLMProvider{}
+	beat := &AutonomousBeat{
+		llm: mock, trading: heldTradingMock{}, logger: logger,
+		cfg: AutonomousBeatConfig{LLMPollingEnabled: true, LLMPollingInterval: 0},
+	}
+
+	beat.tick(context.Background())
+
+	assert.True(t, mock.called, "review should run when positions are open")
+}
+
 func TestAutonomousBeat_LLMPolling(t *testing.T) {
 	mockLLM := &mockLLMProvider{}
 	

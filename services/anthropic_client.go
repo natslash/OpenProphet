@@ -117,7 +117,14 @@ func (ac *AnthropicClient) GenerateResponse(ctx context.Context, messages []inte
 	}
 
 	if systemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
+		// Cache the static prefix (tools + system prompt). Anthropic caches the
+		// contiguous prefix up to this breakpoint, so the ~3.5KB trading rules
+		// and the tool schemas aren't re-billed on every turn of the loop or
+		// every beat — only the growing message tail is.
+		params.System = []anthropic.TextBlockParam{{
+			Text:         systemPrompt,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}}
 	}
 
 	if len(anthropicTools) > 0 {

@@ -167,6 +167,17 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			return
 		}
 
+		// Conservation: the automated review exists to manage OPEN positions.
+		// If the book is positively flat, skip the entire ~10-turn LLM loop
+		// rather than burn it analysing an empty portfolio. We only skip when
+		// both position reads succeed and are empty — on any error we can't be
+		// sure, so we run the review (fail safe, not fail cheap).
+		if b.portfolioIsFlat(ctx) {
+			b.logger.Info("[BEAT] Portfolio flat — skipping automated review to conserve tokens")
+			b.lastPollTime = time.Now()
+			return
+		}
+
 		b.logger.Info("[BEAT] Triggering automated LLM portfolio review")
 		pending = append(pending, "Automated system trigger: Please review my current active positions and suggest any strategic adjustments or exit strategies based on current market data. Use the get_positions tool.")
 		b.lastPollTime = time.Now()
@@ -205,6 +216,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 	// whole turn budget still calling tools, we force a final summary below so
 	// the user never gets silence.
 	concluded := false
+	jimRogersCalls := 0
 	const maxTurns = 10
 	for i := 0; i < maxTurns; i++ {
 		if ctx.Err() != nil {
@@ -241,6 +253,22 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		}
 
 		for _, toolCall := range resp.ToolCalls {
+			// Cap sub-agent consultations per cycle — each is a full nested LLM
+			// call. Beyond the limit, short-circuit with a note instead of
+			// executing, so the agent stops fanning out and concludes.
+			if toolCall.Name == "jim_rogers" {
+				jimRogersCalls++
+				if jimRogersCalls > maxJimRogersPerCycle {
+					b.logger.Warn("[BEAT] jim_rogers consultation limit reached for this cycle")
+					messages = append(messages, interfaces.LLMMessage{
+						Role:         "user",
+						Content:      "You have reached the limit for consulting other agents (jim_rogers) this cycle. Do not call it again; proceed with your own analysis and give your recommendation.",
+						ToolResultID: toolCall.ID,
+					})
+					continue
+				}
+			}
+
 			b.logger.WithField("tool", toolCall.Name).Info("[BEAT] AI executing tool")
 
 			// Emit tool use to the UI
@@ -296,6 +324,31 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 // in the conversation history (~1.5k tokens). Tool results are re-sent on every
 // later turn, so leaving them unbounded compounds token cost across the loop.
 const maxToolResultChars = 6000
+
+// maxJimRogersPerCycle caps sub-agent (jim_rogers) consultations per beat. Each
+// one is a full nested LLM call whose output is appended to the transcript, so
+// uncapped use multiplies token cost.
+const maxJimRogersPerCycle = 2
+
+// portfolioIsFlat reports true only when both position reads succeed and are
+// empty. On any error it returns false so the caller runs the review rather
+// than skipping it on an unconfirmed assumption.
+func (b *AutonomousBeat) portfolioIsFlat(ctx context.Context) bool {
+	if b.trading == nil {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	pos, err := b.trading.GetPositions(cctx)
+	if err != nil {
+		return false
+	}
+	opos, err := b.trading.ListOptionsPositions(cctx)
+	if err != nil {
+		return false
+	}
+	return len(pos) == 0 && len(opos) == 0
+}
 
 func truncateForHistory(s string) string {
 	if len(s) <= maxToolResultChars {
