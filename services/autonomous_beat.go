@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 	"time"
@@ -186,7 +185,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
 	// 1. Build System Prompt from TRADING_RULES.md
-	rulesData, err := ioutil.ReadFile("TRADING_RULES.md")
+	rulesData, err := os.ReadFile("TRADING_RULES.md")
 	var systemPrompt string
 	if err == nil {
 		systemPrompt = string(rulesData)

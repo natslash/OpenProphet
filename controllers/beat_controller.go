@@ -87,21 +87,19 @@ func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
 	file.Seek(0, io.SeekEnd)
 
 	reader := bufio.NewReader(file)
-	clientGone := c.Writer.CloseNotify()
+	ctx := c.Request.Context()
 
 	for {
 		select {
-		case <-clientGone:
+		case <-ctx.Done():
 			return
 		default:
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if err == io.EOF {
-					// Sleep briefly and check again for new logs
 					time.Sleep(500 * time.Millisecond)
 					continue
 				}
-				// Other error, stop streaming
 				return
 			}
 			line = strings.TrimSpace(line)

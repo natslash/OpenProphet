@@ -18,13 +18,19 @@ type IBKRTradingService struct {
 	tws.DefaultWrapper
 	client      *tws.Client
 	globalReqMu sync.Mutex
+
+	cacheMu    sync.RWMutex
+	orderCache map[string]*interfaces.Order
 }
 
 // Ensure IBKRTradingService implements interfaces.TradingService
 var _ interfaces.TradingService = (*IBKRTradingService)(nil)
 
 func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
-	s := &IBKRTradingService{client: client}
+	s := &IBKRTradingService{
+		client:     client,
+		orderCache: make(map[string]*interfaces.Order),
+	}
 	client.AddWrapper(s)
 	return s
 }
@@ -261,20 +267,41 @@ func (s *IBKRTradingService) OpenOrder(orderId int64, contract tws.Contract, ord
 	fmt.Printf("[IBKRTradingService] OpenOrder: %d %s %s %s -> %s\n", orderId, order.Action, order.TotalQuantity.String(), contract.Symbol, orderState.Status)
 }
 
+
 func (s *IBKRTradingService) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {
-	fmt.Printf("[IBKRTradingService] OrderStatus: %d -> %s (Filled: %s, Remaining: %s)\n", orderId, status, filled.String(), remaining.String())
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	idStr := strconv.FormatInt(orderId, 10)
+	
+	o, exists := s.orderCache[idStr]
+	if !exists {
+		o = &interfaces.Order{ID: idStr}
+		s.orderCache[idStr] = o
+	}
+	o.Status = strings.ToLower(status)
+	o.FilledQty = filled.InexactFloat64()
+	if avgFillPrice > 0 {
+		avg := avgFillPrice
+		o.FilledAvgPrice = &avg
+	}
 }
 
 func (s *IBKRTradingService) GetOrder(ctx context.Context, orderID string) (*interfaces.Order, error) {
 	orders, err := s.ListOrders(ctx, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range orders {
-		if o.ID == orderID {
-			return o, nil
+	if err == nil {
+		for _, o := range orders {
+			if o.ID == orderID {
+				return o, nil
+			}
 		}
 	}
+	
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	if cached, exists := s.orderCache[orderID]; exists {
+		return cached, nil
+	}
+
 	return nil, fmt.Errorf("order %s not found", orderID)
 }
 

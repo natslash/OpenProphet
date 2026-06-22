@@ -535,7 +535,7 @@
     <button class="tab active" data-tab="terminal" onclick="switchTab('terminal')"><span class="tab-full">Terminal</span><span class="tab-short">Term</span></button>
     <button class="tab" data-tab="trades" onclick="switchTab('trades')">Trades</button>
     <button class="tab" data-tab="intents" onclick="switchTab('intents')"><span class="tab-full">Intents<span id="intent-badge" style="display:none;background:var(--error);color:#fff;padding:2px 6px;border-radius:10px;font-size:10px;margin-left:6px">0</span></span><span class="tab-short">Ints</span></button>
-    <button class="tab" data-tab="history" onclick="switchTab('history')">History</button>
+
     <button class="tab tab-portfolio-mobile" data-tab="portfolio" onclick="switchTab('portfolio')"><span class="tab-full">Portfolio</span><span class="tab-short">Port</span></button>
     <button class="tab" data-tab="agents" onclick="switchTab('agents')">Agents</button>
     <button class="tab" data-tab="accounts" onclick="switchTab('accounts')"><span class="tab-full">Accounts</span><span class="tab-short">Accts</span></button>
@@ -577,28 +577,6 @@
       </div>
     </div>
 
-    <!-- History Panel -->
-    <div class="panel" id="panel-history">
-      <div class="settings-content">
-        <h2>History</h2>
-        <p class="subtitle">Browse sandboxes and reopen old chat context</p>
-        <div class="section">
-          <div class="section-title">Sandboxes</div>
-          <div id="history-sandboxes"><div class="no-data">No sandbox data loaded yet.</div></div>
-        </div>
-        <div class="section">
-          <div class="section-title">Chat Sessions</div>
-          <div id="history-sessions"><div class="no-data">Open History to load old chat sessions.</div></div>
-        </div>
-        <div class="section">
-          <div class="section-title" id="history-session-title">Transcript</div>
-          <div class="terminal" id="history-transcript" style="min-height:280px;max-height:520px">
-            <div class="log-entry info"><span class="time">--:--:--</span>Select a prior session to view the transcript.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Portfolio Panel (mobile) -->
     <div class="panel" id="panel-portfolio">
       <div class="settings-content">
@@ -607,7 +585,6 @@
           <div class="stat-row"><span class="stat-label">Portfolio Value</span><span class="stat-value" id="m-portfolio">--</span></div>
           <div class="stat-row"><span class="stat-label">Cash</span><span class="stat-value" id="m-cash">--</span></div>
           <div class="stat-row"><span class="stat-label">Buying Power</span><span class="stat-value" id="m-bp">--</span></div>
-          <div class="stat-row"><span class="stat-label">Day P&L</span><span class="stat-value" id="m-pnl">--</span></div>
         </div>
         <div class="section">
           <div class="section-title">Positions</div>
@@ -930,7 +907,7 @@
               <div style="color:var(--ink-faint);font-size:11px">Agent Orchestrator</div>
             </div>
             <div style="padding:10px 14px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;font-size:12px">
-              <div style="font-weight:600;color:var(--text)">Alpaca</div>
+              <div style="font-weight:600;color:var(--text)">IBKR</div>
               <div style="color:var(--ink-faint);font-size:11px">Brokerage API</div>
             </div>
             <div style="padding:10px 14px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;font-size:12px">
@@ -995,7 +972,7 @@
 <script>
 // ── State ──────────────────────────────────
 let config = { accounts: [], agents: [], strategies: [], models: [] };
-let historyState = { sandboxes: [], chatSessions: [], chatMessages: [], selectedChatId: null, loaded: false };
+
 
 const authToken = new URLSearchParams(window.location.search).get('token') || '';
 let autoScroll = true;
@@ -1023,9 +1000,8 @@ function isViewingActiveSandbox() {
 }
 
 
-function sandboxQueryString() {
-  const sid = "main";
-  return sid ? '?sandboxId=' + encodeURIComponent(sid) : '';
+function qs() {
+  return '';
 }
 
 function withAuthUrl(url) {
@@ -1058,7 +1034,7 @@ function switchTab(id) {
   document.querySelectorAll('.panel, .terminal-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('panel-' + id);
   if (panel) panel.classList.add('active');
-  if (id === 'history' && !historyState.loaded) loadHistoryPanel();
+
 }
 
 async function refreshSelectedSandboxView() {
@@ -1067,18 +1043,18 @@ async function refreshSelectedSandboxView() {
     refreshPortfolio(),
   ]);
   renderSandboxSelector();
-  renderHistorySandboxes();
+
 }
 
 async function refreshSelectedSandboxConfig() {
-  await fetchConfig();
-}
+  try {
+    await fetchConfig();
     renderHeartbeat();
     renderPermissions();
     renderSlack();
     renderPromptPreview();
   } catch (e) {
-    log('Sandbox config refresh failed: ' + e.message, 'error');
+    log('Config refresh failed: ' + e.message, 'error');
   }
 }
 
@@ -1227,7 +1203,7 @@ function connectSSE() {
     const d = JSON.parse(e.data);
     const sid = "main";
     const html = `<div class="log-entry ${d.level||'info'}"><span class="time">${fmtTime()}</span>${esc(d.message)}</div>`;
-    logToSandbox(sid, html);
+    logToSandbox(html);
     log(formatSandboxPrefix(d) + d.message, d.level || 'info');
     console.log(`%c[Backend Log] %c${d.message}`, 'color: #3d5a80; font-weight: bold;', d.level === 'error' ? 'color: red;' : 'color: inherit;');
   });
@@ -1238,8 +1214,8 @@ function connectSSE() {
     if (t) t.remove();
     d.text.split('\n').forEach(l => { 
       if(l.trim()) {
-        chatToSandbox(sid, `<div class="chat-bubble chat-bubble-ai">${esc(l)}<span class="chat-time">${fmtTime()}</span></div>`);
-        logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(l)}</div>`);
+        chatToSandbox(`<div class="chat-bubble chat-bubble-ai">${esc(l)}<span class="chat-time">${fmtTime()}</span></div>`);
+        logToSandbox(`<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(l)}</div>`);
         log(formatSandboxPrefix(d) + l, 'text');
         console.log(`%c[Agent Output] %c${l}`, 'color: #5a7a9e; font-weight: bold;', 'color: inherit;');
       }
@@ -1258,7 +1234,7 @@ function connectSSE() {
     const t = document.getElementById('thinking-' + sid);
     if (t) t.remove();
     const args = d.args ? ' ' + JSON.stringify(d.args).substring(0, 120) : '';
-    logToSandbox(sid, `<div class="log-entry system"><span class="time">${fmtTime()}</span>Tool: ${d.tool}${args}</div>`);
+    logToSandbox(`<div class="log-entry system"><span class="time">${fmtTime()}</span>Tool: ${d.tool}${args}</div>`);
     log(formatSandboxPrefix(d) + 'Tool: ' + d.tool + args, 'system');
     console.groupCollapsed(`%c[Tool Call] %c${d.tool}`, 'color: #4a9a5a; font-weight: bold;', 'font-weight: normal;');
     console.log('Arguments:', d.args);
@@ -1268,7 +1244,7 @@ function connectSSE() {
   es.addEventListener('beat_start', e => {
     const d = JSON.parse(e.data);
     const sid = "main";
-    logToSandbox(sid, `<div class="log-entry beat"><span class="time">${fmtTime()}</span>Heartbeat #${d.beat} | ${d.phase}</div>`);
+    logToSandbox(`<div class="log-entry beat"><span class="time">${fmtTime()}</span>Heartbeat #${d.beat} | ${d.phase}</div>`);
     log(formatSandboxPrefix(d) + 'Heartbeat #' + d.beat + ' | ' + d.phase, 'beat');
     console.group(`%c[Heartbeat Start] %cBeat #${d.beat} | ${d.phase}`, 'color: #8a6d3b; font-weight: bold;', 'font-weight: normal;');
     const countEl = document.querySelector(`[data-stat="${sid}-hb-count"]`);
@@ -1278,7 +1254,7 @@ function connectSSE() {
   es.addEventListener('beat_end', e => {
     const d = JSON.parse(e.data);
     const sid = "main";
-    logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>Beat #${d.beat} complete</div>`);
+    logToSandbox(`<div class="log-entry info"><span class="time">${fmtTime()}</span>Beat #${d.beat} complete</div>`);
     log(formatSandboxPrefix(d) + 'Beat #' + d.beat + ' complete', 'info');
     console.groupEnd();
     if (true) refreshPortfolio();
@@ -1287,19 +1263,19 @@ function connectSSE() {
     const d = JSON.parse(e.data);
     const sid = "main";
     const args = Object.keys(d.args||{}).length ? ' ' + JSON.stringify(d.args).substring(0,120) : '';
-    logToSandbox(sid, `<div class="log-entry tool"><span class="time">${fmtTime()}</span><span class="tool-name">${esc(d.name)}</span><span class="tool-args">${esc(args)}</span></div>`);
+    logToSandbox(`<div class="log-entry tool"><span class="time">${fmtTime()}</span><span class="tool-name">${esc(d.name)}</span><span class="tool-args">${esc(args)}</span></div>`);
     logHtml('<span class="tool-name">' + esc(formatSandboxPrefix(d) + d.name) + '</span><span class="tool-args">' + esc(args) + '</span>', 'tool');
   });
   es.addEventListener('tool_result', e => {
     const d = JSON.parse(e.data);
     const sid = "main";
-    logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span><span style="color:var(--ink-faint)"> -> ${esc(d.name)}: ${esc(d.result.substring(0,200))}</span></div>`);
+    logToSandbox(`<div class="log-entry info"><span class="time">${fmtTime()}</span><span style="color:var(--ink-faint)"> -> ${esc(d.name)}: ${esc(d.result.substring(0,200))}</span></div>`);
     logHtml('<span style="color:var(--ink-faint)">  -> ' + esc(formatSandboxPrefix(d) + d.name) + ': ' + esc(d.result.substring(0,200)) + '</span>', 'info');
   });
   es.addEventListener('heartbeat_change', e => {
     const d = JSON.parse(e.data);
     const sid = "main";
-    logToSandbox(sid, `<div class="log-entry heartbeat"><span class="time">${fmtTime()}</span>Heartbeat -> ${d.seconds}s: ${d.reason}</div>`);
+    logToSandbox(`<div class="log-entry heartbeat"><span class="time">${fmtTime()}</span>Heartbeat -> ${d.seconds}s: ${d.reason}</div>`);
     log(formatSandboxPrefix(d) + 'Heartbeat -> ' + d.seconds + 's: ' + d.reason, 'heartbeat');
     const hbEl = document.querySelector(`[data-stat="${sid}-hb-interval"]`);
     if (hbEl) hbEl.textContent = fmtInt(d.seconds);
@@ -1333,7 +1309,7 @@ function connectSSE() {
     if (thinkEl) thinkEl.remove();
     const d = JSON.parse(e.data);
     if (d.text) d.text.split('\n').forEach(function(l) {
-      if (l.trim()) chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai">' + esc(l) + '<span class="chat-time">' + fmtTime() + '</span></div>');
+      if (l.trim()) chatToSandbox('<div class="chat-bubble chat-bubble-ai">' + esc(l) + '<span class="chat-time">' + fmtTime() + '</span></div>');
     });
   });
   es.addEventListener('manager_tool', e => {
@@ -1341,11 +1317,11 @@ function connectSSE() {
     if (thinkEl) thinkEl.remove();
     const d = JSON.parse(e.data);
     const args = d.args ? ' ' + JSON.stringify(d.args).substring(0, 120) : '';
-    logToSandbox('_manager', '<div class="log-entry tool"><span class="time">' + fmtTime() + '</span><span class="tool-name">' + esc(d.name) + '</span><span class="tool-args">' + esc(args) + '</span></div>');
+    logToSandbox('<div class="log-entry tool"><span class="time">' + fmtTime() + '</span><span class="tool-name">' + esc(d.name) + '</span><span class="tool-args">' + esc(args) + '</span></div>');
   });
   es.addEventListener('manager_tool_result', e => {
     const d = JSON.parse(e.data);
-    logToSandbox('_manager', '<div class="log-entry info"><span class="time">' + fmtTime() + '</span><span style="color:var(--ink-faint)"> -> ' + esc(d.name) + ': ' + esc(d.result) + '</span></div>');
+    logToSandbox('<div class="log-entry info"><span class="time">' + fmtTime() + '</span><span style="color:var(--ink-faint)"> -> ' + esc(d.name) + ': ' + esc(d.result) + '</span></div>');
   });
   es.addEventListener('manager_done', e => {
     _managerThinking = false;
@@ -1353,7 +1329,7 @@ function connectSSE() {
     if (input) { input.disabled = false; input.placeholder = 'Ask the manager to create agents, strategies, research...'; input.focus(); }
     const thinkEl = document.getElementById('manager-thinking');
     if (thinkEl) thinkEl.remove();
-    logToSandbox('_manager', '<div class="log-entry" style="border-top:1px solid var(--border);margin:4px 0;padding:0"></div>');
+    logToSandbox('<div class="log-entry" style="border-top:1px solid var(--border);margin:4px 0;padding:0"></div>');
   });
 }
 
@@ -1437,52 +1413,52 @@ async function startAgent() {
   const btn = document.getElementById('btn-start');
   btn.textContent = 'Starting...'; btn.disabled = true;
   try {
-    const sid = "main";
-    if (!sid) { log('No sandbox selected', 'error'); return; }
-    const r = await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/start', {method:'POST'});
+    const r = await fetch('/api/agent/start', {method:'POST'});
     const d = await r.json();
     if (!d.ok && d.error) {
-      logToSandbox(sid, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Start failed: ${esc(d.error)}</div>`);
+      log('Start failed: ' + d.error, 'error');
     } else {
-      logToSandbox(sid, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Agent started</div>`);
+      log('Agent started', 'success');
     }
-    checkHealth();
-    renderSandboxTabs();
-  } catch (e) { 
-    const sid = "main";
-    if (sid) logToSandbox(sid, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Start error: ${esc(e.message)}</div>`);
+  } catch (e) {
+    log('Start error: ' + e.message, 'error');
   }
   btn.textContent = 'Start'; btn.disabled = false;
 }
 async function stopAgent() {
-  const sid = "main";
-  if (!sid) return;
-  if (!confirm('Stop the agent on this account?')) return;
-  logToSandbox(sid, `<div class="log-entry warning"><span class="time">${fmtTime()}</span>Stopping agent...</div>`);
-  await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/stop', {method:'POST'});
-  logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>Agent stopped</div>`);
-  checkHealth(); renderSandboxTabs(); refreshSandboxButtons();
+  if (!confirm('Stop the agent?')) return;
+  log('Stopping agent...', 'warning');
+  try {
+    await fetch('/api/agent/stop', {method:'POST'});
+    log('Agent stopped', 'info');
+    document.getElementById('hb-override').value = '';
+  } catch (e) {
+    log('Stop error: ' + e.message, 'error');
+  }
+}
+async function startSandbox() {
+  _setBtnLoading('Starting...');
+  try {
+    const r = await fetch('/api/agent/start', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok && d.error) logToSandbox('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start failed: ' + esc(d.error) + '</div>');
+  } catch (e) {
+    logToSandbox('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start error: ' + esc(e.message) + '</div>');
+  }
+  await _refreshAfterAction();
 }
 async function pauseAgent() {
-  const sid = "main";
-  if (!sid) return;
-  logToSandbox(sid, `<div class="log-entry warning"><span class="time">${fmtTime()}</span>Pausing agent...</div>`);
-  await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/pause', {method:'POST'});
-  checkHealth(); renderSandboxTabs(); refreshSandboxButtons();
+  log('Pause not supported in single-agent mode', 'warning');
 }
 async function resumeAgent() {
-  const sid = "main";
-  if (!sid) return;
-  logToSandbox(sid, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Resuming agent...</div>`);
-  await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/resume', {method:'POST'});
-  checkHealth(); renderSandboxTabs(); refreshSandboxButtons();
+  log('Resume not supported in single-agent mode', 'warning');
 }
 
 // Update top-bar buttons based on currently viewed sandbox state
 function refreshSandboxButtons() {
   const sid = "main";
   if (!sid) return;
-  const runtime = (window._healthState?.sandboxes || []).find(s => s.sandboxId === sid);
+  const runtime = window._healthState;
   const running = runtime?.state?.running;
   const paused = runtime?.state?.paused;
   if (running && !paused) {
@@ -1500,95 +1476,7 @@ async function overrideHeartbeat() {
   const body = { seconds: v };
   
   await fetch('/api/agent/heartbeat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  document.getElementById('hb-override').value = '';
-}
 
-async function loadHistoryPanel() {
-  try {
-    const [sandboxesResp, chatsResp] = await Promise.all([
-      fetch('/api/sandboxes'),
-      fetch('/api/chats/all?limit=100'),
-    ]);
-    const sandboxesData = sandboxesResp.ok ? await sandboxesResp.json() : { sandboxes: [] };
-    const chatsData = chatsResp.ok ? await chatsResp.json() : { sessions: [] };
-    historyState.sandboxes = sandboxesData.sandboxes || [];
-    historyState.chatSessions = chatsData.sessions || [];
-    historyState.loaded = true;
-    renderHistorySandboxes();
-    renderHistorySessions();
-  } catch (e) {
-    log('History load failed: ' + e.message, 'error');
-  }
-}
-
-async function openChatSession(sessionId, accountId) {
-  try {
-    const r = await fetch('/api/chats/' + encodeURIComponent(sessionId) + '?accountId=' + encodeURIComponent(accountId));
-    const data = await r.json();
-    if (data.error) throw new Error(data.error);
-    historyState.selectedChatId = sessionId;
-    historyState.chatMessages = data.messages || [];
-    renderHistorySessions();
-    renderHistoryTranscript(data.session, data.messages || []);
-  } catch (e) {
-    log('Chat load failed: ' + e.message, 'error');
-  }
-}
-
-function renderHistorySandboxes() {
-  const el = document.getElementById('history-sandboxes');
-  if (!historyState.sandboxes.length) {
-    el.innerHTML = '<div class="no-data">No sandbox data available yet.</div>';
-    return;
-  }
-  el.innerHTML = historyState.sandboxes.map(s => {
-    const runtime = s.runtime || {};
-    const running = runtime.running ? '<span class="badge active">Running</span>' : '<span class="badge paper">Idle</span>';
-    const paused = runtime.paused ? '<span class="badge live">Paused</span>' : '';
-    const active = s.isActive ? '<span class="badge active">Selected</span>' : '';
-    const viewing = getEffectiveSandboxId() === s.id ? '<span class="badge active">Viewing</span>' : '';
-    const agentId = s.agent?.activeAgentId || '--';
-    const model = s.agent?.model || '--';
-    const controls = runtime.running
-      ? (runtime.paused
-        ? '<button class="btn sm primary" onclick="resumeSandbox(\'' + s.id + '\')">Resume</button><button class="btn sm danger" onclick="stopSandbox(\'' + s.id + '\')">Stop</button>'
-        : '<button class="btn sm" onclick="pauseSandbox(\'' + s.id + '\')">Pause</button><button class="btn sm danger" onclick="stopSandbox(\'' + s.id + '\')">Stop</button>')
-      : '<button class="btn sm primary" onclick="startSandbox(\'' + s.id + '\')">Start</button>';
-    return '<div class="config-card' + (s.isActive ? ' active-card' : '') + '"><div class="config-card-header"><span class="config-card-title">' + esc(s.name || s.id) + '</span><div>' + active + ' ' + viewing + ' ' + paused + ' ' + running + '</div></div><div class="config-card-meta">Account: ' + esc(s.accountId || '--') + ' | Agent: ' + esc(agentId) + '</div><div class="config-card-desc">Model: ' + esc(model) + ' | Heartbeat: ' + esc(String(s.heartbeat?.midday || '--')) + 's midday</div><div class="config-card-actions"><button class="btn sm" onclick="changeSandboxSelection(\'' + s.id + '\')">View</button>' + controls + '</div></div>';
-  }).join('');
-}
-
-function renderHistorySessions() {
-  const el = document.getElementById('history-sessions');
-  if (!historyState.chatSessions.length) {
-    el.innerHTML = '<div class="no-data">No saved chat sessions yet.</div>';
-    return;
-  }
-  el.innerHTML = historyState.chatSessions.map(s => {
-    const selected = s.id === historyState.selectedChatId;
-    const when = s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '--';
-    const agentName = s.metadata?.agentName || s.metadata?.agentId || '--';
-    return '<div class="config-card' + (selected ? ' active-card' : '') + '"><div class="config-card-header"><span class="config-card-title">' + esc(agentName) + '</span><span class="badge paper">' + esc(s.accountId || '--') + '</span></div><div class="config-card-meta">Session: ' + esc(s.id) + '</div><div class="config-card-desc">' + esc(s.lastMessage || 'No preview available') + '</div><div class="config-card-meta">Messages: ' + esc(String(s.messageCount || 0)) + ' | Last active: ' + esc(when) + '</div><div class="config-card-actions"><button class="btn sm" onclick="openChatSession(\'' + s.id + '\', \'' + s.accountId + '\')">Open</button></div></div>';
-  }).join('');
-}
-
-function renderHistoryTranscript(session, messages) {
-  const title = document.getElementById('history-session-title');
-  const el = document.getElementById('history-transcript');
-  title.textContent = session ? 'Transcript - ' + session.id : 'Transcript';
-  if (!messages.length) {
-    el.innerHTML = '<div class="log-entry info"><span class="time">--:--:--</span>No messages saved for this session.</div>';
-    return;
-  }
-  el.innerHTML = messages.map(msg => {
-    const level = msg.role === 'user' ? 'user' : (msg.role === 'assistant' ? 'text' : 'info');
-    const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-US', { hour12: false }) : '--:--:--';
-    const label = msg.role ? '[' + msg.role + '] ' : '';
-    return '<div class="log-entry ' + level + '"><span class="time">' + esc(time) + '</span>' + esc(label + (msg.content || '')) + '</div>';
-  }).join('');
-}
-
-async function startSandbox() {
   _setBtnLoading('Starting...');
   try {
     const r = await fetch('/api/agent/start', { method: 'POST' });
@@ -1597,18 +1485,6 @@ async function startSandbox() {
   } catch (e) {
     logToSandbox('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start error: ' + esc(e.message) + '</div>');
   }
-  await _refreshAfterAction();
-}
-
-async function stopSandbox() {
-  _setBtnLoading('Stopping...');
-  await fetch('/api/agent/stop', { method: 'POST' });
-  await _refreshAfterAction();
-}
-
-async function pauseSandbox() {
-  _setBtnLoading('Pausing...');
-  await fetch('/api/agent/pause', { method: 'POST' });
   await _refreshAfterAction();
 }
 
@@ -1629,17 +1505,10 @@ function _setBtnLoading(text) {
 
 async function _refreshAfterAction() {
   await checkHealth();
-  renderAccounts();
   renderSandboxTabs();
   if (getEffectiveSandboxId() === id) refreshSandboxButtons();
 }
 
-
-async function resumeSandbox(id) {
-  await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/resume', { method: 'POST' });
-  await loadHistoryPanel();
-  if (getEffectiveSandboxId() === id) await refreshSelectedSandboxView();
-}
 
 // ── Intents ───────────────────────────────
 let sessionAdminToken = null;
@@ -1649,8 +1518,7 @@ async function refreshIntents() {
   const sid = "main";
   if (sid === '_manager') return;
   try {
-    const qs = sandboxQueryString();
-    const res = await fetch('/api/intents' + qs);
+    const res = await fetch('/api/intents');
     if (!res.ok) return;
     const intents = await res.json() || [];
     currentIntentsList = intents;
@@ -1751,8 +1619,7 @@ function closeTokenModal() {
 
 async function authorizeIntent(id) {
   try {
-    const qs = sandboxQueryString();
-    const res = await fetch(`/api/intents/authorize/${id}${qs}`, { 
+    const res = await fetch('/api/intents/authorize/' + id, { 
       method: 'POST',
       headers: { 'Authorization': `Bearer ${sessionAdminToken}` }
     });
@@ -1771,8 +1638,7 @@ async function authorizeIntent(id) {
 
 async function rejectIntent(id) {
   try {
-    const qs = sandboxQueryString();
-    const res = await fetch(`/api/intents/reject/${id}${qs}`, { 
+    const res = await fetch('/api/intents/reject/' + id, { 
       method: 'POST',
       headers: { 'Authorization': `Bearer ${sessionAdminToken}` }
     });
@@ -1794,38 +1660,31 @@ async function refreshPortfolio() {
   const sid = "main";
   if (sid === '_manager') return;
   try {
-    const qs = sandboxQueryString();
-    const [a, p] = await Promise.all([fetch('/api/portfolio/account' + qs), fetch('/api/portfolio/positions' + qs)]);
+    const [a, p] = await Promise.all([fetch('/api/portfolio/account'), fetch('/api/portfolio/positions')]);
     if(a.ok) {
       const acc = await a.json();
-      const pv = '$' + Number(acc.PortfolioValue||acc.portfolio_value||0).toLocaleString('en-US',{minimumFractionDigits:2});
-      const cv = '$' + Number(acc.Cash||acc.cash||0).toLocaleString('en-US',{minimumFractionDigits:2});
-      const bv = '$' + Number(acc.BuyingPower||acc.buying_power||0).toLocaleString('en-US',{minimumFractionDigits:2});
-      const pnl = Number(acc.Equity||acc.equity||0) - Number(acc.LastEquity||acc.last_equity||0);
-      const pnlStr = (pnl>=0?'+':'') + '$' + pnl.toLocaleString('en-US',{minimumFractionDigits:2});
-      const cls = pnl>=0? 'positive' : 'negative';
+      const pv = '$' + Number(acc.portfolioValue||acc.PortfolioValue||acc.portfolio_value||0).toLocaleString('en-US',{minimumFractionDigits:2});
+      const cv = '$' + Number(acc.cash||acc.Cash||0).toLocaleString('en-US',{minimumFractionDigits:2});
+      const bv = '$' + Number(acc.buyingPower||acc.BuyingPower||acc.buying_power||0).toLocaleString('en-US',{minimumFractionDigits:2});
       // Update legacy static IDs
       ['portfolio-value','m-portfolio'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = pv; });
       ['cash-value','m-cash'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = cv; });
       ['bp-value','m-bp'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = bv; });
-      ['day-pnl','m-pnl'].forEach(id => { const e = document.getElementById(id); if(e) { e.textContent = pnlStr; e.className = 'stat-value ' + cls; } });
       // Update per-sandbox sidebar
       if (sid) {
         _setData(sid + '-portfolio', pv);
         _setData(sid + '-cash', cv);
         _setData(sid + '-bp', bv);
-        const pnlEl = document.querySelector('[data-stat="' + sid + '-pnl"]');
-        if (pnlEl) { pnlEl.textContent = pnlStr; pnlEl.className = 'stat-value ' + cls; }
       }
     }
     if(p.ok) {
       const positions = await p.json();
       const arr = positions.positions || positions || [];
       const html = arr.length ? arr.map(pos => {
-        const sym = pos.Symbol||pos.symbol||'??', pnl = Number(pos.UnrealizedPL||pos.unrealized_pl||0);
-        const pct = (Number(pos.UnrealizedPLPercent||pos.unrealized_plpc||0)*100).toFixed(1);
+        const sym = pos.symbol||pos.Symbol||'??', pnl = Number(pos.unrealizedPL||pos.UnrealizedPL||0);
+        const pct = (Number(pos.unrealizedPLPercent||pos.UnrealizedPLPercent||0)*100).toFixed(1);
         const c = pnl>=0? 'var(--success)' : 'var(--error)';
-        return '<div class="card"><div style="display:flex;justify-content:space-between"><span class="symbol">'+sym+'</span><span class="pnl" style="color:'+c+'">'+(pnl>=0?'+':'')+'$'+pnl.toFixed(2)+' ('+pct+'%)</span></div><div style="color:var(--ink-faint);font-size:11px;margin-top:3px">Qty: '+(pos.Qty||pos.qty)+' | Avg: $'+Number(pos.AvgEntryPrice||pos.avg_entry_price||0).toFixed(2)+'</div></div>';
+        return '<div class="card"><div style="display:flex;justify-content:space-between"><span class="symbol">'+sym+'</span><span class="pnl" style="color:'+c+'">'+(pnl>=0?'+':'')+'$'+pnl.toFixed(2)+' ('+pct+'%)</span></div><div style="color:var(--ink-faint);font-size:11px;margin-top:3px">Qty: '+(pos.qty||pos.Qty)+' | Avg: $'+Number(pos.avgEntryPrice||pos.AvgEntryPrice||0).toFixed(2)+'</div></div>';
       }).join('') : '<div class="no-data">No open positions</div>';
       ['positions-container','m-positions'].forEach(id => { const e = document.getElementById(id); if(e) e.innerHTML = html; });
       // Update per-sandbox positions
@@ -1842,7 +1701,7 @@ async function refreshPortfolio() {
 }
 
 function clearPortfolioView(sid) {
-  ['portfolio-value','cash-value','bp-value','day-pnl','m-portfolio','m-cash','m-bp','m-pnl'].forEach(id => {
+  ['portfolio-value','cash-value','bp-value','m-portfolio','m-cash','m-bp'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
   });
@@ -1854,7 +1713,6 @@ function clearPortfolioView(sid) {
     _setData(sid + '-portfolio', '--');
     _setData(sid + '-cash', '--');
     _setData(sid + '-bp', '--');
-    _setData(sid + '-pnl', '--');
     const posEl = document.querySelector('[data-stat="' + sid + '-positions"]');
     if (posEl) posEl.innerHTML = '<div class="no-data">No positions</div>';
   }
@@ -1876,7 +1734,7 @@ function addTradeCard(trade) {
 function renderAll() {
   renderSandboxSelector();
   renderSandboxTabs();
-  renderAgents(); renderStrategies(); renderAccounts();
+  renderAgents(); renderStrategies();
   renderHeartbeat(); renderPermissions(); renderSlack(); renderPromptPreview();
   const dispModelAll = config.agent?.model || config.activeModel || '--';
   document.getElementById('footer-model').textContent = dispModelAll.replace('anthropic/', '').replace('claude-','').replace('google/', '').split('-202')[0];
@@ -2159,26 +2017,6 @@ function renderSandboxPagePickers() {
     el.innerHTML = '';
   });
 }
-      const active = sandboxId === currentSid;
-      const runtime = window._healthState;
-      const running = runtime?.state?.running;
-      const dotClass = running ? 'running' : 'stopped';
-      const label = a.name || (a.paper ? 'Paper' : 'Live');
-      return '<button class="spick ' + (active ? 'active' : '') + '" onclick="switchSandboxFromPage(\'' + sandboxId + '\')">'
-        + '<span class="spick-dot ' + dotClass + '"></span>' + esc(label)
-        + '</button>';
-    }).join('');
-  });
-}
-
-async function switchSandboxFromPage(sandboxId) {
-  selectedSandboxId = sandboxId;
-  renderSandboxPagePickers();
-  renderSandboxTabs();
-  await refreshSelectedSandboxConfig();
-  await refreshPortfolio();
-  renderAll();
-}
 
 function renderSandboxEditor() {
   const sandbox = getSelectedSandbox();
@@ -2336,34 +2174,9 @@ function renderStrategies() {
   }).join('');
 }
 
-async function viewSandboxOverrides() {}
+function viewSandboxOverrides() {}
 
-async function saveSandboxOverrides() {
-  const sid = "main";
-  const prompt = document.getElementById('sbx-override-prompt')?.value || '';
-  const rules = document.getElementById('sbx-override-rules')?.value || '';
-  
-  await Promise.all([
-    fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        customSystemPrompt: prompt,
-        systemPromptTemplate: prompt ? 'custom' : 'default',
-      }),
-    }),
-    fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules }),
-    }),
-  ]);
-  closeModal();
-  await refreshSelectedSandboxConfig();
-  renderAll();
-}
 
-async function clearSandboxOverrides() {}
 
 function toggleAgentPrompt(agentId) {
   const el = document.getElementById('agent-prompt-' + agentId);
@@ -2396,7 +2209,7 @@ async function saveAgentPrompt(agentId) {
     });
     config = await fetch('/api/config').then(r => r.json());
     renderAll();
-    logToSandbox(getEffectiveSandboxId(), '<div class="log-entry success"><span class="time">' + fmtTime() + '</span>Prompt saved for ' + esc(agentId) + '. Takes effect next beat.</div>');
+    logToSandbox('<div class="log-entry success"><span class="time">' + fmtTime() + '</span>Prompt saved for ' + esc(agentId) + '. Takes effect next beat.</div>');
   } catch (e) {
     alert('Error saving prompt: ' + e.message);
   }
@@ -2405,7 +2218,7 @@ async function saveAgentPrompt(agentId) {
 async function previewAgentPrompt(agentId) {
   try {
     const sid = "main";
-    const r = await fetch('/api/agent/prompt-preview);
+    const r = await fetch('/api/agent/prompt-preview');
     const d = await r.json();
     const textarea = document.getElementById('agent-prompt-text-' + agentId);
     if (textarea && !textarea.value) {
@@ -2436,15 +2249,7 @@ async function clearAgentPrompt(agentId) {
   renderAll();
 }
 
-async function assignAgent(agentId) {
-  await fetch('/api/agent/active', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeAgentId: agentId }),
-  });
-  await refreshSelectedSandboxConfig();
-  renderAll();
-}
+
 
 async function assignStrategyToAgent(strategyId, agentId) {
   await fetch('/api/agents/' + encodeURIComponent(agentId), {
@@ -2456,50 +2261,7 @@ async function assignStrategyToAgent(strategyId, agentId) {
   renderAll();
 }
 
-  return 4534 + (hash % 10) + 1;
-}
 
-function renderAccounts() {
-  const el = document.getElementById('accounts-grid');
-  if (!config.accounts?.length) { 
-    el.innerHTML = '<div class="no-data">No accounts. Add an Alpaca API key pair to get started.</div>'; 
-    return; 
-  }
-  el.innerHTML = config.accounts.map(a => {
-    const viewing = getEffectiveSandboxId() === 'sbx_' + a.id;
-    const badge = a.paper ? '<span class="badge paper">Paper</span>' : '<span class="badge live">Live</span>';
-    
-    const runtime = window._healthState;
-    const running = runtime?.state?.running;
-    const goReady = runtime?.goReady;
-    const port = runtime?.port || 4002;
-    const agentId = runtime?.state?.activeAgentId || '--';
-    const beatCount = runtime?.state?.beatCount || 0;
-    const phase = runtime?.state?.phase || 'stopped';
-    
-    const statusBadge = running 
-      ? '<span class="badge active">Running</span>' 
-      : goReady 
-        ? '<span class="badge" style="border-color:var(--warning);color:var(--warning)">Ready</span>'
-        : '<span class="badge">Stopped</span>';
-    
-    const controls = running
-      ? '<button class="btn sm" onclick="pauseSandbox(\'' + sandboxId + '\')">Pause</button><button class="btn sm danger" onclick="stopSandbox(\'' + sandboxId + '\')">Stop</button>'
-      : '<button class="btn sm primary" onclick="startSandbox(\'' + sandboxId + '\')">Start</button>';
-    
-    return '<div class="config-card ' + (viewing ? 'active-card' : '') + '" style="border-left:4px solid ' + (a.paper ? 'var(--accent)' : 'var(--error)') + '">'
-      + '<div class="config-card-header"><span class="config-card-title">' + esc(a.name) + '</span><div>' + badge + ' ' + (viewing ? '<span class="badge active">Viewing</span>' : '') + ' ' + statusBadge + '</div></div>'
-      + '<div class="config-card-meta">Key: ' + (a.publicKey ? a.publicKey.substring(0, 8) + '...' : '??') + ' | ' + (a.baseUrl || '') + '</div>'
-      + '<div class="config-card-meta">Port: ' + port + ' | Agent: ' + agentId + (goReady ? ' | Backend: ok' : '') + '</div>'
-      + (running ? '<div class="config-card-desc">Phase: ' + phase + ' | Beats: ' + beatCount + '</div>' : '')
-      + '<div class="config-card-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">'
-      + '<button class="btn sm" onclick="switchSandboxTab(\'' + sandboxId + '\');switchTab(\'terminal\')">View</button>'
-      + '<button class="btn sm" onclick="configureSandbox(\'' + sandboxId + '\')">Configure</button>'
-      + controls
-      + '<button class="btn sm danger" onclick="deleteAccount(\'' + a.id + '\')">Delete</button>'
-      + '</div></div>';
-  }).join('');
-}
 
 function renderModels() {
   const el = document.getElementById('models-list');
@@ -2543,37 +2305,14 @@ function renderModels() {
 
 // ── CRUD actions ───────────────────────────
 async function activateAgent(id) {
-  const sid = "main";
-  if (sid) {
-    await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent', {
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ activeAgentId: id }),
-    });
-    await refreshSelectedSandboxConfig();
-  } else {
-    await fetch('/api/agents/'+id+'/activate',{method:'POST'});
-  }
+  await fetch('/api/agents/'+id+'/activate',{method:'POST'});
+  renderAll();
 }
 async function deleteAgent(id) { if(confirm('Delete this agent?')) await fetch('/api/agents/'+id,{method:'DELETE'}); }
-async function activateAccount(id) {
-  await fetch('/api/accounts/'+id+'/activate',{method:'POST'});
-  selectedSandboxId = null;
-}
-async function deleteAccount(id) { if(confirm('Delete this account?')) await fetch('/api/accounts/'+id,{method:'DELETE'}); }
 async function deleteStrategy(id) { if(confirm('Delete this strategy?')) await fetch('/api/strategies/'+id,{method:'DELETE'}); }
 async function activateModel(id) {
-  const sid = "main";
-  if (sid) {
-    await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent', {
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model: id }),
-    });
-    await refreshSelectedSandboxConfig();
-  } else {
-    await fetch('/api/models/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
-  }
+  await fetch('/api/models/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
+  renderAll();
 }
 
 // ── Modal ──────────────────────────────────
@@ -2926,94 +2665,7 @@ async function renderPromptPreview() {
   }
 }
 
-async function activateSelectedSandbox() {
-  const sid = "main";
-  if (!sid) return;
-  const r = await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/activate', { method: 'POST' });
-  const d = await r.json();
-  if (d.error) {
-    log('Sandbox activate failed: ' + d.error, 'error');
-    return;
-  }
-  selectedSandboxId = null;
-  await refreshSelectedSandboxView();
-}
 
-let _sandboxAgentTimer = null;
-function saveSandboxAgentSelection() {
-  clearTimeout(_sandboxAgentTimer);
-  _sandboxAgentTimer = setTimeout(async () => {
-    const sid = "main";
-    if (!sid) return;
-    const body = {
-      activeAgentId: document.getElementById('sandbox-agent-select').value,
-      model: document.getElementById('sandbox-model-select').value,
-    };
-    await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    await refreshSelectedSandboxConfig();
-  }, 400);
-}
-
-let _sandboxPromptTimer = null;
-function saveSandboxPromptOverride() {
-  clearTimeout(_sandboxPromptTimer);
-  _sandboxPromptTimer = setTimeout(async () => {
-    const sid = "main";
-    if (!sid) return;
-    await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemPromptTemplate: document.getElementById('sandbox-prompt-override').value.trim() ? 'custom' : null,
-        customSystemPrompt: document.getElementById('sandbox-prompt-override').value,
-      }),
-    });
-    await refreshSelectedSandboxConfig();
-  }, 500);
-}
-
-async function clearSandboxPromptOverride() {
-  const sid = "main";
-  if (!sid) return;
-  document.getElementById('sandbox-prompt-override').value = '';
-  await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemPromptTemplate: null, customSystemPrompt: null }),
-  });
-  await refreshSelectedSandboxConfig();
-}
-
-let _sandboxStrategyTimer = null;
-function saveSandboxStrategyRules() {
-  clearTimeout(_sandboxStrategyTimer);
-  _sandboxStrategyTimer = setTimeout(async () => {
-    const sid = "main";
-    if (!sid) return;
-    await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules: document.getElementById('sandbox-strategy-rules').value }),
-    });
-    await refreshSelectedSandboxConfig();
-  }, 500);
-}
-
-async function clearSandboxStrategyRules() {
-  const sid = "main";
-  if (!sid) return;
-  document.getElementById('sandbox-strategy-rules').value = '';
-  await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rules: '' }),
-  });
-  await refreshSelectedSandboxConfig();
-}
 
 // ── Terminal Search/Filter ──────────────────
 let _searchDebounce = null;
@@ -3107,6 +2759,29 @@ async function restartBackend() {
 
 // ── Init ───────────────────────────────────
 let _pollIntervals = [];
+
+function updateClock() {
+  const el = document.getElementById('clock');
+  if (el) {
+    el.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+  }
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch('/api/health');
+    if (!r.ok) throw new Error('Bad response');
+    window._healthState = await r.json();
+  } catch (e) {
+    window._healthState = null;
+  }
+  refreshSandboxButtons();
+  renderSandboxTabs();
+}
+
+// Auth is now disabled/single-tenant, stub out checkAuth to prevent ReferenceErrors
+function checkAuth() {}
+
 function startPolling() {
   stopPolling();
   connectSSE();

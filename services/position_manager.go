@@ -351,11 +351,37 @@ func (pm *PositionManager) checkPositions(ctx context.Context) {
 func (pm *PositionManager) checkEntryOrder(ctx context.Context, position *ManagedPosition) {
 	order, err := pm.tradingService.GetOrder(ctx, position.EntryOrderID)
 	if err != nil {
+		// Fallback: order may have been filled while backend was offline
+		brokerPositions, pErr := pm.tradingService.GetPositions(ctx)
+		if pErr == nil {
+			for _, bp := range brokerPositions {
+				if bp.Symbol == position.Symbol && ((position.Side == "buy" && bp.Qty > 0) || (position.Side == "sell" && bp.Qty < 0)) {
+					pm.logger.WithFields(logrus.Fields{
+						"position_id": position.ID,
+						"symbol":      position.Symbol,
+						"avg_cost":    bp.AvgEntryPrice,
+					}).Info("Entry order missing but native position exists; marking ACTIVE")
+
+					position.Status = "ACTIVE"
+					position.EntryPrice = bp.AvgEntryPrice
+					position.UpdatedAt = time.Now()
+
+					if position.PartialExit != nil && position.PartialExit.Enabled {
+						if err := pm.placePartialExitOrder(ctx, position); err != nil {
+							pm.logger.WithError(err).Error("Failed to place partial exit order")
+						}
+					}
+					pm.savePositionToDB(position)
+					return
+				}
+			}
+		}
+
 		pm.logger.WithError(err).Error("Failed to get entry order")
 		return
 	}
 
-	if order.Status == "filled" {
+	if order.Status == "filled" || strings.ToLower(order.Status) == "filled" {
 		position.Status = "ACTIVE"
 		position.EntryPrice = *order.FilledAvgPrice
 		position.UpdatedAt = time.Now()

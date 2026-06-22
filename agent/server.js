@@ -34,6 +34,7 @@ import {
   updatePlugin, getPlugin,
   getHeartbeatProfiles, getPhaseTimeRanges, applyHeartbeatProfile, updatePhaseTimeRange,
 } from './config-store.js';
+import { readEnv, writeEnv } from './env-api.js';
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = process.env.AGENT_PORT || 3737;
@@ -149,7 +150,7 @@ async function startGoBackend() {
       goReady = true;
       console.log(`  Go backend ready on port ${TRADING_BOT_PORT} `);
       broadcast('agent_log', {
-        message: `Trading backend started for account "${account.name}" (${account.paper ? 'paper' : 'live'})`,
+        message: `Trading backend ready on port ${TRADING_BOT_PORT}`,
         level: 'success',
         timestamp: new Date().toISOString(),
       });
@@ -940,14 +941,14 @@ app.get('/api/health', async (req, res) => {
     const statRes = await goAxios.get('/api/v1/agent/status', { timeout: 3000 });
     botRunning = statRes.data?.running || false;
   } catch {}
-  const account = getActiveAccount();
   res.json({
     agent: 'healthy',
     trading_bot: botHealthy ? 'healthy' : 'unavailable',
     trading_bot_managed: goProc !== null,
-    activeAccount: account ? { name: account.name, paper: account.paper } : null,
+    activeAccount: { name: 'Main Account', paper: true },
     uptime: process.uptime(),
-    state: { running: botRunning },
+    state: {
+ running: botRunning },
   });
 });
 
