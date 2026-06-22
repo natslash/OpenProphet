@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -45,9 +46,11 @@ func main() {
 	var tradingService interfaces.TradingService
 	var dataService interfaces.DataService
 
-	// Guardrail: paper only (4002) until Phase 6. Refuse any other port.
-	if cfg.IBKRPort != 4002 {
-		logger.Fatalf("IBKR_PORT=%d refused — only paper (4002) is permitted (live is Phase 6)", cfg.IBKRPort)
+	// Phase 6.1: Live execution boundary check
+	if cfg.IBKRPort == 4001 && (!cfg.RequireDoubleConfirm || cfg.AdminToken == "" || !cfg.AllowLivePort) {
+		logger.Fatalf("FATAL: Unattended live execution prohibited. Port 4001 requires ALLOW_LIVE_PORT=true, REQUIRE_DOUBLE_CONFIRM=true, and a valid ADMIN_TOKEN.")
+	} else if cfg.IBKRPort != 4002 && cfg.IBKRPort != 4001 {
+		logger.Fatalf("IBKR_PORT=%d refused — only 4002 (paper) or 4001 (live, guarded) are permitted.", cfg.IBKRPort)
 	}
 	logger.WithFields(logrus.Fields{
 		"host": cfg.IBKRHost, "port": cfg.IBKRPort, "clientID": cfg.IBKRClientID,
@@ -131,14 +134,22 @@ func main() {
 	positionManager := services.NewPositionManager(tradingService, dataService, storageService)
 	positionController := controllers.NewPositionManagementController(positionManager)
 
-	// Supervised autonomous beat (Phase 4.3e). Proposes trade intents; never
-	// executes without a token-authorised call to /api/v1/beat/authorize.
+	// Supervised autonomous beat (Phase 4.3e). Proposes trade intents via IntentManager.
+	intentManager := services.NewIntentManager(cfg.IntentTTLSeconds, logger)
+	go intentManager.StartSweeper(ctx)
+	
 	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, tradingService, logger, services.AutonomousBeatConfig{
 		Interval:           time.Duration(cfg.BeatIntervalSecs) * time.Second,
 		MaxDailyExecutions: cfg.BeatMaxDailyExecutions,
 		LLMPollingEnabled:  cfg.LLMPollingEnabled,
 		LLMPollingInterval: time.Duration(cfg.LLMPollingIntervalSecs) * time.Second,
+	}, intentManager, cfg.RequireDoubleConfirm)
+	
+	intentManager.SetFeedbackCallback(func(intent *services.Intent, reason string) {
+		msg := fmt.Sprintf("System feedback: Your trade intent (ID: %s, Symbol: %s, Side: %s) was %s.", intent.ID, intent.Symbol, intent.Side, reason)
+		autonomousBeat.InjectMessage(msg)
 	})
+	
 	beatController := controllers.NewBeatController(autonomousBeat)
 
 	// Create activity logger
@@ -149,6 +160,8 @@ func main() {
 	activityLogger := services.NewActivityLogger(activityLogDir)
 	activityController := controllers.NewActivityController(activityLogger)
 
+	intentController := controllers.NewIntentController(intentManager, positionManager, tradingService, dataService, activityLogger)
+
 	// Start trading session automatically
 	if account, err := orderController.GetAccount(); err == nil {
 		activityLogger.StartSession(ctx, account.PortfolioValue)
@@ -156,7 +169,7 @@ func main() {
 	}
 
 	// Setup HTTP server
-	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController)
+	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController, intentController)
 
 	// Start the supervised beat only when explicitly enabled.
 	if cfg.BeatEnabled {
@@ -192,7 +205,7 @@ func main() {
 	}
 }
 
-func setupRouter(orderController *controllers.OrderController, newsController *controllers.NewsController, intelligenceController *controllers.IntelligenceController, positionController *controllers.PositionManagementController, activityController *controllers.ActivityController, economicFeedsController *controllers.EconomicFeedsController, beatController *controllers.BeatController) *gin.Engine {
+func setupRouter(orderController *controllers.OrderController, newsController *controllers.NewsController, intelligenceController *controllers.IntelligenceController, positionController *controllers.PositionManagementController, activityController *controllers.ActivityController, economicFeedsController *controllers.EconomicFeedsController, beatController *controllers.BeatController, intentController *controllers.IntentController) *gin.Engine {
 	router := gin.Default()
 
 	// Enable CORS
@@ -261,6 +274,11 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 		api.GET("/agent/status", beatController.HandleStatus)
 		api.POST("/agent/message", beatController.HandleMessage)
 		api.GET("/agent/stream", beatController.HandleStreamLogs)
+
+		// Intent authorization endpoints (Phase 6.1)
+		api.GET("/beat/intents", intentController.HandleGetIntents)
+		api.POST("/beat/authorize/:id", intentController.HandleAuthorizeIntent)
+		api.POST("/beat/reject/:id", intentController.HandleRejectIntent)
 
 		// Position management endpoints
 		api.POST("/positions/managed", positionController.HandlePlaceManagedPosition)

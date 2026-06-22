@@ -49,9 +49,9 @@ func BuildAgentTools() []interfaces.LLMTool {
 					"stop_loss_percent":   map[string]interface{}{"type": "number"},
 					"take_profit_percent": map[string]interface{}{"type": "number"},
 					"notes":               map[string]interface{}{"type": "string"},
-					"quantity":            map[string]interface{}{"type": "integer"},
+					"explicit_quantity":   map[string]interface{}{"type": "integer"},
 				},
-				"required": []string{"symbol", "side", "strategy", "entry_strategy", "quantity"},
+				"required": []string{"symbol", "side", "strategy", "entry_strategy", "explicit_quantity"},
 			},
 		},
 		{
@@ -107,12 +107,12 @@ func BuildAgentTools() []interfaces.LLMTool {
 	}
 }
 
-func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider) (string, error) {
-	return HandleToolCall(ctx, toolName, args, data, pm, trading, llm)
+func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider, intentManager *IntentManager, requireDoubleConfirm bool) (string, error) {
+	return HandleToolCall(ctx, toolName, args, data, pm, trading, llm, intentManager, requireDoubleConfirm)
 }
 
 // HandleToolCall executes the local method and returns the JSON string result
-func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider) (string, error) {
+func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider, intentManager *IntentManager, requireDoubleConfirm bool) (string, error) {
 	switch toolName {
 	case "get_account":
 		acc, err := trading.GetAccount(ctx)
@@ -143,6 +143,33 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
+		
+		if requireDoubleConfirm && intentManager != nil {
+			currentPrice := 0.0
+			if data != nil {
+				if quote, err := data.GetLatestQuote(ctx, req.Symbol); err == nil && quote != nil {
+					if quote.AskPrice > 0 {
+						currentPrice = quote.AskPrice
+					} else if quote.BidPrice > 0 {
+						currentPrice = quote.BidPrice
+					}
+				}
+			}
+			
+			qty := 0.0
+			if req.ExplicitQuantity != nil {
+				qty = float64(*req.ExplicitQuantity)
+			} else if currentPrice > 0 {
+				qty = pm.resolveQuantity(&req, currentPrice)
+			}
+			
+			id, err := intentManager.CreateIntent(IntentTypeManagedPosition, args, req.Symbol, req.Side, qty, currentPrice)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
+		}
+
 		pos, err := pm.PlaceManagedPosition(ctx, &req)
 		if err != nil {
 			return "", err
@@ -174,6 +201,25 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			Type:       req.OrderType,
 			LimitPrice: lmtPricePtr,
 		}
+		
+		if requireDoubleConfirm && intentManager != nil {
+			currentPrice := 0.0
+			if data != nil {
+				if quote, err := data.GetLatestQuote(ctx, req.Symbol); err == nil && quote != nil {
+					if quote.AskPrice > 0 {
+						currentPrice = quote.AskPrice
+					} else if quote.BidPrice > 0 {
+						currentPrice = quote.BidPrice
+					}
+				}
+			}
+			id, err := intentManager.CreateIntent(IntentTypeOptionsOrder, args, req.Symbol, req.Action, req.Qty, currentPrice)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Options order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
+		}
+
 		res, err := trading.PlaceOptionsOrder(ctx, order)
 		if err != nil {
 			return "", err

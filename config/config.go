@@ -44,6 +44,12 @@ type Config struct {
 	
 	LLMProvider string
 	LLMModel    string
+
+	// Intent Guard
+	RequireDoubleConfirm    bool
+	AllowLivePort           bool
+	IntentTTLSeconds        int
+	MaxPriceSlippagePercent float64
 }
 
 var AppConfig *Config
@@ -77,6 +83,11 @@ func Load() error {
 		
 		LLMProvider:            getEnvOrDefault("LLM_PROVIDER", "anthropic"),
 		LLMModel:               getEnvOrDefault("LLM_MODEL", ""),
+
+		RequireDoubleConfirm:    getEnvOrDefault("REQUIRE_DOUBLE_CONFIRM", "true") == "true",
+		AllowLivePort:           getEnvOrDefault("ALLOW_LIVE_PORT", "false") == "true",
+		IntentTTLSeconds:        getEnvAsInt("INTENT_TTL_SECS", 300),
+		MaxPriceSlippagePercent: getEnvAsFloat("MAX_PRICE_SLIPPAGE_PERCENT", 0.5),
 	}
 
 	return nil
@@ -93,6 +104,15 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
 		}
 	}
 	return defaultValue

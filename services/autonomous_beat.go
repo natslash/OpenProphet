@@ -29,6 +29,8 @@ type AutonomousBeat struct {
 	cfg     AutonomousBeatConfig
 
 	llm interfaces.LLMProvider
+	intentManager        *IntentManager
+	requireDoubleConfirm bool
 
 	mu           sync.Mutex
 	isRunning    bool
@@ -38,7 +40,7 @@ type AutonomousBeat struct {
 	lastPollTime time.Time
 }
 
-func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig) *AutonomousBeat {
+func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig, intentManager *IntentManager, requireDoubleConfirm bool) *AutonomousBeat {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Minute
 	}
@@ -69,6 +71,8 @@ func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading
 		logger:  logger,
 		cfg:     cfg,
 		llm:     llm,
+		intentManager: intentManager,
+		requireDoubleConfirm: requireDoubleConfirm,
 	}
 }
 
@@ -235,7 +239,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			// Emit tool use to the UI
 			appendToolToBotLog("", toolCall.Name, toolCall.Arguments)
 
-			resStr, toolErr := HandleToolCall(ctx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm)
+			resStr, toolErr := HandleToolCall(ctx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm, b.intentManager, b.requireDoubleConfirm)
 
 			var resultMsg string
 			if toolErr != nil {
