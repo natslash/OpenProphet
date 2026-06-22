@@ -534,6 +534,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="terminal" onclick="switchTab('terminal')"><span class="tab-full">Terminal</span><span class="tab-short">Term</span></button>
     <button class="tab" data-tab="trades" onclick="switchTab('trades')">Trades</button>
+    <button class="tab" data-tab="intents" onclick="switchTab('intents')"><span class="tab-full">Intents<span id="intent-badge" style="display:none;background:var(--error);color:#fff;padding:2px 6px;border-radius:10px;font-size:10px;margin-left:6px">0</span></span><span class="tab-short">Ints</span></button>
     <button class="tab" data-tab="history" onclick="switchTab('history')">History</button>
     <button class="tab tab-portfolio-mobile" data-tab="portfolio" onclick="switchTab('portfolio')"><span class="tab-full">Portfolio</span><span class="tab-short">Port</span></button>
     <button class="tab" data-tab="agents" onclick="switchTab('agents')">Agents</button>
@@ -562,6 +563,17 @@
         <h2>Live Trades</h2>
         <p class="subtitle">Real-time order activity from the agent</p>
         <div id="trades-feed"><div class="no-data">No trades yet. Start the agent to see live activity.</div></div>
+      </div>
+    </div>
+
+    <!-- History Panel -->
+    <div class="panel" id="panel-intents">
+      <div class="settings-content">
+        <h2>Approval Hub (Double-Confirm)</h2>
+        <p class="subtitle">Review and authorize AI trading intents before execution</p>
+        <div id="intents-feed">
+          <div class="no-data">No pending intents.</div>
+        </div>
       </div>
     </div>
 
@@ -965,6 +977,21 @@
   <div class="modal" id="modal-content"></div>
 </div>
 
+<div class="modal-overlay" id="modal-token" onclick="if(event.target===this)closeTokenModal()">
+  <div class="modal">
+    <h3>Admin Authorization</h3>
+    <p class="subtitle" style="margin-bottom: 16px;">Please enter your ADMIN_TOKEN to authorize or reject this intent.</p>
+    <div class="form-group">
+      <label>Admin Token</label>
+      <input type="password" id="admin-token-input" placeholder="••••••••">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeTokenModal()">Cancel</button>
+      <button class="btn primary" id="btn-token-submit">Continue</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ──────────────────────────────────
 let config = { accounts: [], agents: [], strategies: [], models: [] };
@@ -1240,6 +1267,13 @@ function connectSSE() {
         console.log(`%c[Agent Output] %c${l}`, 'color: #5a7a9e; font-weight: bold;', 'color: inherit;');
       }
     });
+  });
+  es.addEventListener('intent_created', e => {
+    refreshIntents();
+    showToast('New Intent Pending Authorization!', 'warning');
+  });
+  es.addEventListener('intent_resolved', e => {
+    refreshIntents();
   });
   es.addEventListener('agent_tool', e => {
     const d = JSON.parse(e.data);
@@ -1634,6 +1668,154 @@ async function resumeSandbox(id) {
   await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/resume', { method: 'POST' });
   await loadHistoryPanel();
   if (getEffectiveSandboxId() === id) await refreshSelectedSandboxView();
+}
+
+// ── Intents ───────────────────────────────
+let sessionAdminToken = null;
+let currentIntentsList = [];
+
+async function refreshIntents() {
+  const sid = getEffectiveSandboxId();
+  if (sid === '_manager') return;
+  try {
+    const qs = sandboxQueryString();
+    const res = await fetch('/api/intents' + qs);
+    if (!res.ok) return;
+    const intents = await res.json() || [];
+    currentIntentsList = intents;
+    renderIntentsFeed();
+    updateIntentsBadge();
+  } catch (e) {}
+}
+
+function updateIntentsBadge() {
+  const badge = document.getElementById('intent-badge');
+  if (badge) {
+    const count = currentIntentsList.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  }
+}
+
+function renderIntentsFeed() {
+  const feed = document.getElementById('intents-feed');
+  if (!feed) return;
+  if (currentIntentsList.length === 0) {
+    feed.innerHTML = '<div class="no-data">No pending intents.</div>';
+    return;
+  }
+  const now = Date.now();
+  feed.innerHTML = currentIntentsList.map(intent => {
+    let payload = {};
+    try { if (intent.Payload) payload = JSON.parse(atob(intent.Payload)); } catch (e) {}
+    const priceStr = payload.lmt_price ? `$${payload.lmt_price}` : (intent.CurrentPrice ? `$${intent.CurrentPrice}` : 'MKT');
+    const expiresAt = intent.ExpiresAt ? new Date(intent.ExpiresAt).getTime() : 0;
+    const diffMs = expiresAt - now;
+    let ttlStr = 'Expired';
+    if (diffMs > 0) {
+      const mins = Math.floor(diffMs / 60000);
+      const secs = Math.floor((diffMs % 60000) / 1000);
+      ttlStr = `Expires in ${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    return `
+      <div class="trade-card" style="border-left: 4px solid var(--warning);">
+        <div class="trade-header">
+          <span class="trade-symbol">${intent.Symbol}</span>
+          <span class="trade-side ${intent.Side.toLowerCase()}">${intent.Side} ${intent.Quantity}</span>
+        </div>
+        <div class="trade-details">
+          <div><strong>Type:</strong> ${intent.Type}</div>
+          <div><strong>Price:</strong> ${priceStr}</div>
+          <div><strong style="color:var(--error)">${ttlStr}</strong></div>
+        </div>
+        <div class="config-card-actions" style="margin-top: 10px;">
+          <button class="btn primary sm" onclick="handleIntentAction('authorize', '${intent.ID}', '${intent.Side} ${intent.Quantity} ${intent.Symbol}')">Authorize</button>
+          <button class="btn danger sm" onclick="handleIntentAction('reject', '${intent.ID}', '${intent.Side} ${intent.Quantity} ${intent.Symbol}')">Reject</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function handleIntentAction(action, id, description) {
+  if (!sessionAdminToken) {
+    showTokenModal(() => executeIntentAction(action, id, description));
+    return;
+  }
+  executeIntentAction(action, id, description);
+}
+
+function executeIntentAction(action, id, description) {
+  if (action === 'authorize') {
+    if (!confirm(`Are you sure you want to AUTHORIZE LIVE trade:\n\n${description}\n\nThis will execute on your IBKR account immediately.`)) return;
+  } else {
+    if (!confirm(`Reject intent for ${description}?`)) return;
+  }
+  
+  if (action === 'authorize') authorizeIntent(id);
+  else rejectIntent(id);
+}
+
+function showTokenModal(callback) {
+  const modal = document.getElementById('modal-token');
+  if (!modal) return;
+  modal.classList.add('visible');
+  const input = document.getElementById('admin-token-input');
+  input.value = '';
+  input.focus();
+  document.getElementById('btn-token-submit').onclick = () => {
+    const val = input.value;
+    if (!val) return;
+    sessionAdminToken = val;
+    modal.classList.remove('visible');
+    if (callback) callback();
+  };
+}
+
+function closeTokenModal() {
+  const modal = document.getElementById('modal-token');
+  if (modal) modal.classList.remove('visible');
+}
+
+async function authorizeIntent(id) {
+  try {
+    const qs = sandboxQueryString();
+    const res = await fetch(`/api/intents/authorize/${id}${qs}`, { 
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionAdminToken}` }
+    });
+    if (res.ok) {
+      showToast('Intent authorized successfully', 'success');
+      refreshIntents();
+    } else {
+      const err = await res.json();
+      alert('Failed to authorize: ' + (err.error || err.message));
+      if (res.status === 401 || res.status === 403) sessionAdminToken = null;
+    }
+  } catch (e) {
+    alert('Failed to authorize: ' + e.message);
+  }
+}
+
+async function rejectIntent(id) {
+  try {
+    const qs = sandboxQueryString();
+    const res = await fetch(`/api/intents/reject/${id}${qs}`, { 
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionAdminToken}` }
+    });
+    if (res.ok) {
+      showToast('Intent rejected successfully', 'success');
+      refreshIntents();
+    } else {
+      const err = await res.json();
+      alert('Failed to reject: ' + (err.error || err.message));
+      if (res.status === 401 || res.status === 403) sessionAdminToken = null;
+    }
+  } catch (e) {
+    alert('Failed to reject: ' + e.message);
+  }
 }
 
 // ── Portfolio ──────────────────────────────
@@ -3261,11 +3443,13 @@ function startPolling() {
   _pollIntervals = [
     setInterval(updateClock, 1000),
     setInterval(refreshPortfolio, 30000),
+    setInterval(refreshIntents, 5000),
+    setInterval(renderIntentsFeed, 1000),
     setInterval(checkHealth, 15000),
     setInterval(checkAuth, 30000),
   ];
   // Run immediately on start
-  updateClock(); refreshPortfolio(); checkHealth(); checkAuth(); loadEnvConfig();
+  updateClock(); refreshPortfolio(); refreshIntents(); checkHealth(); checkAuth(); loadEnvConfig();
 }
 function stopPolling() {
   _pollIntervals.forEach(id => clearInterval(id));

@@ -94,7 +94,7 @@ func TestIntegration_PlaceManagedPosition_OffHours(t *testing.T) {
 	// We are testing on Saturday/Off-hours. A limit order should be accepted by TWS
 	// and placed in a 'PreSubmitted' or 'Submitted' queue state.
 	req := PlaceManagedPositionRequest{
-		Symbol:            "ESTX50:20260619:C:6325", // Option format
+		Symbol:            "ESTX50:20260717:C:6325", // Option format
 		AllocationDollars: 50.0,
 		Side:              "buy",
 		EntryStrategy:     "limit",

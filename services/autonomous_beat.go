@@ -186,6 +186,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	// Add dynamic context
 	systemPrompt += fmt.Sprintf("\nCurrent Time: %s", time.Now().Format(time.RFC3339))
+	systemPrompt += "\n\nCRITICAL CONTEXT:\n- Timezone: CET (Central European Time)\n- Base Currency: EUR (€)\nEnsure all price values, portfolio calculations, and temporal reasoning naturally default to Euros and CET without requiring manual prompting."
 
 	userText := "User terminal instructions:\n"
 	for _, msg := range pending {

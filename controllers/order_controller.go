@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"math"
+	"prophet-trader/config"
 	"prophet-trader/interfaces"
 	"strconv"
 	"time"
@@ -205,6 +206,11 @@ func (oc *OrderController) GetAccount() (*interfaces.Account, error) {
 
 // HandleBuy handles HTTP buy requests
 func (oc *OrderController) HandleBuy(c *gin.Context) {
+	if config.AppConfig.RequireDoubleConfirm {
+		c.JSON(403, gin.H{"error": "Manual endpoints disabled when RequireDoubleConfirm is active. Use the Agent Intent flow."})
+		return
+	}
+
 	var req BuyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -222,6 +228,11 @@ func (oc *OrderController) HandleBuy(c *gin.Context) {
 
 // HandleSell handles HTTP sell requests
 func (oc *OrderController) HandleSell(c *gin.Context) {
+	if config.AppConfig.RequireDoubleConfirm {
+		c.JSON(403, gin.H{"error": "Manual endpoints disabled when RequireDoubleConfirm is active. Use the Agent Intent flow."})
+		return
+	}
+
 	var req SellRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -239,6 +250,11 @@ func (oc *OrderController) HandleSell(c *gin.Context) {
 
 // HandleCancelOrder handles HTTP cancel order requests
 func (oc *OrderController) HandleCancelOrder(c *gin.Context) {
+	if config.AppConfig.RequireDoubleConfirm {
+		c.JSON(403, gin.H{"error": "Manual endpoints disabled when RequireDoubleConfirm is active. Use the Agent Intent flow."})
+		return
+	}
+
 	orderID := c.Param("id")
 	if orderID == "" {
 		c.JSON(400, gin.H{"error": "order ID required"})
@@ -388,6 +404,11 @@ type OptionsOrderRequest struct {
 
 // PlaceOptionsOrder handles POST /api/options/order
 func (oc *OrderController) PlaceOptionsOrder(c *gin.Context) {
+	if config.AppConfig.RequireDoubleConfirm {
+		c.JSON(403, gin.H{"error": "Manual endpoints disabled when RequireDoubleConfirm is active. Use the Agent Intent flow."})
+		return
+	}
+
 	var req OptionsOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})

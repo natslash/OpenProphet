@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -28,15 +29,16 @@ const (
 )
 
 type Intent struct {
-	ID           string
-	Type         IntentType
-	Payload      []byte // Raw JSON of PlaceManagedPositionRequest or options order req
-	CreatedAt    time.Time
-	CurrentPrice float64
-	Status       IntentStatus
-	Symbol       string
-	Side         string
-	Quantity     float64
+	ID           string       `json:"ID"`
+	Type         IntentType   `json:"Type"`
+	Payload      []byte       `json:"Payload"`
+	CreatedAt    time.Time    `json:"CreatedAt"`
+	ExpiresAt    time.Time    `json:"ExpiresAt"`
+	CurrentPrice float64      `json:"CurrentPrice"`
+	Status       IntentStatus `json:"Status"`
+	Symbol       string       `json:"Symbol"`
+	Side         string       `json:"Side"`
+	Quantity     float64      `json:"Quantity"`
 }
 
 type IntentManager struct {
@@ -95,6 +97,8 @@ func (im *IntentManager) sweep() {
 					go im.onIntentExpiredOrRejected(intent, "expired due to TTL")
 				}
 				
+				im.emitIntentEvent("intent_resolved", intent)
+
 				delete(im.intents, id)
 			}
 		}
@@ -106,11 +110,13 @@ func (im *IntentManager) CreateIntent(intentType IntentType, payload []byte, sym
 	defer im.mu.Unlock()
 
 	id := uuid.New().String()
+	now := time.Now()
 	intent := &Intent{
 		ID:           id,
 		Type:         intentType,
 		Payload:      payload,
-		CreatedAt:    time.Now(),
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(time.Duration(im.ttlSeconds) * time.Second),
 		CurrentPrice: currentPrice,
 		Status:       IntentStatusPending,
 		Symbol:       symbol,
@@ -128,7 +134,20 @@ func (im *IntentManager) CreateIntent(intentType IntentType, payload []byte, sym
 		"price":     currentPrice,
 	}).Info("Created new trading intent, pending human authorization")
 
+	// Emit SSE event
+	im.emitIntentEvent("intent_created", intent)
+
 	return id, nil
+}
+
+// emitIntentEvent serialises the intent and pushes it to the bot.log pipe so
+// Node can SSE-proxy it. Callers MUST hold im.mu: the marshal happens
+// synchronously under the lock (capturing an immutable snapshot), and only the
+// file write is deferred to a goroutine. Marshaling off-lock would race with
+// concurrent Status mutations (e.g. ClaimForExecution) on the shared *Intent.
+func (im *IntentManager) emitIntentEvent(event string, intent *Intent) {
+	b, _ := json.Marshal(intent)
+	go appendJSONToBotLog(event, "", string(b))
 }
 
 func (im *IntentManager) GetIntent(id string) (*Intent, error) {
@@ -177,6 +196,7 @@ func (im *IntentManager) MarkCompleted(id string) {
 
 	if intent, exists := im.intents[id]; exists {
 		intent.Status = IntentStatusCompleted
+		im.emitIntentEvent("intent_resolved", intent)
 		delete(im.intents, id)
 	}
 }
@@ -203,6 +223,8 @@ func (im *IntentManager) RejectIntent(id string, reason string) error {
 	if im.onIntentExpiredOrRejected != nil {
 		go im.onIntentExpiredOrRejected(intent, reason)
 	}
+
+	im.emitIntentEvent("intent_resolved", intent)
 
 	delete(im.intents, id)
 	return nil

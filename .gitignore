@@ -1,5 +1,6 @@
 # Secrets (use .env.example as template)
 .env
+.env.backend
 .mcp.json
 .claude/settings.local.json
 opencode.jsonc

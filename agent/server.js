@@ -2,6 +2,13 @@
 
 // Prophet Agent Web Server - SSE streaming dashboard + agent control
 import 'dotenv/config';
+
+if (process.env.ADMIN_TOKEN !== undefined) {
+  console.error("FATAL: ADMIN_TOKEN is set in process.env. This breaks the 'human-only' security invariant.");
+  console.error("Please remove it from .env and place it exclusively in .env.backend.");
+  process.exit(1);
+}
+
 import express from 'express';
 import http from 'http';
 import fs from 'fs/promises';
@@ -1318,6 +1325,9 @@ async function buildSystemPrompt(agentConfig, context = {}) {
       }
     }
   }
+  
+  prompt += "\n\nCRITICAL CONTEXT:\n- Timezone: CET (Central European Time)\n- Base Currency: EUR (€)\nEnsure all price values, portfolio calculations, and temporal reasoning naturally default to Euros and CET without requiring manual prompting.";
+
   return prompt;
 }
 
@@ -1711,6 +1721,44 @@ app.get('/api/portfolio/orders', async (req, res) => {
     const { data } = await client.get('/api/v1/orders');
     res.json(data);
   } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
+});
+
+// ── Intents Proxy ──────────────────────────────────────────────────
+app.get('/api/intents', async (req, res) => {
+  try {
+    const client = getGoClientForSandbox(req.query.sandboxId);
+    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    const { data } = await client.get('/api/v1/beat/intents');
+    res.json(data);
+  } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
+});
+
+app.post('/api/intents/authorize/:id', async (req, res) => {
+  try {
+    const client = getGoClientForSandbox(req.query.sandboxId);
+    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    const authHeader = req.headers.authorization || '';
+    const { data } = await client.post(`/api/v1/beat/authorize/${req.params.id}`, {}, {
+      headers: { 'Authorization': authHeader }
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(err.response?.status || 502).json(err.response?.data || { error: 'Failed to authorize intent' });
+  }
+});
+
+app.post('/api/intents/reject/:id', async (req, res) => {
+  try {
+    const client = getGoClientForSandbox(req.query.sandboxId);
+    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    const authHeader = req.headers.authorization || '';
+    const { data } = await client.post(`/api/v1/beat/reject/${req.params.id}`, {}, {
+      headers: { 'Authorization': authHeader }
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(err.response?.status || 502).json(err.response?.data || { error: 'Failed to reject intent' });
+  }
 });
 
 // ── Auth (OpenCode) ────────────────────────────────────────────────

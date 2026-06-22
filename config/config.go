@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 
@@ -55,8 +56,8 @@ type Config struct {
 var AppConfig *Config
 
 func Load() error {
-	// Load .env file if it exists (don't override existing env vars)
-	_ = godotenv.Load()
+	// Load .env and .env.backend files if they exist (don't override existing env vars)
+	_ = godotenv.Load(".env", ".env.backend")
 
 	AppConfig = &Config{
 		GeminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
@@ -89,6 +90,8 @@ func Load() error {
 		IntentTTLSeconds:        getEnvAsInt("INTENT_TTL_SECS", 300),
 		MaxPriceSlippagePercent: getEnvAsFloat("MAX_PRICE_SLIPPAGE_PERCENT", 0.5),
 	}
+
+	log.Printf("[CONFIG] AdminToken configured: %v\n", AppConfig.AdminToken != "")
 
 	return nil
 }
