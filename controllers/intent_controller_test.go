@@ -296,6 +296,29 @@ func TestIntentController_StalePriceGuardAllowsSmallDrift(t *testing.T) {
 	}
 }
 
+// On the live port, an intent with no reference price (quote was unavailable at
+// creation) cannot be authorized — slippage can't be validated, so fail closed.
+func TestIntentController_LiveRequiresReferencePrice(t *testing.T) {
+	h := newIntentHarness(t, "secret", true, 5000)
+	config.AppConfig.IBKRPort = 4001 // simulate live (harness resets config per test)
+	id, _ := h.im.CreateIntent(services.IntentTypeOptionsOrder, optionsIntentPayload(), "ESTX50", "buy", 1, 0) // CurrentPrice=0
+
+	w := h.do("POST", "/api/v1/beat/authorize/"+id, "secret")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("live authorize without reference price: got %d, want 400 (body=%s)", w.Code, w.Body.String())
+	}
+	if n := atomic.LoadInt32(&h.trading.optPlaced); n != 0 {
+		t.Errorf("order must not reach broker without price validation on live, got %d", n)
+	}
+	if _, err := h.im.GetIntent(id); err == nil {
+		t.Error("rejected intent should be removed from the queue")
+	}
+}
+
+// On paper, the same no-reference-price intent is allowed (so off-hours testing
+// isn't blocked). Covered by TestIntentController_AuthorizeOptionsOrder_Success,
+// which authorizes a CurrentPrice=0 intent on the default (non-live) port.
+
 func TestIntentController_Reject(t *testing.T) {
 	h := newIntentHarness(t, "secret", true, 5000)
 	id, _ := h.im.CreateIntent(services.IntentTypeOptionsOrder, optionsIntentPayload(), "ESTX50", "buy", 1, 0)

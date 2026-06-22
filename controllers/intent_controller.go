@@ -70,6 +70,24 @@ func (ic *IntentController) HandleAuthorizeIntent(c *gin.Context) {
 		return
 	}
 
+	// No reference price was captured at intent creation (e.g. the quote timed
+	// out off-hours), so slippage cannot be validated. Fail closed on the live
+	// port; on paper, proceed but record that the order was not price-validated
+	// so the skipped guard is never silent.
+	if intent.CurrentPrice <= 0 {
+		if config.AppConfig.IBKRPort == 4001 {
+			reason := "no reference price captured at intent creation; cannot validate slippage on live — re-submit when quotes are available"
+			ic.intentManager.RejectIntent(id, reason)
+			c.JSON(400, gin.H{"error": reason})
+			return
+		}
+		if ic.logger != nil {
+			ic.logger.LogActivity("SYSTEM", "Intent Authorized (UNVALIDATED PRICE)", intent.Symbol,
+				"No reference price captured at intent creation; slippage guard skipped (paper)",
+				map[string]interface{}{"intent_id": id})
+		}
+	}
+
 	// Stale price guard
 	if ic.data != nil && intent.CurrentPrice > 0 {
 		if quote, err := ic.data.GetLatestQuote(c.Request.Context(), intent.Symbol); err == nil && quote != nil {
