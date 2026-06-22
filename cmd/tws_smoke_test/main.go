@@ -12,6 +12,7 @@ import (
 )
 
 type smokeTestWrapper struct {
+	tws.DefaultWrapper
 	timeReceived chan int64
 }
 

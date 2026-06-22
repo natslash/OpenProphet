@@ -7,6 +7,7 @@ const (
 	outPlaceOrder           = 3
 	outCancelOrder          = 4
 	outReqOpenOrders        = 5
+	outReqAccountData       = 6
 	outReqAccountSummary    = 62
 	outCancelAccountSummary = 63
 	outReqPositions         = 61
@@ -25,8 +26,10 @@ const (
 	inOrderStatus     = 3
 	inErrMsg          = 4
 	inOpenOrder       = 5
-	inAcctValue       = 6
-	inNextValidID     = 9
+	inAcctValue         = 6
+	inPortfolioValue    = 7
+	inAcctUpdateTime    = 8
+	inNextValidID       = 9
 	inContractData    = 10
 	inExecutionData   = 11
 	inManagedAccts    = 15
@@ -37,6 +40,7 @@ const (
 	inOpenOrderEnd      = 53
 	inPosition          = 61
 	inPositionEnd       = 62
+	inAcctDownloadEnd   = 54
 	inAccountSummary    = 63
 	inAccountSummaryEnd = 64
 	inHistoricalDataUpdate = 90

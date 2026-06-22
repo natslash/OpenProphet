@@ -214,6 +214,18 @@ func (e *Encoder) CancelAccountSummary(reqId int64) error {
 	return e.writer.SendFields(fields...)
 }
 
+// ReqAccountUpdates subscribes to (or unsubscribes from) account + portfolio
+// updates for a given account code. The server streams UpdateAccountValue,
+// UpdatePortfolio, and AccountDownloadEnd messages.
+func (e *Encoder) ReqAccountUpdates(subscribe bool, acctCode string) error {
+	const version = "2"
+	sub := "0"
+	if subscribe {
+		sub = "1"
+	}
+	return e.writer.SendFields(strconv.Itoa(outReqAccountData), version, sub, acctCode)
+}
+
 // ReqPositions requests all positions for all accounts.
 func (e *Encoder) ReqPositions() error {
 	const version = "1"

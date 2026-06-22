@@ -42,6 +42,21 @@ type PositionMsg struct {
 
 type PositionEndMsg struct {}
 
+type UpdatePortfolioMsg struct {
+	Contract      Contract
+	Position      decimal.Decimal
+	MarketPrice   float64
+	MarketValue   float64
+	AverageCost   float64
+	UnrealizedPNL float64
+	RealizedPNL   float64
+	AccountName   string
+}
+
+type AccountDownloadEndMsg struct {
+	AccountName string
+}
+
 type OpenOrderMsg struct {
 	OrderId int64
 	Contract Contract
@@ -109,6 +124,8 @@ type Wrapper interface {
 	AccountSummaryEnd(reqId int64)
 	Position(account string, contract Contract, position decimal.Decimal, avgCost float64)
 	PositionEnd()
+	UpdatePortfolio(contract Contract, position decimal.Decimal, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL float64, accountName string)
+	AccountDownloadEnd(accountName string)
 	OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState)
 	OpenOrderEnd()
 	OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64)

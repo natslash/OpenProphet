@@ -371,13 +371,15 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 	s.globalReqMu.Lock()
 	defer s.globalReqMu.Unlock()
 
-	ch := s.client.Register(0)
-	defer s.client.Complete(0)
+	acct := strings.TrimSpace(strings.Split(s.client.Accounts(), ",")[0])
 
-	if err := s.client.Encoder().ReqPositions(); err != nil {
-		return nil, fmt.Errorf("ReqPositions error: %w", err)
+	ch := s.client.Register(tws.AccountUpdatesDispatchKey)
+	defer s.client.Complete(tws.AccountUpdatesDispatchKey)
+
+	if err := s.client.Encoder().ReqAccountUpdates(true, acct); err != nil {
+		return nil, fmt.Errorf("ReqAccountUpdates error: %w", err)
 	}
-	defer s.client.Encoder().CancelPositions()
+	defer s.client.Encoder().ReqAccountUpdates(false, acct)
 
 	var positions []*interfaces.Position
 
@@ -385,23 +387,22 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 		select {
 		case msg, ok := <-ch:
 			if !ok {
-				// Channel closed by dispatcher.Complete(0) upon receiving PositionEndMsg
 				return positions, nil
 			}
-			
+
 			switch t := msg.(type) {
-			case tws.PositionMsg:
+			case tws.UpdatePortfolioMsg:
 				qty := t.Position.InexactFloat64()
 				if qty == 0 {
 					continue
 				}
 
-				avgPrice := t.AvgCost
+				avgPrice := t.AverageCost
 				multiplier := 1.0
 				if t.Contract.Multiplier != "" {
 					if m, err := strconv.ParseFloat(t.Contract.Multiplier, 64); err == nil && m > 0 {
 						multiplier = m
-						avgPrice = t.AvgCost / m
+						avgPrice = t.AverageCost / m
 					}
 				}
 
@@ -415,15 +416,21 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 				costBasis := avgPrice * absQty * multiplier
 
 				p := &interfaces.Position{
-					Symbol:        tws.FormatSymbol(t.Contract),
-					Qty:           absQty,
-					AvgEntryPrice: avgPrice,
-					CostBasis:     costBasis,
-					Side:          side,
+					Symbol:         tws.FormatSymbol(t.Contract),
+					Qty:            absQty,
+					AvgEntryPrice:  avgPrice,
+					MarketValue:    t.MarketValue,
+					CostBasis:      costBasis,
+					UnrealizedPL:   t.UnrealizedPNL,
+					CurrentPrice:   t.MarketPrice,
+					Side:           side,
+				}
+				if costBasis != 0 {
+					p.UnrealizedPLPC = t.UnrealizedPNL / costBasis
 				}
 				positions = append(positions, p)
-			case tws.PositionEndMsg:
-				// Ignored, handled by channel close
+			case tws.AccountDownloadEndMsg:
+				// Handled by channel close
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}
