@@ -1,4 +1,4 @@
-// Persistent configuration store for accounts, sandboxes, agents, strategies, and prompts
+// Persistent configuration store for agents, strategies, and settings
 // Uses a JSON file for simplicity - no extra DB dependencies
 import fs from 'fs/promises';
 import path from 'path';
@@ -93,17 +93,6 @@ const DEFAULT_PLUGINS = {
   },
 };
 
-const DEFAULT_AGENT_OVERRIDES = {
-  name: null,
-  description: null,
-  systemPromptTemplate: null,
-  customSystemPrompt: null,
-  strategyId: undefined,
-  customStrategyRules: null,
-  heartbeatOverrides: {},
-  sessionMode: 'continuous', // 'continuous' or 'fresh' - 'fresh' starts new session each beat
-};
-
 function defaultAgents() {
   return [
     {
@@ -187,7 +176,7 @@ function defaultModels() {
           description = 'Anthropic Haiku model';
         }
       } else if (id.startsWith('openai/')) {
-        name = id.replace('openai/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        name = id.replace('openai/', '').replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
         description = 'OpenAI model';
       } else if (id.startsWith('google/')) {
         name = 'Gemini ' + id.replace('google/', '').replace(/-/g, ' ');
@@ -196,10 +185,10 @@ function defaultModels() {
         name = id.replace('openrouter/', '').replace(/:/g, ' ').replace(/-/g, ' ');
         description = 'OpenRouter model';
       } else if (id.startsWith('opencode/')) {
-        name = id.replace('opencode/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        name = id.replace('opencode/', '').replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
         description = 'OpenCode provider model';
       } else {
-        name = id.split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        name = id.split('/').pop().replace(/-/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
         description = 'Available model';
       }
       
@@ -227,49 +216,16 @@ function defaultModels() {
   ];
 }
 
-function createSandbox(account, overrides = {}) {
-  const sandboxId = overrides.id || `sbx_${account.id}`;
-  return {
-    id: sandboxId,
-    accountId: account.id,
-    name: overrides.name || account.name || `Sandbox ${account.id}`,
-    agent: {
-      activeAgentId: overrides.agent?.activeAgentId || overrides.activeAgentId || 'default',
-      model: overrides.agent?.model || overrides.activeModel || 'anthropic/claude-sonnet-4-6',
-      overrides: {
-        ...DEFAULT_AGENT_OVERRIDES,
-        ...(overrides.agent?.overrides || {}),
-      },
-    },
-    heartbeat: { ...DEFAULT_HEARTBEAT, ...(overrides.heartbeat || {}) },
-    permissions: { ...DEFAULT_PERMISSIONS, ...(overrides.permissions || {}) },
-    plugins: mergePlugins(overrides.plugins || {}),
-    createdAt: overrides.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 function createDefaultConfig() {
   return {
-    schemaVersion: 2,
-    activeAccountId: null,
-    activeSandboxId: null,
-
-    // Legacy compatibility aliases. Keep mirrored during migration.
+    schemaVersion: 3,
     activeAgentId: 'default',
     activeModel: 'anthropic/claude-sonnet-4-6',
     heartbeat: { ...DEFAULT_HEARTBEAT },
     permissions: { ...DEFAULT_PERMISSIONS },
     plugins: mergePlugins(),
-
-    accounts: [],
-    sandboxes: {},
     agents: defaultAgents(),
     strategies: defaultStrategies(),
-    manager: {
-      model: 'anthropic/claude-sonnet-4-6',
-      customPrompt: '',
-    },
     models: defaultModels(),
   };
 }
@@ -289,107 +245,42 @@ function mergePlugins(plugins = {}) {
   };
 }
 
-function mergeSandbox(sandbox, fallback = {}) {
-  return {
-    ...sandbox,
-    agent: {
-      activeAgentId: sandbox?.agent?.activeAgentId || fallback.activeAgentId || 'default',
-      model: sandbox?.agent?.model || fallback.activeModel || 'anthropic/claude-sonnet-4-6',
-      overrides: {
-        ...DEFAULT_AGENT_OVERRIDES,
-        ...(sandbox?.agent?.overrides || {}),
-        heartbeatOverrides: {
-          ...DEFAULT_AGENT_OVERRIDES.heartbeatOverrides,
-          ...(sandbox?.agent?.overrides?.heartbeatOverrides || {}),
-        },
-      },
-    },
-    heartbeat: { ...DEFAULT_HEARTBEAT, ...(fallback.heartbeat || {}), ...(sandbox?.heartbeat || {}) },
-    permissions: { ...DEFAULT_PERMISSIONS, ...(fallback.permissions || {}), ...(sandbox?.permissions || {}) },
-    plugins: mergePlugins({ ...(fallback.plugins || {}), ...(sandbox?.plugins || {}) }),
-  };
-}
-
 function normalizeConfig(raw = {}) {
   const defaults = createDefaultConfig();
-  const config = {
-    ...defaults,
-    ...raw,
-    heartbeat: { ...DEFAULT_HEARTBEAT, ...(raw.heartbeat || {}) },
-    permissions: { ...DEFAULT_PERMISSIONS, ...(raw.permissions || {}) },
-    plugins: mergePlugins(raw.plugins || {}),
-    accounts: raw.accounts || [],
-    sandboxes: raw.sandboxes || {},
-    agents: raw.agents || defaults.agents,
-    strategies: raw.strategies || defaults.strategies,
-    models: raw.models || defaults.models,
-  };
-
-  for (const [sandboxId, sandbox] of Object.entries(config.sandboxes)) {
-    config.sandboxes[sandboxId] = mergeSandbox({ id: sandboxId, ...sandbox }, config);
-  }
-
-  return migrateLegacyConfig(config);
-}
-
-function migrateLegacyConfig(config) {
-  config.schemaVersion = 2;
-  if (!config.sandboxes) config.sandboxes = {};
-
-  for (const account of config.accounts || []) {
-    const sandboxId = `sbx_${account.id}`;
-    if (!config.sandboxes[sandboxId]) {
-      config.sandboxes[sandboxId] = createSandbox(account, {
-        id: sandboxId,
-        name: account.name,
-        activeAgentId: config.activeAgentId,
-        activeModel: config.activeModel,
-        heartbeat: config.heartbeat,
-        permissions: config.permissions,
-        plugins: config.plugins,
-      });
-    } else {
-      config.sandboxes[sandboxId] = mergeSandbox({
-        ...config.sandboxes[sandboxId],
-        id: sandboxId,
-        accountId: account.id,
-        name: config.sandboxes[sandboxId].name || account.name,
-      }, config);
+  
+  // If the user's config is older schema (v2) with sandboxes/accounts, migrate it on the fly:
+  let migrated = { ...raw };
+  if (raw.schemaVersion !== 3 && raw.sandboxes) {
+    const defaultSbx = Object.values(raw.sandboxes)[0];
+    if (defaultSbx) {
+      migrated.activeAgentId = defaultSbx.agent?.activeAgentId || raw.activeAgentId || 'default';
+      migrated.activeModel = defaultSbx.agent?.model || raw.activeModel || 'anthropic/claude-sonnet-4-6';
+      migrated.heartbeat = { ...DEFAULT_HEARTBEAT, ...(defaultSbx.heartbeat || {}) };
+      migrated.permissions = { ...DEFAULT_PERMISSIONS, ...(defaultSbx.permissions || {}) };
+      migrated.plugins = mergePlugins(defaultSbx.plugins || {});
     }
   }
 
-  if (!config.activeAccountId) {
-    config.activeAccountId = config.accounts[0]?.id || null;
-  }
-  if (!config.activeSandboxId && config.activeAccountId) {
-    config.activeSandboxId = `sbx_${config.activeAccountId}`;
-  }
+  const config = {
+    ...defaults,
+    ...migrated,
+    schemaVersion: 3,
+    heartbeat: { ...DEFAULT_HEARTBEAT, ...(migrated.heartbeat || {}) },
+    permissions: { ...DEFAULT_PERMISSIONS, ...(migrated.permissions || {}) },
+    plugins: mergePlugins(migrated.plugins || {}),
+    agents: migrated.agents || defaults.agents,
+    strategies: migrated.strategies || defaults.strategies,
+    models: migrated.models || defaults.models,
+  };
+  
+  // Remove vestigial fields
+  delete config.sandboxes;
+  delete config.accounts;
+  delete config.manager;
+  delete config.activeAccountId;
+  delete config.activeSandboxId;
 
-  syncLegacyAliases(config);
   return config;
-}
-
-function syncLegacyAliases(config) {
-  const sandbox = getActiveSandboxFromConfig(config);
-  if (!sandbox) return;
-  config.activeAccountId = sandbox.accountId;
-  config.activeSandboxId = sandbox.id;
-  config.activeAgentId = sandbox.agent.activeAgentId;
-  config.activeModel = sandbox.agent.model;
-  config.heartbeat = { ...sandbox.heartbeat };
-  config.permissions = { ...sandbox.permissions };
-  config.plugins = mergePlugins(sandbox.plugins || {});
-}
-
-function getActiveSandboxFromConfig(config) {
-  if (!config) return null;
-  if (config.activeSandboxId && config.sandboxes?.[config.activeSandboxId]) {
-    return config.sandboxes[config.activeSandboxId];
-  }
-  if (config.activeAccountId) {
-    return Object.values(config.sandboxes || {}).find(s => s.accountId === config.activeAccountId) || null;
-  }
-  return Object.values(config.sandboxes || {})[0] || null;
 }
 
 let _config = null;
@@ -404,38 +295,12 @@ export async function loadConfig() {
     _config = createDefaultConfig();
   }
 
-  if (_config.accounts.length === 0) {
-    const pk = process.env.ALPACA_PUBLIC_KEY || process.env.ALPACA_API_KEY;
-    const sk = process.env.ALPACA_SECRET_KEY;
-    if (pk && sk) {
-      const baseUrl = process.env.ALPACA_BASE_URL || process.env.ALPACA_ENDPOINT || '';
-      const isPaper = baseUrl.includes('paper') || process.env.ALPACA_PAPER === 'true';
-      const id = crypto.randomUUID().slice(0, 8);
-      const account = {
-        id,
-        name: isPaper ? 'Paper (from .env)' : 'Live (from .env)',
-        publicKey: pk,
-        secretKey: sk,
-        baseUrl: baseUrl || (isPaper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets'),
-        paper: isPaper,
-        createdAt: new Date().toISOString(),
-      };
-      _config.accounts.push(account);
-      _config.sandboxes[`sbx_${id}`] = createSandbox(account);
-      _config.activeAccountId = id;
-      _config.activeSandboxId = `sbx_${id}`;
-      console.log(`  Auto-imported Alpaca account from .env (${isPaper ? 'paper' : 'live'})`);
-    }
-  }
-
-  syncLegacyAliases(_config);
   await saveConfig();
   return _config;
 }
 
 export async function saveConfig() {
   _writeLock = _writeLock.then(async () => {
-    syncLegacyAliases(_config);
     await fs.mkdir(path.dirname(CONFIG_PATH), { recursive: true });
     await fs.writeFile(CONFIG_PATH, JSON.stringify(_config, null, 2));
   }).catch(err => console.error('Config save error:', err.message));
@@ -445,100 +310,6 @@ export async function saveConfig() {
 export function getConfig() {
   if (!_config) throw new Error('Config not loaded. Call loadConfig() first.');
   return _config;
-}
-
-export function getSandboxes() {
-  return Object.values(getConfig().sandboxes || {});
-}
-
-export function getSandbox(id) {
-  return getConfig().sandboxes?.[id] || null;
-}
-
-export function getSandboxByAccountId(accountId) {
-  return getSandboxes().find(s => s.accountId === accountId) || null;
-}
-
-export function getActiveSandbox() {
-  return getActiveSandboxFromConfig(getConfig());
-}
-
-export async function setActiveSandbox(id) {
-  const sandbox = getSandbox(id);
-  if (!sandbox) throw new Error('Sandbox not found');
-  _config.activeSandboxId = id;
-  _config.activeAccountId = sandbox.accountId;
-  syncLegacyAliases(_config);
-  await saveConfig();
-  return sandbox;
-}
-
-function updateSandbox(accountId, updater) {
-  const sandbox = getSandboxByAccountId(accountId) || getActiveSandbox();
-  if (!sandbox) throw new Error('Sandbox not found');
-  const updated = updater({ ...sandbox });
-  updated.updatedAt = new Date().toISOString();
-  _config.sandboxes[sandbox.id] = mergeSandbox(updated, _config);
-  if (_config.activeSandboxId === sandbox.id) syncLegacyAliases(_config);
-  return _config.sandboxes[sandbox.id];
-}
-
-// ── Accounts ───────────────────────────────────────────────────────
-
-export async function addAccount({ name, publicKey, secretKey, baseUrl, paper }) {
-  const id = crypto.randomUUID().slice(0, 8);
-  const account = {
-    id,
-    name: name || `Account ${_config.accounts.length + 1}`,
-    publicKey,
-    secretKey,
-    baseUrl: baseUrl || (paper ? 'https://paper-api.alpaca.markets' : 'https://api.alpaca.markets'),
-    paper: paper !== false,
-    createdAt: new Date().toISOString(),
-  };
-  _config.accounts.push(account);
-  _config.sandboxes[`sbx_${id}`] = createSandbox(account, {
-    activeAgentId: _config.activeAgentId,
-    activeModel: _config.activeModel,
-    heartbeat: _config.heartbeat,
-    permissions: _config.permissions,
-    plugins: _config.plugins,
-  });
-  if (!_config.activeAccountId) {
-    _config.activeAccountId = id;
-    _config.activeSandboxId = `sbx_${id}`;
-  }
-  syncLegacyAliases(_config);
-  await saveConfig();
-  return account;
-}
-
-export async function removeAccount(id) {
-  _config.accounts = _config.accounts.filter(a => a.id !== id);
-  delete _config.sandboxes[`sbx_${id}`];
-  if (_config.activeAccountId === id) {
-    const next = _config.accounts[0]?.id || null;
-    _config.activeAccountId = next;
-    _config.activeSandboxId = next ? `sbx_${next}` : null;
-  }
-  syncLegacyAliases(_config);
-  await saveConfig();
-}
-
-export async function setActiveAccount(id) {
-  if (!_config.accounts.find(a => a.id === id)) throw new Error('Account not found');
-  _config.activeAccountId = id;
-  _config.activeSandboxId = `sbx_${id}`;
-  syncLegacyAliases(_config);
-  await saveConfig();
-}
-
-export function getActiveAccount() {
-  return _config.accounts.find(a => a.id === _config.activeAccountId) || null;
-}
-
-export function getAccountById(id) {
-  return _config.accounts.find(a => a.id === id) || null;
 }
 
 // ── Agents ─────────────────────────────────────────────────────────
@@ -564,26 +335,11 @@ export async function addAgent(agent) {
 export async function updateAgent(id, updates) {
   const idx = _config.agents.findIndex(a => a.id === id);
   if (idx === -1) throw new Error('Agent not found');
-  const oldAgent = _config.agents[idx];
-  _config.agents[idx] = { ...oldAgent, ...updates, updatedAt: new Date().toISOString() };
+  _config.agents[idx] = { ..._config.agents[idx], ...updates, updatedAt: new Date().toISOString() };
 
-  // Propagate model/strategy changes to all sandboxes using this agent
-  const modelChanged = updates.model && updates.model !== oldAgent.model;
-  const strategyChanged = updates.strategyId !== undefined && updates.strategyId !== oldAgent.strategyId;
-
-  if (modelChanged || strategyChanged) {
-    for (const sandbox of getSandboxes()) {
-      if (sandbox.agent.activeAgentId !== id) continue;
-      if (modelChanged) {
-        _config.sandboxes[sandbox.id].agent.model = updates.model;
-      }
-      if (strategyChanged) {
-        if (_config.sandboxes[sandbox.id].agent.overrides) {
-          _config.sandboxes[sandbox.id].agent.overrides.customStrategyRules = null;
-        }
-      }
-    }
-    syncLegacyAliases(_config);
+  // If this is the active agent, propagate its model change to activeModel
+  if (_config.activeAgentId === id && updates.model) {
+    _config.activeModel = updates.model;
   }
 
   await saveConfig();
@@ -593,130 +349,39 @@ export async function updateAgent(id, updates) {
 export async function removeAgent(id) {
   if (id === 'default') throw new Error('Cannot remove default agent');
   _config.agents = _config.agents.filter(a => a.id !== id);
-  for (const sandbox of getSandboxes()) {
-    if (sandbox.agent.activeAgentId === id) {
-      _config.sandboxes[sandbox.id].agent.activeAgentId = 'default';
-    }
+  if (_config.activeAgentId === id) {
+    _config.activeAgentId = 'default';
   }
-  syncLegacyAliases(_config);
   await saveConfig();
 }
 
 export async function setActiveAgent(id) {
-  if (!_config.agents.find(a => a.id === id)) throw new Error('Agent not found');
-  await updateSandboxAgentSelection(_config.activeSandboxId, { activeAgentId: id });
+  const agent = _config.agents.find(a => a.id === id);
+  if (!agent) throw new Error('Agent not found');
+  _config.activeAgentId = id;
+  _config.activeModel = agent.model || _config.activeModel;
+  await saveConfig();
 }
 
 export function getActiveAgent() {
-  return getResolvedAgentForSandbox(_config.activeSandboxId) || _config.agents[0];
+  return getResolvedAgent() || _config.agents[0];
 }
 
 export function getAgentById(id) {
   return _config.agents.find(a => a.id === id) || null;
 }
 
-export function getAgentForSandbox(sandboxId) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) return null;
-  return getAgentById(sandbox.agent.activeAgentId) || null;
-}
-
-export function getResolvedAgentForSandbox(sandboxId) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) return null;
-
-  const baseAgent = getAgentById(sandbox.agent.activeAgentId) || null;
-  const overrides = sandbox.agent?.overrides || {};
+export function getResolvedAgent() {
+  const baseAgent = getAgentById(_config.activeAgentId) || null;
   const resolved = {
     ...(baseAgent || {}),
-    id: sandbox.agent.activeAgentId,
-    model: sandbox.agent?.model || baseAgent?.model || _config.activeModel,
+    id: _config.activeAgentId,
+    model: _config.activeModel || baseAgent?.model || 'anthropic/claude-sonnet-4-6',
     heartbeatOverrides: {
-      ...(baseAgent?.heartbeatOverrides || {}),
-      ...(overrides.heartbeatOverrides || {}),
+      ...(baseAgent?.heartbeatOverrides || {})
     },
-    sandboxId,
-    accountId: sandbox.accountId,
-    customStrategyRules: overrides.customStrategyRules ?? null,
   };
-
-  if (overrides.name !== null) resolved.name = overrides.name;
-  if (overrides.description !== null) resolved.description = overrides.description;
-  if (overrides.systemPromptTemplate !== null) resolved.systemPromptTemplate = overrides.systemPromptTemplate;
-  if (overrides.customSystemPrompt !== null) resolved.customSystemPrompt = overrides.customSystemPrompt;
-  if (Object.prototype.hasOwnProperty.call(overrides, 'strategyId') && overrides.strategyId !== undefined) {
-    resolved.strategyId = overrides.strategyId;
-  }
-
   return resolved;
-}
-
-export async function updateSandboxAgentOverrides(sandboxId, overrides) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) throw new Error('Sandbox not found');
-
-  _config.sandboxes[sandboxId] = mergeSandbox({
-    ...sandbox,
-    agent: {
-      ...sandbox.agent,
-      overrides: {
-        ...(sandbox.agent?.overrides || {}),
-        ...overrides,
-        heartbeatOverrides: {
-          ...(sandbox.agent?.overrides?.heartbeatOverrides || {}),
-          ...(overrides.heartbeatOverrides || {}),
-        },
-      },
-    },
-    updatedAt: new Date().toISOString(),
-  }, _config);
-
-  if (_config.activeSandboxId === sandboxId) syncLegacyAliases(_config);
-  await saveConfig();
-  return _config.sandboxes[sandboxId];
-}
-
-export async function updateSandboxAgentSelection(sandboxId, updates) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) throw new Error('Sandbox not found');
-  const nextActiveAgentId = updates.activeAgentId ?? sandbox.agent.activeAgentId;
-  const newAgent = _config.agents.find(a => a.id === nextActiveAgentId);
-  if (!newAgent) throw new Error('Agent not found');
-
-  const agentChanged = nextActiveAgentId !== sandbox.agent.activeAgentId;
-  let mergedOverrides = {
-    ...(sandbox.agent?.overrides || {}),
-    ...(updates.overrides || {}),
-    heartbeatOverrides: {
-      ...(sandbox.agent?.overrides?.heartbeatOverrides || {}),
-      ...(updates.overrides?.heartbeatOverrides || {}),
-    },
-  };
-  if (agentChanged) {
-    mergedOverrides.customStrategyRules = null;
-    mergedOverrides.customSystemPrompt = null;
-    mergedOverrides.systemPromptTemplate = null;
-  }
-
-  _config.sandboxes[sandboxId] = mergeSandbox({
-    ...sandbox,
-    agent: {
-      ...sandbox.agent,
-      ...updates,
-      activeAgentId: nextActiveAgentId,
-      model: agentChanged ? (newAgent.model || sandbox.agent.model) : (updates.model || sandbox.agent.model),
-      overrides: mergedOverrides,
-    },
-    updatedAt: new Date().toISOString(),
-  }, _config);
-
-  if (_config.activeSandboxId === sandboxId) syncLegacyAliases(_config);
-  await saveConfig();
-  return _config.sandboxes[sandboxId];
-}
-
-export async function updateSandboxStrategyRules(sandboxId, rules) {
-  return updateSandboxAgentOverrides(sandboxId, { customStrategyRules: rules });
 }
 
 // ── Strategies ─────────────────────────────────────────────────────
@@ -757,40 +422,19 @@ export function getStrategyById(id) {
 // ── Model ──────────────────────────────────────────────────────────
 
 export async function setActiveModel(modelId) {
-  await updateSandboxAgentSelection(_config.activeSandboxId, { model: modelId });
   _config.activeModel = modelId;
+  await saveConfig();
 }
 
 // ── Heartbeat ──────────────────────────────────────────────────────
 
 export async function updateHeartbeat(phaseIntervals) {
-  updateSandbox(_config.activeAccountId, sandbox => ({
-    ...sandbox,
-    heartbeat: { ...sandbox.heartbeat, ...phaseIntervals },
-  }));
-  await saveConfig();
-}
-
-export async function updateHeartbeatForSandbox(sandboxId, phaseIntervals) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) throw new Error('Sandbox not found');
-  _config.sandboxes[sandboxId] = mergeSandbox({
-    ...sandbox,
-    heartbeat: { ...sandbox.heartbeat, ...phaseIntervals },
-    updatedAt: new Date().toISOString(),
-  }, _config);
-  if (_config.activeSandboxId === sandboxId) syncLegacyAliases(_config);
+  _config.heartbeat = { ..._config.heartbeat, ...phaseIntervals };
   await saveConfig();
 }
 
 export function getHeartbeatForPhase(phase) {
-  const sandbox = getActiveSandbox();
-  return sandbox?.heartbeat?.[phase] || _config.heartbeat?.[phase] || DEFAULT_HEARTBEAT[phase] || 600;
-}
-
-export function getHeartbeatForSandboxPhase(sandboxId, phase) {
-  const sandbox = getSandbox(sandboxId);
-  return sandbox?.heartbeat?.[phase] || DEFAULT_HEARTBEAT[phase] || 600;
+  return _config.heartbeat?.[phase] || DEFAULT_HEARTBEAT[phase] || 600;
 }
 
 export function getHeartbeatProfiles() {
@@ -801,14 +445,14 @@ export function getPhaseTimeRanges() {
   return PHASE_TIME_RANGES;
 }
 
-export async function applyHeartbeatProfile(sandboxId, profileKey) {
+export async function applyHeartbeatProfile(profileKey) {
   const profile = HEARTBEAT_PROFILES[profileKey];
-  if (!profile) throw new Error(`Unknown heartbeat profile: ${profileKey}`);
-  await updateHeartbeatForSandbox(sandboxId, profile.phases);
+  if (!profile) throw new Error(\`Unknown heartbeat profile: \${profileKey}\`);
+  await updateHeartbeat(profile.phases);
 }
 
 export async function updatePhaseTimeRange(phase, range) {
-  if (!PHASE_TIME_RANGES[phase]) throw new Error(`Unknown phase: ${phase}`);
+  if (!PHASE_TIME_RANGES[phase]) throw new Error(\`Unknown phase: \${phase}\`);
   if (range.start !== undefined) PHASE_TIME_RANGES[phase].start = range.start;
   if (range.end !== undefined) PHASE_TIME_RANGES[phase].end = range.end;
 }
@@ -816,70 +460,24 @@ export async function updatePhaseTimeRange(phase, range) {
 // ── Permissions ───────────────────────────────────────────────────
 
 export async function updatePermissions(perms) {
-  updateSandbox(_config.activeAccountId, sandbox => ({
-    ...sandbox,
-    permissions: { ...sandbox.permissions, ...perms },
-  }));
-  await saveConfig();
-}
-
-export async function updatePermissionsForSandbox(sandboxId, perms) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) throw new Error('Sandbox not found');
-  _config.sandboxes[sandboxId] = mergeSandbox({
-    ...sandbox,
-    permissions: { ...sandbox.permissions, ...perms },
-    updatedAt: new Date().toISOString(),
-  }, _config);
-  if (_config.activeSandboxId === sandboxId) syncLegacyAliases(_config);
+  _config.permissions = { ..._config.permissions, ...perms };
   await saveConfig();
 }
 
 export function getPermissions() {
-  const sandbox = getActiveSandbox();
-  return sandbox?.permissions || _config.permissions || DEFAULT_PERMISSIONS;
-}
-
-export function getPermissionsForSandbox(sandboxId) {
-  return getSandbox(sandboxId)?.permissions || DEFAULT_PERMISSIONS;
+  return _config.permissions || DEFAULT_PERMISSIONS;
 }
 
 // ── Plugins ────────────────────────────────────────────────────────
 
 export async function updatePlugin(pluginName, pluginConfig) {
-  updateSandbox(_config.activeAccountId, sandbox => ({
-    ...sandbox,
-    plugins: {
-      ...(sandbox.plugins || {}),
-      [pluginName]: { ...((sandbox.plugins || {})[pluginName] || {}), ...pluginConfig },
-    },
-  }));
-  await saveConfig();
-}
-
-export async function updatePluginForSandbox(sandboxId, pluginName, pluginConfig) {
-  const sandbox = getSandbox(sandboxId);
-  if (!sandbox) throw new Error('Sandbox not found');
-  _config.sandboxes[sandboxId] = mergeSandbox({
-    ...sandbox,
-    plugins: {
-      ...(sandbox.plugins || {}),
-      [pluginName]: {
-        ...((sandbox.plugins || {})[pluginName] || {}),
-        ...pluginConfig,
-      },
-    },
-    updatedAt: new Date().toISOString(),
-  }, _config);
-  if (_config.activeSandboxId === sandboxId) syncLegacyAliases(_config);
+  _config.plugins = {
+    ...(_config.plugins || {}),
+    [pluginName]: { ...((_config.plugins || {})[pluginName] || {}), ...pluginConfig },
+  };
   await saveConfig();
 }
 
 export function getPlugin(pluginName) {
-  const sandbox = getActiveSandbox();
-  return sandbox?.plugins?.[pluginName] || _config.plugins?.[pluginName] || null;
-}
-
-export function getPluginForSandbox(sandboxId, pluginName) {
-  return getSandbox(sandboxId)?.plugins?.[pluginName] || null;
+  return _config.plugins?.[pluginName] || null;
 }
