@@ -1782,7 +1782,6 @@ function ensureSandboxTerminal() {
           <div class="stat-row"><span class="stat-label">Portfolio</span><span class="stat-value" data-stat="main-portfolio">--</span></div>
           <div class="stat-row"><span class="stat-label">Cash</span><span class="stat-value" data-stat="main-cash">--</span></div>
           <div class="stat-row"><span class="stat-label">Buying Power</span><span class="stat-value" data-stat="main-bp">--</span></div>
-          <div class="stat-row"><span class="stat-label">Day P&L</span><span class="stat-value" data-stat="main-pnl">--</span></div>
         </div>
         <div class="section">
           <div class="section-title">Heartbeat</div>
@@ -2353,15 +2352,6 @@ function showModal(type, data) {
 
 function closeModal() { document.getElementById('modal-overlay').classList.remove('visible'); }
 
-async function submitAccount() {
-  const body = { name: v('f-acc-name'), publicKey: v('f-acc-pk'), secretKey: v('f-acc-sk'), baseUrl: v('f-acc-url'), paper: document.getElementById('f-acc-paper').checked };
-  try {
-    const r = await fetch('/api/accounts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    const d = await r.json();
-    if (d.error) { alert('Error: ' + d.error); return; }
-    closeModal();
-  } catch (e) { alert('Error: ' + e.message); }
-}
 
 async function submitAgent(id) {
   const body = { name: v('f-ag-name'), description: v('f-ag-desc'), strategyId: v('f-ag-strat')||null, model: v('f-ag-model'), systemPromptTemplate: v('f-ag-ptype'), customSystemPrompt: v('f-ag-prompt')||'' };

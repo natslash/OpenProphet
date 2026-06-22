@@ -239,24 +239,32 @@ func (s *LocalStorage) CleanupOldData(before time.Time) error {
 
 // Additional helper methods
 
-// SavePosition saves a position snapshot
 func (s *LocalStorage) SavePosition(position *interfaces.Position) error {
-	dbPosition := &models.DBPosition{
-		Symbol:         position.Symbol,
-		Qty:            position.Qty,
-		AvgEntryPrice:  position.AvgEntryPrice,
-		MarketValue:    position.MarketValue,
-		CostBasis:      position.CostBasis,
-		UnrealizedPL:   position.UnrealizedPL,
-		UnrealizedPLPC: position.UnrealizedPLPC,
-		CurrentPrice:   position.CurrentPrice,
-		Side:           position.Side,
-		SnapshotTime:   time.Now(),
+	var dbPosition models.DBPosition
+	result := s.db.Where("symbol = ?", position.Symbol).First(&dbPosition)
+
+	dbPosition.Symbol = position.Symbol
+	dbPosition.Qty = position.Qty
+	dbPosition.AvgEntryPrice = position.AvgEntryPrice
+	dbPosition.MarketValue = position.MarketValue
+	dbPosition.CostBasis = position.CostBasis
+	dbPosition.UnrealizedPL = position.UnrealizedPL
+	dbPosition.UnrealizedPLPC = position.UnrealizedPLPC
+	dbPosition.CurrentPrice = position.CurrentPrice
+	dbPosition.Side = position.Side
+	dbPosition.SnapshotTime = time.Now()
+
+	if result.Error == nil {
+		// Update existing
+		if err := s.db.Save(&dbPosition).Error; err != nil {
+			return fmt.Errorf("failed to update position: %w", err)
+		}
+		return nil
 	}
 
-	result := s.db.Save(dbPosition)
-	if result.Error != nil {
-		return fmt.Errorf("failed to save position: %w", result.Error)
+	// Create new
+	if err := s.db.Create(&dbPosition).Error; err != nil {
+		return fmt.Errorf("failed to create position: %w", err)
 	}
 
 	return nil

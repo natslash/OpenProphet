@@ -391,15 +391,35 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 			
 			switch t := msg.(type) {
 			case tws.PositionMsg:
-				// Filter out zero-positions
 				qty := t.Position.InexactFloat64()
 				if qty == 0 {
 					continue
 				}
+
+				avgPrice := t.AvgCost
+				multiplier := 1.0
+				if t.Contract.Multiplier != "" {
+					if m, err := strconv.ParseFloat(t.Contract.Multiplier, 64); err == nil && m > 0 {
+						multiplier = m
+						avgPrice = t.AvgCost / m
+					}
+				}
+
+				absQty := qty
+				side := "long"
+				if qty < 0 {
+					absQty = -qty
+					side = "short"
+				}
+
+				costBasis := avgPrice * absQty * multiplier
+
 				p := &interfaces.Position{
 					Symbol:        tws.FormatSymbol(t.Contract),
-					Qty:           qty,
-					AvgEntryPrice: t.AvgCost,
+					Qty:           absQty,
+					AvgEntryPrice: avgPrice,
+					CostBasis:     costBasis,
+					Side:          side,
 				}
 				positions = append(positions, p)
 			case tws.PositionEndMsg:

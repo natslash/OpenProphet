@@ -377,7 +377,15 @@ func (pm *PositionManager) checkEntryOrder(ctx context.Context, position *Manage
 			}
 		}
 
-		pm.logger.WithError(err).Error("Failed to get entry order")
+		pm.logger.WithFields(logrus.Fields{
+			"position_id": position.ID,
+			"order_id":    position.EntryOrderID,
+			"symbol":      position.Symbol,
+		}).Warn("Entry order not found and no matching broker position; marking CLOSED as stale")
+		position.Status = "CLOSED"
+		position.Notes = "Auto-closed: entry order lost after restart"
+		position.UpdatedAt = time.Now()
+		pm.savePositionToDB(position)
 		return
 	}
 
