@@ -147,13 +147,15 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if requireDoubleConfirm && intentManager != nil {
 			currentPrice := 0.0
 			if data != nil {
-				if quote, err := data.GetLatestQuote(ctx, req.Symbol); err == nil && quote != nil {
+				quoteCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				if quote, err := data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
 					if quote.AskPrice > 0 {
 						currentPrice = quote.AskPrice
 					} else if quote.BidPrice > 0 {
 						currentPrice = quote.BidPrice
 					}
 				}
+				cancel()
 			}
 			
 			qty := 0.0
@@ -205,13 +207,16 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if requireDoubleConfirm && intentManager != nil {
 			currentPrice := 0.0
 			if data != nil {
-				if quote, err := data.GetLatestQuote(ctx, req.Symbol); err == nil && quote != nil {
+				// Don't block forever if quote is sparse (especially for options out of hours)
+				quoteCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				if quote, err := data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
 					if quote.AskPrice > 0 {
 						currentPrice = quote.AskPrice
 					} else if quote.BidPrice > 0 {
 						currentPrice = quote.BidPrice
 					}
 				}
+				cancel()
 			}
 			id, err := intentManager.CreateIntent(IntentTypeOptionsOrder, args, req.Symbol, req.Action, req.Qty, currentPrice)
 			if err != nil {
@@ -236,7 +241,9 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if data == nil {
 			return "", fmt.Errorf("data service not initialized")
 		}
-		quote, err := data.GetLatestQuote(ctx, req.Symbol)
+		quoteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		quote, err := data.GetLatestQuote(quoteCtx, req.Symbol)
+		cancel()
 		if err != nil {
 			return "", err
 		}
@@ -264,8 +271,7 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err != nil {
 			return "", err
 		}
-		b, _ := json.Marshal(chain)
-		return string(b), nil
+		return formatOptionsChain(ctx, data, req.Symbol, chain), nil
 
 	case "jim_rogers":
 		var req struct {
@@ -319,4 +325,82 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
+}
+
+// compactOption is the token-lean projection of an option contract sent to the
+// LLM. We drop fields the agent rarely reasons over (premium, volume, gamma,
+// theta, vega, full expiration date, redundant underlying) to cut payload size.
+type compactOption struct {
+	Sym   string  `json:"sym"`
+	Type  string  `json:"type"` // "C" / "P"
+	K     float64 `json:"strike"`
+	Bid   float64 `json:"bid"`
+	Ask   float64 `json:"ask"`
+	Delta float64 `json:"delta,omitempty"`
+	IV    float64 `json:"iv,omitempty"`
+	OI    int64   `json:"oi,omitempty"`
+	DTE   int     `json:"dte,omitempty"`
+}
+
+// formatOptionsChain projects the chain to compact fields and windows the
+// strikes around the underlying spot so the LLM only sees the relevant,
+// near-the-money contracts. A full OESX chain is hundreds of contracts with 16
+// fields each; raw-marshaled and resent every conversation turn it dominates
+// token usage. We fetch spot (best-effort, short timeout) to centre the window;
+// if spot is unavailable we fall back to a hard contract cap so the payload
+// stays bounded regardless.
+func formatOptionsChain(ctx context.Context, data interfaces.DataService, underlying string, chain []*interfaces.OptionContract) string {
+	const strikeWindow = 0.15 // keep strikes within ±15% of spot
+	const maxContracts = 60   // hard cap used only when spot is unknown
+
+	// Best-effort spot for windowing (don't block the tool if quotes are sparse).
+	spot := 0.0
+	if data != nil {
+		qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		if q, err := data.GetLatestQuote(qctx, underlying); err == nil && q != nil {
+			switch {
+			case q.AskPrice > 0 && q.BidPrice > 0:
+				spot = (q.AskPrice + q.BidPrice) / 2
+			case q.AskPrice > 0:
+				spot = q.AskPrice
+			case q.BidPrice > 0:
+				spot = q.BidPrice
+			}
+		}
+		cancel()
+	}
+
+	out := make([]compactOption, 0, len(chain))
+	for _, c := range chain {
+		if c == nil {
+			continue
+		}
+		if spot > 0 && (c.StrikePrice < spot*(1-strikeWindow) || c.StrikePrice > spot*(1+strikeWindow)) {
+			continue
+		}
+		t := "C"
+		if c.ContractType == "put" || c.ContractType == "P" || c.ContractType == "p" {
+			t = "P"
+		}
+		out = append(out, compactOption{
+			Sym: c.Symbol, Type: t, K: c.StrikePrice,
+			Bid: c.Bid, Ask: c.Ask, Delta: c.Delta, IV: c.ImpliedVolatility,
+			OI: c.OpenInterest, DTE: c.DTE,
+		})
+	}
+	// When spot is unknown we couldn't window; cap the count to bound tokens.
+	if spot <= 0 && len(out) > maxContracts {
+		out = out[:maxContracts]
+	}
+
+	payload := map[string]interface{}{
+		"underlying": underlying,
+		"spot":       spot,
+		"returned":   len(out),
+		"total":      len(chain),
+		"note":       "near-the-money window; fields projected to conserve context",
+		"options":    out,
+	}
+	b, _ := json.Marshal(payload)
+	return string(b)
 }

@@ -256,10 +256,13 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				resultMsg = resStr
 			}
 
-			// In this generic interface, we'll append the tool result as a user message
+			// In this generic interface, we'll append the tool result as a user
+			// message. Truncate oversized results before they enter the
+			// transcript: the full history is re-sent on every subsequent turn,
+			// so an unbounded tool dump compounds into O(n²) token usage.
 			messages = append(messages, interfaces.LLMMessage{
 				Role:         "user",
-				Content:      resultMsg,
+				Content:      truncateForHistory(resultMsg),
 				ToolResultID: toolCall.ID,
 			})
 		}
@@ -287,6 +290,18 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
 		}
 	}
+}
+
+// maxToolResultChars caps how much of a single tool result is carried forward
+// in the conversation history (~1.5k tokens). Tool results are re-sent on every
+// later turn, so leaving them unbounded compounds token cost across the loop.
+const maxToolResultChars = 6000
+
+func truncateForHistory(s string) string {
+	if len(s) <= maxToolResultChars {
+		return s
+	}
+	return s[:maxToolResultChars] + fmt.Sprintf("\n...[truncated %d chars to conserve context]", len(s)-maxToolResultChars)
 }
 
 func appendJSONToBotLog(event string, sandboxId string, text string) {
