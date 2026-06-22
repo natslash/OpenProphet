@@ -200,8 +200,13 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	tools := BuildAgentTools()
 
-	// 2. Loop until AI stops calling tools
-	for i := 0; i < 10; i++ { // Max 10 turns to prevent infinite loops
+	// 2. Loop until AI stops calling tools. concluded tracks whether the model
+	// finished on its own (a turn with no tool calls). If it instead burns the
+	// whole turn budget still calling tools, we force a final summary below so
+	// the user never gets silence.
+	concluded := false
+	const maxTurns = 10
+	for i := 0; i < maxTurns; i++ {
 		if ctx.Err() != nil {
 			return
 		}
@@ -231,6 +236,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		if len(resp.ToolCalls) == 0 {
 			// LLM is done
 			b.logger.Info("[BEAT] AI Heartbeat complete")
+			concluded = true
 			break
 		}
 
@@ -256,6 +262,29 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				Content:      resultMsg,
 				ToolResultID: toolCall.ID,
 			})
+		}
+	}
+
+	// Fallback: the model exhausted its tool-turn budget without delivering a
+	// final answer. Force one summarization turn with tools disabled so it must
+	// reply in text — otherwise the user is left staring at a silent chat.
+	if !concluded {
+		b.logger.Warn("[BEAT] Tool-turn limit reached without a final answer — forcing a summary")
+		messages = append(messages, interfaces.LLMMessage{
+			Role:    "user",
+			Content: "You have reached your tool-use limit for this cycle. Do NOT call any more tools. Based only on the data you have already gathered, give the user your final recommendation now.",
+		})
+		resp, err := b.llm.GenerateResponse(ctx, messages, nil) // nil tools → the model must answer in text
+		if err != nil {
+			b.logger.WithError(err).Error("[BEAT] Forced summary failed")
+			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
+			return
+		}
+		if resp.Content != "" {
+			b.logger.WithField("ai_thought", resp.Content).Info("[BEAT] AI Log (forced summary)")
+			appendJSONToBotLog("agent_text", "", resp.Content)
+		} else {
+			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
 		}
 	}
 }
