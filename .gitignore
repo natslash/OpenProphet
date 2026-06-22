@@ -1,5 +1,6 @@
 # Secrets (use .env.example as template)
 .env
+.env.backend
 .mcp.json
 .claude/settings.local.json
 opencode.jsonc
@@ -46,4 +47,20 @@ news_summaries/*.json
 quickstart.sh
 
 # Manual harness scratch DB (cmd/test_pm)
-test_pm_db.jsonopenprophet-bot
+test_pm_db.json
+openprophet-bot
+
+# Backup files
+*.bak
+
+# Data backups (historical, not source)
+data_backup/
+
+# Activity logs (runtime)
+activity_logs/
+
+# Test artifacts
+services/test_integration_pm_db.json
+
+# Scratch utilities
+count_tokens.go

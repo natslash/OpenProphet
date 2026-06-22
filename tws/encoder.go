@@ -107,6 +107,18 @@ func (e *Encoder) ReqMktData(reqId int64, contract Contract, genericTickList str
 	return e.writer.SendFields(fields...)
 }
 
+// ReqMarketDataType sets the market data type for subsequent requests.
+// 1 = Live, 2 = Frozen, 3 = Delayed, 4 = Delayed and frozen
+func (e *Encoder) ReqMarketDataType(marketDataType int) error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outReqMarketDataType),
+		version,
+		strconv.Itoa(marketDataType),
+	}
+	return e.writer.SendFields(fields...)
+}
+
 // CancelMktData cancels a market data request.
 func (e *Encoder) CancelMktData(reqId int64) error {
 	const version = "1"
@@ -203,11 +215,20 @@ func (e *Encoder) CancelAccountSummary(reqId int64) error {
 }
 
 // ReqPositions requests all positions for all accounts.
-// TWS API doesn't use a reqId for positions, so we just send the message.
 func (e *Encoder) ReqPositions() error {
 	const version = "1"
 	fields := []string{
 		strconv.Itoa(outReqPositions),
+		version,
+	}
+	return e.writer.SendFields(fields...)
+}
+
+// CancelPositions cancels a previous ReqPositions subscription.
+func (e *Encoder) CancelPositions() error {
+	const version = "1"
+	fields := []string{
+		strconv.Itoa(outCancelPositions),
 		version,
 	}
 	return e.writer.SendFields(fields...)

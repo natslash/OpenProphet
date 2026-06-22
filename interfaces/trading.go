@@ -92,24 +92,24 @@ type OrderResult struct {
 }
 
 type Position struct {
-	Symbol           string
-	Qty              float64
-	AvgEntryPrice    float64
-	MarketValue      float64
-	CostBasis        float64
-	UnrealizedPL     float64
-	UnrealizedPLPC   float64
-	CurrentPrice     float64
-	Side             string
+	Symbol           string  `json:"symbol"`
+	Qty              float64 `json:"qty"`
+	AvgEntryPrice    float64 `json:"avgEntryPrice"`
+	MarketValue      float64 `json:"marketValue"`
+	CostBasis        float64 `json:"costBasis"`
+	UnrealizedPL     float64 `json:"unrealizedPL"`
+	UnrealizedPLPC   float64 `json:"unrealizedPLPC"`
+	CurrentPrice     float64 `json:"currentPrice"`
+	Side             string  `json:"side"`
 }
 
 type Account struct {
-	ID               string
-	Cash             float64
-	PortfolioValue   float64
-	BuyingPower      float64
-	DayTradeCount    int
-	PatternDayTrader bool
+	ID               string  `json:"id"`
+	Cash             float64 `json:"cash"`
+	PortfolioValue   float64 `json:"portfolioValue"`
+	BuyingPower      float64 `json:"buyingPower"`
+	DayTradeCount    int     `json:"dayTradeCount"`
+	PatternDayTrader bool    `json:"patternDayTrader"`
 }
 
 type Bar struct {
@@ -172,17 +172,17 @@ type OptionsQuote struct {
 }
 
 type OptionsPosition struct {
-	Symbol        string
-	Underlying    string
-	Qty           float64
-	AvgEntryPrice float64
-	MarketValue   float64
-	CostBasis     float64
-	UnrealizedPL  float64
-	UnrealizedPLPC float64
-	CurrentPrice  float64
-	Side          string // "long" or "short"
-	Expiration    time.Time
-	Strike        float64
-	OptionType    string // "call" or "put"
+	Symbol        string    `json:"symbol"`
+	Underlying    string    `json:"underlying"`
+	Qty           float64   `json:"qty"`
+	AvgEntryPrice float64   `json:"avgEntryPrice"`
+	MarketValue   float64   `json:"marketValue"`
+	CostBasis     float64   `json:"costBasis"`
+	UnrealizedPL  float64   `json:"unrealizedPL"`
+	UnrealizedPLPC float64  `json:"unrealizedPLPC"`
+	CurrentPrice  float64   `json:"currentPrice"`
+	Side          string    `json:"side"` // "long" or "short"
+	Expiration    time.Time `json:"expiration"`
+	Strike        float64   `json:"strike"`
+	OptionType    string    `json:"optionType"` // "call" or "put"
 }

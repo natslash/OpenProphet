@@ -37,11 +37,37 @@ func ParseSymbol(symbol string) (Contract, error) {
 	parts := strings.Split(symbol, ":")
 
 	if len(parts) == 1 {
+		if parts[0] == estoxxSymbol {
+			return Contract{
+				Symbol:   estoxxSymbol,
+				SecType:  Index,
+				Exchange: "EUREX",
+				Currency: "EUR",
+			}, nil
+		}
 		return Contract{
 			Symbol:   parts[0],
 			SecType:  Stock,
 			Exchange: "SMART",
 			Currency: "USD",
+		}, nil
+	}
+
+	if parts[0] == "IND" {
+		if len(parts) != 2 {
+			return Contract{}, fmt.Errorf("invalid IND symbol %q: want IND:<SYMBOL>", symbol)
+		}
+		exch := "SMART"
+		curr := "USD"
+		if parts[1] == estoxxSymbol {
+			exch = "EUREX"
+			curr = "EUR"
+		}
+		return Contract{
+			Symbol:   parts[1],
+			SecType:  Index,
+			Exchange: exch,
+			Currency: curr,
 		}, nil
 	}
 
@@ -112,6 +138,12 @@ func FormatSymbol(c Contract) string {
 	}
 	if c.SecType == Future {
 		return fmt.Sprintf("FUT:%s:%s", c.Symbol, c.LastTradeDateOrContractMonth)
+	}
+	if c.SecType == Index {
+		if c.Symbol == estoxxSymbol {
+			return estoxxSymbol
+		}
+		return fmt.Sprintf("IND:%s", c.Symbol)
 	}
 	return c.Symbol
 }

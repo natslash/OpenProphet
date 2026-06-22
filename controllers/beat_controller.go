@@ -51,6 +51,26 @@ func (bc *BeatController) HandleStatus(c *gin.Context) {
 	c.JSON(200, gin.H{"running": bc.beat.IsRunning()})
 }
 
+func (bc *BeatController) HandleMessage(c *gin.Context) {
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request"})
+		return
+	}
+	if req.Message == "" {
+		c.JSON(400, gin.H{"error": "Message is required"})
+		return
+	}
+	if !bc.beat.IsRunning() {
+		c.JSON(400, gin.H{"error": "Agent is not running. Please start the agent first."})
+		return
+	}
+	bc.beat.InjectMessage(req.Message)
+	c.JSON(200, gin.H{"status": "Message injected"})
+}
+
 func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -67,21 +87,19 @@ func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
 	file.Seek(0, io.SeekEnd)
 
 	reader := bufio.NewReader(file)
-	clientGone := c.Writer.CloseNotify()
+	ctx := c.Request.Context()
 
 	for {
 		select {
-		case <-clientGone:
+		case <-ctx.Done():
 			return
 		default:
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if err == io.EOF {
-					// Sleep briefly and check again for new logs
 					time.Sleep(500 * time.Millisecond)
 					continue
 				}
-				// Other error, stop streaming
 				return
 			}
 			line = strings.TrimSpace(line)

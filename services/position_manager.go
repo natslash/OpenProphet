@@ -8,6 +8,7 @@ import (
 	"prophet-trader/database"
 	"prophet-trader/interfaces"
 	"prophet-trader/models"
+	"strings"
 	"sync"
 	"time"
 
@@ -307,6 +308,15 @@ func (pm *PositionManager) MonitorPositions(ctx context.Context) {
 
 // checkPositions checks all positions and manages their risk orders
 func (pm *PositionManager) checkPositions(ctx context.Context) {
+	// 1. Poll live quotes for all active positions first
+	if err := pm.pollActiveQuotes(ctx); err != nil {
+		if err.Error() == "HTTP 429: Too Many Requests" || err.Error() == "HTTP 429" {
+			pm.logger.Warn("Rate limited by IBKR, pausing checkPositions for backoff")
+			time.Sleep(5 * time.Second) // Exponential backoff in caller loop
+			return
+		}
+	}
+
 	pm.mu.RLock()
 	positions := make([]*ManagedPosition, 0, len(pm.positions))
 	for _, pos := range pm.positions {
@@ -322,12 +332,6 @@ func (pm *PositionManager) checkPositions(ctx context.Context) {
 		// Check if entry order filled
 		if position.Status == "PENDING" {
 			pm.checkEntryOrder(ctx, position)
-			continue
-		}
-
-		// Update current price and P&L
-		if err := pm.updatePositionPrice(ctx, position); err != nil {
-			pm.logger.WithError(err).WithField("symbol", position.Symbol).Error("Failed to update position price")
 			continue
 		}
 
@@ -347,11 +351,45 @@ func (pm *PositionManager) checkPositions(ctx context.Context) {
 func (pm *PositionManager) checkEntryOrder(ctx context.Context, position *ManagedPosition) {
 	order, err := pm.tradingService.GetOrder(ctx, position.EntryOrderID)
 	if err != nil {
-		pm.logger.WithError(err).Error("Failed to get entry order")
+		// Fallback: order may have been filled while backend was offline
+		brokerPositions, pErr := pm.tradingService.GetPositions(ctx)
+		if pErr == nil {
+			for _, bp := range brokerPositions {
+				if bp.Symbol == position.Symbol && ((position.Side == "buy" && bp.Qty > 0) || (position.Side == "sell" && bp.Qty < 0)) {
+					pm.logger.WithFields(logrus.Fields{
+						"position_id": position.ID,
+						"symbol":      position.Symbol,
+						"avg_cost":    bp.AvgEntryPrice,
+					}).Info("Entry order missing but native position exists; marking ACTIVE")
+
+					position.Status = "ACTIVE"
+					position.EntryPrice = bp.AvgEntryPrice
+					position.UpdatedAt = time.Now()
+
+					if position.PartialExit != nil && position.PartialExit.Enabled {
+						if err := pm.placePartialExitOrder(ctx, position); err != nil {
+							pm.logger.WithError(err).Error("Failed to place partial exit order")
+						}
+					}
+					pm.savePositionToDB(position)
+					return
+				}
+			}
+		}
+
+		pm.logger.WithFields(logrus.Fields{
+			"position_id": position.ID,
+			"order_id":    position.EntryOrderID,
+			"symbol":      position.Symbol,
+		}).Warn("Entry order not found and no matching broker position; marking CLOSED as stale")
+		position.Status = "CLOSED"
+		position.Notes = "Auto-closed: entry order lost after restart"
+		position.UpdatedAt = time.Now()
+		pm.savePositionToDB(position)
 		return
 	}
 
-	if order.Status == "filled" {
+	if order.Status == "filled" || strings.ToLower(order.Status) == "filled" {
 		position.Status = "ACTIVE"
 		position.EntryPrice = *order.FilledAvgPrice
 		position.UpdatedAt = time.Now()
@@ -414,6 +452,39 @@ func (pm *PositionManager) placePartialExitOrder(ctx context.Context, position *
 
 // manageRiskOrders checks and updates risk management orders
 func (pm *PositionManager) manageRiskOrders(ctx context.Context, position *ManagedPosition) {
+	// Deterministic Programmatic Fallback Rules
+	if position.CurrentPrice > 0 {
+		hitStopLoss := (position.Side == "buy" && position.CurrentPrice <= position.StopLossPrice) ||
+			(position.Side == "sell" && position.CurrentPrice >= position.StopLossPrice)
+
+		hitTakeProfit := (position.TakeProfitPrice > 0) &&
+			((position.Side == "buy" && position.CurrentPrice >= position.TakeProfitPrice) ||
+				(position.Side == "sell" && position.CurrentPrice <= position.TakeProfitPrice))
+
+		if hitTakeProfit {
+			pm.logger.WithFields(logrus.Fields{
+				"position_id":   position.ID,
+				"current_price": position.CurrentPrice,
+				"target_price":  position.TakeProfitPrice,
+			}).Info("Programmatic Take Profit Triggered - Executing Market Sell")
+			
+			// We trigger CloseManagedPosition which handles cancelling brackets and placing the market exit
+			pm.CloseManagedPosition(ctx, position.ID)
+			return
+		}
+
+		if hitStopLoss {
+			pm.logger.WithFields(logrus.Fields{
+				"position_id":   position.ID,
+				"current_price": position.CurrentPrice,
+				"stop_price":    position.StopLossPrice,
+			}).Info("Programmatic Stop Loss Triggered - Executing Market Sell")
+			
+			pm.CloseManagedPosition(ctx, position.ID)
+			return
+		}
+	}
+
 	// Fallback for native brackets: if the orders vanish or fill, the broker position goes to 0.
 	brokerPositions, err := pm.tradingService.GetPositions(ctx)
 	if err == nil {
@@ -506,6 +577,29 @@ func (pm *PositionManager) updatePositionPrice(ctx context.Context, position *Ma
 
 	position.UpdatedAt = time.Now()
 
+	return nil
+}
+
+// pollActiveQuotes iterates over active positions and updates their prices
+func (pm *PositionManager) pollActiveQuotes(ctx context.Context) error {
+	pm.mu.RLock()
+	var activePositions []*ManagedPosition
+	for _, pos := range pm.positions {
+		if pos.Status == "ACTIVE" || pos.Status == "PARTIAL" {
+			activePositions = append(activePositions, pos)
+		}
+	}
+	pm.mu.RUnlock()
+
+	for _, pos := range activePositions {
+		if err := pm.updatePositionPrice(ctx, pos); err != nil {
+			pm.logger.WithError(err).WithField("symbol", pos.Symbol).Warn("Failed to poll quote")
+			// Return immediately on rate limit to trigger backoff
+			if strings.Contains(err.Error(), "HTTP 429") {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

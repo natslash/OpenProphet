@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 
@@ -37,13 +38,26 @@ type Config struct {
 	BeatIntervalSecs       int
 	BeatMaxDailyExecutions int
 	BeatForceSignal        bool // testing aid: force a buy signal every tick
+	
+	// Review Portfolio Polling
+	LLMPollingEnabled      bool
+	LLMPollingIntervalSecs int
+	
+	LLMProvider string
+	LLMModel    string
+
+	// Intent Guard
+	RequireDoubleConfirm    bool
+	AllowLivePort           bool
+	IntentTTLSeconds        int
+	MaxPriceSlippagePercent float64
 }
 
 var AppConfig *Config
 
 func Load() error {
-	// Load .env file if it exists (don't override existing env vars)
-	_ = godotenv.Load()
+	// Load .env and .env.backend files if they exist (don't override existing env vars)
+	_ = godotenv.Load(".env", ".env.backend")
 
 	AppConfig = &Config{
 		GeminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
@@ -64,7 +78,20 @@ func Load() error {
 		BeatIntervalSecs:       getEnvAsInt("BEAT_INTERVAL_SECS", 300),
 		BeatMaxDailyExecutions: getEnvAsInt("BEAT_MAX_DAILY_EXECUTIONS", 3),
 		BeatForceSignal:        getEnvOrDefault("BEAT_FORCE_SIGNAL", "false") == "true",
+		
+		LLMPollingEnabled:      getEnvOrDefault("LLM_POLLING_ENABLED", "false") == "true",
+		LLMPollingIntervalSecs: getEnvAsInt("LLM_POLLING_INTERVAL_SECS", 3600),
+		
+		LLMProvider:            getEnvOrDefault("LLM_PROVIDER", "anthropic"),
+		LLMModel:               getEnvOrDefault("LLM_MODEL", ""),
+
+		RequireDoubleConfirm:    getEnvOrDefault("REQUIRE_DOUBLE_CONFIRM", "true") == "true",
+		AllowLivePort:           getEnvOrDefault("ALLOW_LIVE_PORT", "false") == "true",
+		IntentTTLSeconds:        getEnvAsInt("INTENT_TTL_SECS", 300),
+		MaxPriceSlippagePercent: getEnvAsFloat("MAX_PRICE_SLIPPAGE_PERCENT", 0.5),
 	}
+
+	log.Printf("[CONFIG] AdminToken configured: %v\n", AppConfig.AdminToken != "")
 
 	return nil
 }
@@ -80,6 +107,15 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
 		}
 	}
 	return defaultValue

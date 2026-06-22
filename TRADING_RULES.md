@@ -62,7 +62,7 @@
 
 ## Tri-Agent Governance Workflow
 
-1. **Stratagem** scans for premium selling opportunities across indices and high-conviction equities, exclusively seeking ~45 DTE setups.
+1. **Stratagem** scans for premium selling opportunities ONLY on the **ESTX50** index (trading SPX or other US indices is strictly prohibited due to platform limitations), exclusively seeking ~45 DTE setups.
 2. **Stratagem** drafts a proposal with exact entry limits, calculating the 50% max profit target and the 100% premium erosion hard stop.
 3. **Daedalus** reviews the proposal. It verifies the 10% capital limit, the 40% portfolio cap, and validates that the stop levels are mathematical, not emotional.
 4. **Daedalus** monitors open positions daily, screaming for an exit if a trade approaches day 7 or hits the 100% erosion mark.

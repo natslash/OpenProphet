@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"os"
 	"prophet-trader/database"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
@@ -26,6 +27,13 @@ func (w *simpleTestWrapper) Error(reqId int, code int, msg string) {
 }
 
 func setupIntegrationClient(t *testing.T) (*tws.Client, *simpleTestWrapper) {
+	// Opt-in only: these tests hit a real broker and one of them places an order.
+	// They never run on a plain `go test ./...` — set RUN_LIVE_INTEGRATION=1 to
+	// run them. Always pinned to paper (4002), never IBKR_PORT, so they can never
+	// reach the live account even if the operator has IBKR_PORT=4001 set.
+	if os.Getenv("RUN_LIVE_INTEGRATION") != "1" {
+		t.Skip("skipping live broker integration test (set RUN_LIVE_INTEGRATION=1 to run; paper 4002 only)")
+	}
 	client := tws.NewClient("127.0.0.1", 4002, 12)
 	wrapper := &simpleTestWrapper{}
 	client.AddWrapper(wrapper)
@@ -34,7 +42,11 @@ func setupIntegrationClient(t *testing.T) (*tws.Client, *simpleTestWrapper) {
 	defer cancel()
 
 	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("Failed to connect to TWS (ensure TWS is running on port 4002): %v", err)
+		// Pinned to paper (4002) on purpose — never IBKR_PORT, since one of these
+		// tests places an order and must never reach the live account. Skip
+		// rather than fail when no paper gateway is up, so `go test ./...` is
+		// green in CI.
+		t.Skipf("skipping live integration test: no IB Gateway on paper port 4002 (%v)", err)
 	}
 
 	time.Sleep(1 * time.Second) // wait for next valid id and connection acks
@@ -82,7 +94,7 @@ func TestIntegration_PlaceManagedPosition_OffHours(t *testing.T) {
 	// We are testing on Saturday/Off-hours. A limit order should be accepted by TWS
 	// and placed in a 'PreSubmitted' or 'Submitted' queue state.
 	req := PlaceManagedPositionRequest{
-		Symbol:            "ESTX50:20260619:C:6325", // Option format
+		Symbol:            "ESTX50:20260717:C:6325", // Option format
 		AllocationDollars: 50.0,
 		Side:              "buy",
 		EntryStrategy:     "limit",

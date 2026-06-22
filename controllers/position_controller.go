@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"prophet-trader/config"
 	"prophet-trader/services"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,13 @@ func NewPositionManagementController(positionManager *services.PositionManager) 
 // HandlePlaceManagedPosition handles placing a new managed position
 // POST /api/v1/positions/managed
 func (pmc *PositionManagementController) HandlePlaceManagedPosition(c *gin.Context) {
+	if config.AppConfig.RequireDoubleConfirm {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Manual endpoints disabled when RequireDoubleConfirm is active. Use the Agent Intent flow.",
+		})
+		return
+	}
+
 	var req services.PlaceManagedPositionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
