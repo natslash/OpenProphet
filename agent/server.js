@@ -10,9 +10,20 @@ if (process.env.ADMIN_TOKEN !== undefined) {
 }
 
 import express from 'express';
-import http from 'http';
+import cors from 'cors';
+
+import axios from 'axios';
+import * as http from 'http';
+import * as https from 'https';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
+import { spawn, execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { EventEmitter } from 'events';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   loadConfig, getConfig, saveConfig,
   addAgent, updateAgent, removeAgent, setActiveAgent, getActiveAgent, getAgentById, getResolvedAgent,
@@ -24,7 +35,6 @@ import {
   getHeartbeatProfiles, getPhaseTimeRanges, applyHeartbeatProfile, updatePhaseTimeRange,
 } from './config-store.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = process.env.AGENT_PORT || 3737;
 const TRADING_BOT_PORT = process.env.TRADING_BOT_PORT || '4534';
@@ -64,8 +74,7 @@ async function startGoBackend() {
 
   const binaryPath = path.join(PROJECT_ROOT, 'prophet_bot');
   try {
-    const fs = await import('fs');
-    if (!fs.existsSync(binaryPath)) {
+    if (!existsSync(binaryPath)) {
       console.log('  Building Go binary...');
       execSync('go build -o prophet_bot ./cmd/bot', { cwd: PROJECT_ROOT, timeout: 60000 });
     }
@@ -158,18 +167,17 @@ async function startGoBackend() {
 }
 
 app.post('/api/backend/restart', (req, res) => {
-  const acc = getActiveAccount();
   if (goProc) {
     console.log('  Manual restart requested: killing Go backend...');
     goProc.removeAllListeners('exit');
     goProc.on('exit', () => {
       goReady = false;
       goProc = null;
-      if (acc) startGoBackend(acc);
+      startGoBackend();
     });
     goProc.kill('SIGTERM');
   } else {
-    if (acc) startGoBackend(acc);
+    startGoBackend();
   }
   res.json({ ok: true });
 });
@@ -207,7 +215,6 @@ await loadConfig();
 
 
 // ── Agent Instance ─────────────────────────────────────────────────
-const chatStore = new ChatStore();
 
 
 const sseClients = new Set();
@@ -524,44 +531,6 @@ app.get('/api/agent/prompt-preview', async (req, res) => {
     const agentConfig = getResolvedAgent();
     const prompt = await buildSystemPrompt(agentConfig, { getStrategyById });
     res.json({ prompt, agentName: agentConfig.name });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Chat history
-app.get('/api/chats', async (req, res) => {
-  try {
-    const accountId = 'default';
-    const limit = Number(req.query.limit || 50);
-    const sessions = await chatStore.listSessions(accountId, limit);
-    res.json({ accountId, sessions });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/chats/all', async (req, res) => {
-  try {
-    const limit = Number(req.query.limit || 100);
-    const sessions = await chatStore.listAllSessions(limit);
-    res.json({ sessions });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/chats/:sessionId', async (req, res) => {
-  try {
-    const accountId = 'default';
-    const session = await chatStore.getSession(accountId, req.params.sessionId);
-    const messages = await chatStore.getSessionMessages(accountId, req.params.sessionId, {
-      offset: Number(req.query.offset || 0),
-      limit: Number(req.query.limit || 500),
-    });
-    res.json({ accountId, session, messages });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/chats/:sessionId', async (req, res) => {
-  try {
-    const accountId = 'default';
-    await chatStore.deleteSession(accountId, req.params.sessionId);
-    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1005,12 +974,7 @@ app.use((req, res, next) => {
 // ── Start Server ───────────────────────────────────────────────────
 
 // Start Go backend
-const activeAccount = getActiveAccount();
-if (activeAccount) {
-  await startGoBackend(activeAccount);
-} else {
-  console.log('  No active account configured — Go backend not started');
-}
+await startGoBackend();
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
@@ -1027,8 +991,7 @@ process.on('SIGINT', async () => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Prophet Agent Dashboard: http://localhost:${PORT}`);
   console.log(`  Network:                http://0.0.0.0:${PORT}`);
-  console.log(`  Trading Bot Backend:    ${TRADING_BOT_URL}`);
-  console.log(`  Active Account:         ${activeAccount?.name || 'none'}\n`);
+  console.log(`  Trading Bot Backend:    ${TRADING_BOT_URL}\n`);
 });
 
 // Proxy logs from Go.

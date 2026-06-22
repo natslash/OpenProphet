@@ -350,6 +350,7 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 	if err := s.client.Encoder().ReqPositions(); err != nil {
 		return nil, fmt.Errorf("ReqPositions error: %w", err)
 	}
+	defer s.client.Encoder().CancelPositions()
 
 	var positions []*interfaces.Position
 

@@ -1,0 +1,28 @@
+{
+  "date": "2026-06-20",
+  "session_start": "2026-06-20T19:54:05.786011+02:00",
+  "session_end": "0001-01-01T00:00:00Z",
+  "summary": {
+    "total_trades": 0,
+    "positions_opened": 0,
+    "positions_closed": 0,
+    "winning_trades": 0,
+    "losing_trades": 0,
+    "total_pnl": 0,
+    "total_pnl_percent": 0,
+    "largest_win": 0,
+    "largest_loss": 0,
+    "starting_capital": 250325.33,
+    "ending_capital": 0,
+    "capital_deployed": 0,
+    "active_positions": 0,
+    "stocks_analyzed": 0,
+    "news_articles_read": 0,
+    "web_searches": 0
+  },
+  "activities": [],
+  "positions_opened": [],
+  "positions_closed": [],
+  "market_intelligence": [],
+  "decisions": []
+}

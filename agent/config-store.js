@@ -447,12 +447,12 @@ export function getPhaseTimeRanges() {
 
 export async function applyHeartbeatProfile(profileKey) {
   const profile = HEARTBEAT_PROFILES[profileKey];
-  if (!profile) throw new Error(\`Unknown heartbeat profile: \${profileKey}\`);
+  if (!profile) throw new Error(`Unknown heartbeat profile: ${profileKey}`);
   await updateHeartbeat(profile.phases);
 }
 
 export async function updatePhaseTimeRange(phase, range) {
-  if (!PHASE_TIME_RANGES[phase]) throw new Error(\`Unknown phase: \${phase}\`);
+  if (!PHASE_TIME_RANGES[phase]) throw new Error(`Unknown phase: ${phase}`);
   if (range.start !== undefined) PHASE_TIME_RANGES[phase].start = range.start;
   if (range.end !== undefined) PHASE_TIME_RANGES[phase].end = range.end;
 }

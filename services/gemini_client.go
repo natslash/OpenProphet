@@ -164,6 +164,12 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 	usage := 0
 	if resp.UsageMetadata != nil {
 		usage = int(resp.UsageMetadata.TotalTokenCount)
+		if resp.UsageMetadata.CachedContentTokenCount > 0 {
+			// Log when implicit caching is successfully used
+			fmt.Printf("[GEMINI] Implicit caching active! Cached tokens: %d / Total prompt: %d\n", 
+				resp.UsageMetadata.CachedContentTokenCount, 
+				resp.UsageMetadata.PromptTokenCount)
+		}
 	}
 
 	return &interfaces.LLMResponse{

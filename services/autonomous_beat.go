@@ -195,11 +195,11 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		systemPrompt = "You are OpenProphet, an autonomous trading agent."
 	}
 
-	// Add dynamic context
-	systemPrompt += fmt.Sprintf("\nCurrent Time: %s", time.Now().Format(time.RFC3339))
 	systemPrompt += "\n\nCRITICAL CONTEXT:\n- Timezone: CET (Central European Time)\n- Base Currency: EUR (€)\nEnsure all price values, portfolio calculations, and temporal reasoning naturally default to Euros and CET without requiring manual prompting."
 
-	userText := "User terminal instructions:\n"
+	// 2. Build User Text with volatile context
+	userText := fmt.Sprintf("Current Time: %s\n\n", time.Now().Format(time.RFC3339))
+	userText += "User terminal instructions:\n"
 	for _, msg := range pending {
 		userText += "- " + msg + "\n"
 	}

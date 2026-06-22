@@ -996,8 +996,7 @@
 // ── State ──────────────────────────────────
 let config = { accounts: [], agents: [], strategies: [], models: [] };
 let historyState = { sandboxes: [], chatSessions: [], chatMessages: [], selectedChatId: null, loaded: false };
-let selectedSandboxId = null;
-let sandboxScoped = { sandbox: null, agent: null, heartbeat: {}, permissions: {}, slack: {} };
+
 const authToken = new URLSearchParams(window.location.search).get('token') || '';
 let autoScroll = true;
 let nextBeatTime = null, heartbeatSeconds = 0, progressInterval = null;
@@ -1012,27 +1011,20 @@ function getSandboxEntries() {
 }
 
 function getEffectiveSandboxId() {
-  if (selectedSandboxId === '_manager') return '_manager';
-  if (selectedSandboxId && (config.sandboxes || {})[selectedSandboxId]) return selectedSandboxId;
-  return config.activeSandboxId || null;
+  return 'main';
 }
 
 function getSelectedSandbox() {
-  const sid = getEffectiveSandboxId();
-  return sid ? (config.sandboxes || {})[sid] || null : null;
+  return config.account || {};
 }
 
 function isViewingActiveSandbox() {
   return !selectedSandboxId || selectedSandboxId === config.activeSandboxId;
 }
 
-function sandboxLabelById(sandboxId) {
-  const sandbox = sandboxId ? (config.sandboxes || {})[sandboxId] : null;
-  return sandbox?.name || sandboxId || 'Active sandbox';
-}
 
 function sandboxQueryString() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   return sid ? '?sandboxId=' + encodeURIComponent(sid) : '';
 }
 
@@ -1079,22 +1071,8 @@ async function refreshSelectedSandboxView() {
 }
 
 async function refreshSelectedSandboxConfig() {
-  const sid = getEffectiveSandboxId();
-  if (!sid || sid === '_manager') return;
-  try {
-    const resp = await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/dashboard');
-    if (!resp.ok) throw new Error('Dashboard fetch failed');
-    const data = await resp.json();
-    sandboxScoped = {
-      sandbox: data.sandbox || null,
-      agent: data.agent || null,
-      heartbeat: data.heartbeat || {},
-      permissions: data.permissions || {},
-      slack: data.slack || {},
-    };
-    if (data.state) {
-      updateState({ ...data.state, sandboxId: sid });
-    }
+  await fetchConfig();
+}
     renderHeartbeat();
     renderPermissions();
     renderSlack();
@@ -1201,8 +1179,8 @@ function toggleDarkMode() {
   }
 })();
 
-function toggleMobileSidebar(sandboxId) {
-  const wrapper = document.getElementById('term-wrap-' + sandboxId);
+function toggleMobileSidebar() {
+  const wrapper = document.getElementById('term-wrap-main');
   if (!wrapper) return;
   const sidebar = wrapper.querySelector('.sidebar');
   const overlay = wrapper.querySelector('[data-overlay]');
@@ -1212,8 +1190,7 @@ function toggleMobileSidebar(sandboxId) {
   if (overlay) overlay.style.display = isOpen ? 'none' : 'block';
 }
 function formatSandboxPrefix(data) {
-  if (!data?.sandboxId) return '';
-  return '[' + sandboxLabelById(data.sandboxId) + '] ';
+  return "";
 }
 
 // ── SSE ────────────────────────────────────
@@ -1243,12 +1220,12 @@ function connectSSE() {
   es.addEventListener('config', e => { config = JSON.parse(e.data); renderAll(); refreshSelectedSandboxConfig(); });
   es.addEventListener('status', e => {
     const d = JSON.parse(e.data);
-    if (selectedSandboxId && d.sandboxId !== selectedSandboxId) return;
-    if (!selectedSandboxId || !d.sandboxId || d.sandboxId === getEffectiveSandboxId()) updateButtons(d.status);
+    
+    if (true) updateButtons(d.status);
   });
   es.addEventListener('agent_log', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     const html = `<div class="log-entry ${d.level||'info'}"><span class="time">${fmtTime()}</span>${esc(d.message)}</div>`;
     logToSandbox(sid, html);
     log(formatSandboxPrefix(d) + d.message, d.level || 'info');
@@ -1256,7 +1233,7 @@ function connectSSE() {
   });
   es.addEventListener('agent_text', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     const t = document.getElementById('thinking-' + sid);
     if (t) t.remove();
     d.text.split('\n').forEach(l => { 
@@ -1277,7 +1254,7 @@ function connectSSE() {
   });
   es.addEventListener('agent_tool', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     const t = document.getElementById('thinking-' + sid);
     if (t) t.remove();
     const args = d.args ? ' ' + JSON.stringify(d.args).substring(0, 120) : '';
@@ -1290,52 +1267,52 @@ function connectSSE() {
   });
   es.addEventListener('beat_start', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     logToSandbox(sid, `<div class="log-entry beat"><span class="time">${fmtTime()}</span>Heartbeat #${d.beat} | ${d.phase}</div>`);
     log(formatSandboxPrefix(d) + 'Heartbeat #' + d.beat + ' | ' + d.phase, 'beat');
     console.group(`%c[Heartbeat Start] %cBeat #${d.beat} | ${d.phase}`, 'color: #8a6d3b; font-weight: bold;', 'font-weight: normal;');
     const countEl = document.querySelector(`[data-stat="${sid}-hb-count"]`);
     if (countEl) countEl.textContent = d.beat;
-    if (!d.sandboxId || d.sandboxId === getEffectiveSandboxId()) _set('hb-count', d.beat);
+    if (true) _set('hb-count', d.beat);
   });
   es.addEventListener('beat_end', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span>Beat #${d.beat} complete</div>`);
     log(formatSandboxPrefix(d) + 'Beat #' + d.beat + ' complete', 'info');
     console.groupEnd();
-    if (!d.sandboxId || d.sandboxId === getEffectiveSandboxId()) refreshPortfolio();
+    if (true) refreshPortfolio();
   });
   es.addEventListener('tool_call', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     const args = Object.keys(d.args||{}).length ? ' ' + JSON.stringify(d.args).substring(0,120) : '';
     logToSandbox(sid, `<div class="log-entry tool"><span class="time">${fmtTime()}</span><span class="tool-name">${esc(d.name)}</span><span class="tool-args">${esc(args)}</span></div>`);
     logHtml('<span class="tool-name">' + esc(formatSandboxPrefix(d) + d.name) + '</span><span class="tool-args">' + esc(args) + '</span>', 'tool');
   });
   es.addEventListener('tool_result', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     logToSandbox(sid, `<div class="log-entry info"><span class="time">${fmtTime()}</span><span style="color:var(--ink-faint)"> -> ${esc(d.name)}: ${esc(d.result.substring(0,200))}</span></div>`);
     logHtml('<span style="color:var(--ink-faint)">  -> ' + esc(formatSandboxPrefix(d) + d.name) + ': ' + esc(d.result.substring(0,200)) + '</span>', 'info');
   });
   es.addEventListener('heartbeat_change', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     logToSandbox(sid, `<div class="log-entry heartbeat"><span class="time">${fmtTime()}</span>Heartbeat -> ${d.seconds}s: ${d.reason}</div>`);
     log(formatSandboxPrefix(d) + 'Heartbeat -> ' + d.seconds + 's: ' + d.reason, 'heartbeat');
     const hbEl = document.querySelector(`[data-stat="${sid}-hb-interval"]`);
     if (hbEl) hbEl.textContent = fmtInt(d.seconds);
-    if (selectedSandboxId && d.sandboxId !== selectedSandboxId) return;
-    if (!selectedSandboxId || !d.sandboxId || d.sandboxId === getEffectiveSandboxId()) _set('hb-interval', fmtInt(d.seconds));
+    
+    if (true) _set('hb-interval', fmtInt(d.seconds));
   });
   es.addEventListener('schedule', e => {
     const d = JSON.parse(e.data);
-    const sid = d.sandboxId || getEffectiveSandboxId();
+    const sid = "main";
     const hbEl = document.querySelector(`[data-stat="${sid}-hb-interval"]`);
     if (hbEl) hbEl.textContent = fmtInt(d.seconds);
-    if (selectedSandboxId && d.sandboxId !== selectedSandboxId) return;
-    if (d.sandboxId && d.sandboxId !== getEffectiveSandboxId()) return;
+    
+    
     nextBeatTime = new Date(d.nextBeat); heartbeatSeconds = d.seconds;
     _set('hb-interval', fmtInt(d.seconds));
     updatePhase(d.phase); startProgress();
@@ -1349,7 +1326,7 @@ function connectSSE() {
   });
   es.addEventListener('agent_builder', e => {
     const d = JSON.parse(e.data);
-    openAgentBuilder(d.mode, d.agent, d.models, d.strategies, d.sandboxId);
+    openAgentBuilder(d.mode, d.agent, d.models, d.strategies);
   });
   es.addEventListener('manager_text', e => {
     const thinkEl = document.getElementById('manager-thinking');
@@ -1384,7 +1361,7 @@ function _set(id, val) { const e = document.getElementById(id); if(e) e.textCont
 function _setData(key, val) { const e = document.querySelector(`[data-stat="${key}"]`); if(e) e.textContent = val; }
 
 function updateState(s) {
-  const sid = s?.sandboxId || getEffectiveSandboxId();
+  const sid = "main";
   
   // Update per-sandbox sidebar stats
   if (sid) {
@@ -1396,15 +1373,15 @@ function updateState(s) {
     _setData(sid + '-hb-interval', fmtInt(s.heartbeatSeconds));
   }
   
-  if (selectedSandboxId && s?.sandboxId !== selectedSandboxId) return;
-  if (s?.sandboxId && s.sandboxId !== getEffectiveSandboxId()) return;
+  
+  
   _set('hb-count', s.beatCount);
   _set('stat-beats', s.stats?.totalBeats || 0);
   _set('stat-tools', s.stats?.toolCalls || 0);
   _set('stat-trades', s.stats?.trades || 0);
   _set('stat-errors', s.stats?.errors || 0);
   _set('hb-interval', fmtInt(s.heartbeatSeconds));
-  const dispModel = s.activeModel || sandboxScoped.agent?.model || config.activeModel || '--';
+  const dispModel = s.activeModel || config.agent?.model || config.activeModel || '--';
   _set('footer-model', dispModel.replace('anthropic/', '').replace('claude-', '').replace('google/', '').split('-202')[0]);
   updatePhase(s.phase);
   updateButtons(s.running ? (s.paused ? 'paused' : 'started') : 'stopped');
@@ -1460,7 +1437,7 @@ async function startAgent() {
   const btn = document.getElementById('btn-start');
   btn.textContent = 'Starting...'; btn.disabled = true;
   try {
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     if (!sid) { log('No sandbox selected', 'error'); return; }
     const r = await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/start', {method:'POST'});
     const d = await r.json();
@@ -1472,13 +1449,13 @@ async function startAgent() {
     checkHealth();
     renderSandboxTabs();
   } catch (e) { 
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     if (sid) logToSandbox(sid, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Start error: ${esc(e.message)}</div>`);
   }
   btn.textContent = 'Start'; btn.disabled = false;
 }
 async function stopAgent() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   if (!confirm('Stop the agent on this account?')) return;
   logToSandbox(sid, `<div class="log-entry warning"><span class="time">${fmtTime()}</span>Stopping agent...</div>`);
@@ -1487,14 +1464,14 @@ async function stopAgent() {
   checkHealth(); renderSandboxTabs(); refreshSandboxButtons();
 }
 async function pauseAgent() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   logToSandbox(sid, `<div class="log-entry warning"><span class="time">${fmtTime()}</span>Pausing agent...</div>`);
   await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/pause', {method:'POST'});
   checkHealth(); renderSandboxTabs(); refreshSandboxButtons();
 }
 async function resumeAgent() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   logToSandbox(sid, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Resuming agent...</div>`);
   await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/resume', {method:'POST'});
@@ -1503,7 +1480,7 @@ async function resumeAgent() {
 
 // Update top-bar buttons based on currently viewed sandbox state
 function refreshSandboxButtons() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   const runtime = (window._healthState?.sandboxes || []).find(s => s.sandboxId === sid);
   const running = runtime?.state?.running;
@@ -1519,9 +1496,9 @@ function refreshSandboxButtons() {
 async function overrideHeartbeat() {
   const v = parseInt(document.getElementById('hb-override').value);
   if(!v||v<30||v>3600) return;
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   const body = { seconds: v };
-  if (sid) body.sandboxId = sid;
+  
   await fetch('/api/agent/heartbeat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   document.getElementById('hb-override').value = '';
 }
@@ -1611,37 +1588,37 @@ function renderHistoryTranscript(session, messages) {
   }).join('');
 }
 
-async function startSandbox(id) {
-  _setBtnLoading(id, 'Starting...');
+async function startSandbox() {
+  _setBtnLoading('Starting...');
   try {
-    const r = await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/start', { method: 'POST' });
+    const r = await fetch('/api/agent/start', { method: 'POST' });
     const d = await r.json();
-    if (!d.ok && d.error) logToSandbox(id, '<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start failed: ' + esc(d.error) + '</div>');
+    if (!d.ok && d.error) logToSandbox('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start failed: ' + esc(d.error) + '</div>');
   } catch (e) {
-    logToSandbox(id, '<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start error: ' + esc(e.message) + '</div>');
+    logToSandbox('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start error: ' + esc(e.message) + '</div>');
   }
-  await _refreshAfterAction(id);
+  await _refreshAfterAction();
 }
 
-async function stopSandbox(id) {
-  _setBtnLoading(id, 'Stopping...');
-  await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
-  await _refreshAfterAction(id);
+async function stopSandbox() {
+  _setBtnLoading('Stopping...');
+  await fetch('/api/agent/stop', { method: 'POST' });
+  await _refreshAfterAction();
 }
 
-async function pauseSandbox(id) {
-  _setBtnLoading(id, 'Pausing...');
-  await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/pause', { method: 'POST' });
-  await _refreshAfterAction(id);
+async function pauseSandbox() {
+  _setBtnLoading('Pausing...');
+  await fetch('/api/agent/pause', { method: 'POST' });
+  await _refreshAfterAction();
 }
 
-function _setBtnLoading(sandboxId, text) {
+function _setBtnLoading(text) {
   // Find and disable the button that was clicked for this sandbox
   const cards = document.querySelectorAll('.config-card-actions button');
   cards.forEach(btn => {
     if (btn.textContent === 'Start' || btn.textContent === 'Stop' || btn.textContent === 'Pause') {
       const card = btn.closest('.config-card');
-      if (card && card.innerHTML.includes(sandboxId)) {
+      if (false) {
         btn.textContent = text;
         btn.disabled = true;
         btn.style.opacity = '0.6';
@@ -1650,19 +1627,13 @@ function _setBtnLoading(sandboxId, text) {
   });
 }
 
-async function _refreshAfterAction(id) {
+async function _refreshAfterAction() {
   await checkHealth();
   renderAccounts();
   renderSandboxTabs();
   if (getEffectiveSandboxId() === id) refreshSandboxButtons();
 }
 
-async function configureSandbox(sandboxId) {
-  selectedSandboxId = sandboxId;
-  await refreshSelectedSandboxConfig();
-  renderAll();
-  switchTab('settings');
-}
 
 async function resumeSandbox(id) {
   await fetch('/api/sandboxes/' + encodeURIComponent(id) + '/resume', { method: 'POST' });
@@ -1675,7 +1646,7 @@ let sessionAdminToken = null;
 let currentIntentsList = [];
 
 async function refreshIntents() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid === '_manager') return;
   try {
     const qs = sandboxQueryString();
@@ -1820,7 +1791,7 @@ async function rejectIntent(id) {
 
 // ── Portfolio ──────────────────────────────
 async function refreshPortfolio() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid === '_manager') return;
   try {
     const qs = sandboxQueryString();
@@ -1907,64 +1878,64 @@ function renderAll() {
   renderSandboxTabs();
   renderAgents(); renderStrategies(); renderAccounts();
   renderHeartbeat(); renderPermissions(); renderSlack(); renderPromptPreview();
-  const dispModelAll = sandboxScoped.agent?.model || config.activeModel || '--';
+  const dispModelAll = config.agent?.model || config.activeModel || '--';
   document.getElementById('footer-model').textContent = dispModelAll.replace('anthropic/', '').replace('claude-','').replace('google/', '').split('-202')[0];
 }
 
-const sandboxTerminals = {}; // { sandboxId: { el, logs[] } }
+const mainTerminal = { el: null, termEl: null, chatEl: null };
 
-function ensureSandboxTerminal(sandboxId, label) {
-  if (sandboxTerminals[sandboxId]) return sandboxTerminals[sandboxId];
+function ensureSandboxTerminal() {
+  if (mainTerminal.el) return mainTerminal;
   
   const container = document.getElementById('sandbox-terminals');
   const wrapper = document.createElement('div');
-  wrapper.id = 'term-wrap-' + sandboxId;
+  wrapper.id = 'term-wrap-main';
   wrapper.className = 'sandbox-terminal-wrapper';
-  wrapper.style.display = 'none';
+  wrapper.style.display = 'flex';
   wrapper.style.flexDirection = 'column';
   wrapper.style.height = '100%';
   wrapper.style.overflow = 'hidden';
   wrapper.innerHTML = `
     <div class="terminal-search-bar" style="display:none">
-      <input type="text" placeholder="Search logs..." oninput="filterTerminalFor('${sandboxId}')" autocomplete="off" data-search="${sandboxId}">
-      <select onchange="filterTerminalFor('${sandboxId}')" data-level="${sandboxId}">
+      <input type="text" placeholder="Search logs..." oninput="filterTerminalFor()" autocomplete="off" data-search="main">
+      <select onchange="filterTerminalFor()" data-level="main">
         <option value="all">All levels</option>
         <option value="text">Text</option><option value="tool">Tools</option>
         <option value="info">Info</option><option value="success">Success</option>
         <option value="warning">Warning</option><option value="error">Error</option>
         <option value="beat">Beats</option><option value="user">User</option>
       </select>
-      <span data-count="${sandboxId}"></span>
-      <button class="btn-clear" onclick="document.querySelector('[data-search=${sandboxId}]').value='';filterTerminalFor('${sandboxId}')" title="Clear">Clear</button>
+      <span data-count="main"></span>
+      <button class="btn-clear" onclick="document.querySelector('[data-search=main]').value='';filterTerminalFor()" title="Clear">Clear</button>
     </div>
     <div class="terminal-split">
-      <div class="chat-pane" id="chat-${sandboxId}" data-chatpane="${sandboxId}">
+      <div class="chat-pane" id="chat-main" data-chatpane="main">
         <div class="chat-bubble chat-bubble-ai">
           Welcome to the new chat interface!
           <span class="chat-time">System</span>
         </div>
       </div>
-      <div class="terminal" data-terminal="${sandboxId}" style="display:none">
-        <div class="log-entry info"><span class="time">--:--:--</span>${esc(label)} ready. Press Start to begin.</div>
+      <div class="terminal" data-terminal="main" style="display:none">
+        <div class="log-entry info"><span class="time">--:--:--</span>Agent ready. Press Start to begin.</div>
       </div>
       <div class="sidebar">
         <div class="section">
           <div class="section-title">Account</div>
-          <div class="stat-row"><span class="stat-label">Portfolio</span><span class="stat-value" data-stat="${sandboxId}-portfolio">--</span></div>
-          <div class="stat-row"><span class="stat-label">Cash</span><span class="stat-value" data-stat="${sandboxId}-cash">--</span></div>
-          <div class="stat-row"><span class="stat-label">Buying Power</span><span class="stat-value" data-stat="${sandboxId}-bp">--</span></div>
-          <div class="stat-row"><span class="stat-label">Day P&L</span><span class="stat-value" data-stat="${sandboxId}-pnl">--</span></div>
+          <div class="stat-row"><span class="stat-label">Portfolio</span><span class="stat-value" data-stat="main-portfolio">--</span></div>
+          <div class="stat-row"><span class="stat-label">Cash</span><span class="stat-value" data-stat="main-cash">--</span></div>
+          <div class="stat-row"><span class="stat-label">Buying Power</span><span class="stat-value" data-stat="main-bp">--</span></div>
+          <div class="stat-row"><span class="stat-label">Day P&L</span><span class="stat-value" data-stat="main-pnl">--</span></div>
         </div>
         <div class="section">
           <div class="section-title">Heartbeat</div>
           <div class="hb-bar">
-            <div class="stat-row"><span class="stat-label">Interval</span><span class="stat-value" data-stat="${sandboxId}-hb-interval">--</span></div>
-            <div class="stat-row"><span class="stat-label">Next</span><span class="stat-value" data-stat="${sandboxId}-hb-next">--</span></div>
-            <div class="stat-row"><span class="stat-label">Beat #</span><span class="stat-value" data-stat="${sandboxId}-hb-count">0</span></div>
-            <div class="hb-progress"><div class="hb-fill" data-stat="${sandboxId}-hb-fill" style="width:0%"></div></div>
+            <div class="stat-row"><span class="stat-label">Interval</span><span class="stat-value" data-stat="main-hb-interval">--</span></div>
+            <div class="stat-row"><span class="stat-label">Next</span><span class="stat-value" data-stat="main-hb-next">--</span></div>
+            <div class="stat-row"><span class="stat-label">Beat #</span><span class="stat-value" data-stat="main-hb-count">0</span></div>
+            <div class="hb-progress"><div class="hb-fill" data-stat="main-hb-fill" style="width:0%"></div></div>
           </div>
           <div style="margin-top:8px">
-            <select data-stat="${sandboxId}-hb-profile" onchange="applyProfile('${sandboxId}', this.value)" style="width:100%;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px">
+            <select data-stat="main-hb-profile" onchange="applyProfile(this.value)" style="width:100%;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px">
               <option value="">Apply Profile...</option>
               <option value="active">Active Trading</option>
               <option value="passive">Passive</option>
@@ -1975,24 +1946,24 @@ function ensureSandboxTerminal(sandboxId, label) {
             </select>
           </div>
           <div style="margin-top:4px;display:flex;gap:4px">
-            <input type="number" placeholder="sec" min="15" max="7200" style="flex:1;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px;width:60px" data-stat="${sandboxId}-hb-override">
-            <button class="btn sm" onclick="overrideHb('${sandboxId}')" style="font-size:10px;padding:3px 8px">Set</button>
+            <input type="number" placeholder="sec" min="15" max="7200" style="flex:1;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px;width:60px" data-stat="main-hb-override">
+            <button class="btn sm" onclick="overrideHb()" style="font-size:10px;padding:3px 8px">Set</button>
           </div>
         </div>
         <div class="section">
           <div class="section-title">Positions</div>
-          <div data-stat="${sandboxId}-positions"><div class="no-data">No positions</div></div>
+          <div data-stat="main-positions"><div class="no-data">No positions</div></div>
         </div>
         <div class="section">
           <div class="section-title">Stats</div>
-          <div class="stat-row"><span class="stat-label">Beats</span><span class="stat-value" data-stat="${sandboxId}-beats">0</span></div>
-          <div class="stat-row"><span class="stat-label">Tool Calls</span><span class="stat-value" data-stat="${sandboxId}-tools">0</span></div>
-          <div class="stat-row"><span class="stat-label">Trades</span><span class="stat-value" data-stat="${sandboxId}-trades">0</span></div>
-          <div class="stat-row"><span class="stat-label">Errors</span><span class="stat-value" data-stat="${sandboxId}-errors">0</span></div>
+          <div class="stat-row"><span class="stat-label">Beats</span><span class="stat-value" data-stat="main-beats">0</span></div>
+          <div class="stat-row"><span class="stat-label">Tool Calls</span><span class="stat-value" data-stat="main-tools">0</span></div>
+          <div class="stat-row"><span class="stat-label">Trades</span><span class="stat-value" data-stat="main-trades">0</span></div>
+          <div class="stat-row"><span class="stat-label">Errors</span><span class="stat-value" data-stat="main-errors">0</span></div>
         </div>
         <div class="section">
           <div class="section-title">Session</div>
-          <select data-stat="${sandboxId}-session-mode" onchange="setSessionMode('${sandboxId}', this.value)" style="width:100%;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px">
+          <select data-stat="main-session-mode" onchange="setSessionMode(this.value)" style="width:100%;padding:4px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px">
             <option value="continuous">Continuous (keep context)</option>
             <option value="fresh">Fresh (reset each beat)</option>
           </select>
@@ -2000,231 +1971,45 @@ function ensureSandboxTerminal(sandboxId, label) {
       </div>
     </div>
     <div class="chat-input-bar">
-      <input type="text" placeholder="/help for commands..." onkeydown="if(event.key==='Enter')sendMessageTo('${sandboxId}')" autocomplete="off" data-chat="${sandboxId}">
-      <button class="btn primary sm" onclick="sendMessageTo('${sandboxId}')">Send</button>
-      <button class="btn sm" onclick="toggleConsole('${sandboxId}')" title="Toggle System Logs" style="margin-left:auto;">&#128435; Logs</button>
-      <label style="font-size:11px;margin-left:8px;color:var(--ink-muted);cursor:pointer;"><input type="checkbox" onchange="toggleHeartbeats(this, '${sandboxId}')"> Show Heartbeats</label>
+      <input type="text" placeholder="/help for commands..." onkeydown="if(event.key==='Enter')sendMessageTo()" autocomplete="off" data-chat="main">
+      <button class="btn primary sm" onclick="sendMessageTo()">Send</button>
+      <button class="btn sm" onclick="toggleConsole()" title="Toggle System Logs" style="margin-left:auto;">&#128435; Logs</button>
+      <label style="font-size:11px;margin-left:8px;color:var(--ink-muted);cursor:pointer;"><input type="checkbox" onchange="toggleHeartbeats(this)"> Show Heartbeats</label>
     </div>
-    <button class="sidebar-toggle" onclick="toggleMobileSidebar('${sandboxId}')">&#9776;</button>
-    <div class="sidebar-overlay" data-overlay="${sandboxId}" onclick="toggleMobileSidebar('${sandboxId}')"></div>`;
+    <button class="sidebar-toggle" onclick="toggleMobileSidebar()">&#9776;</button>
+    <div class="sidebar-overlay" data-overlay="main" onclick="toggleMobileSidebar()"></div>`;
   container.appendChild(wrapper);
-  sandboxTerminals[sandboxId] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]'), chatEl: wrapper.querySelector('[data-chatpane]') };
-  return sandboxTerminals[sandboxId];
+  mainTerminal.el = wrapper;
+  mainTerminal.termEl = wrapper.querySelector('[data-terminal]');
+  mainTerminal.chatEl = wrapper.querySelector('[data-chatpane]');
+  return mainTerminal;
 }
 
 function renderSandboxTabs() {
   const el = document.getElementById('sandbox-tabs');
   if (!el) return;
-  const accounts = config.accounts || [];
   
-  const currentSid = getEffectiveSandboxId();
+  const runtime = window._healthState;
+  const running = runtime?.state?.running;
+  const dotClass = running ? 'running' : 'stopped';
+  const beats = runtime?.state?.beatCount || 0;
+  const statusText = running ? 'Beat #' + beats : 'Stopped';
   
-  // Manager tab first
-  ensureManagerTerminal();
-  let html = '<div class="sandbox-tab ' + (currentSid === '_manager' ? 'active' : '') + '" onclick="switchSandboxTab(\'_manager\')" style="border-right:1px solid var(--border)">'
-    + '<span class="dot" style="background:var(--accent)"></span><span>Manager</span></div>';
+  ensureSandboxTerminal();
   
-  // Account tabs
-  html += accounts.map(a => {
-    const sandboxId = 'sbx_' + a.id;
-    const runtime = (window._healthState?.sandboxes || []).find(s => s.sandboxId === sandboxId);
-    const running = runtime?.state?.running;
-    const active = sandboxId === currentSid;
-    const dotClass = running ? 'running' : 'stopped';
-    const label = a.name || (a.paper ? 'Paper' : 'Live');
-    const beats = runtime?.state?.beatCount || 0;
-    ensureSandboxTerminal(sandboxId, label);
-    const statusText = running ? 'Beat #' + beats : 'Stopped';
-    return '<div class="sandbox-tab ' + (active ? 'active' : '') + '" onclick="switchSandboxTab(\'' + sandboxId + '\')"><span class="dot ' + dotClass + '"></span><span>' + esc(label) + '</span><span style="font-size:10px;color:var(--ink-faint);margin-left:2px">' + statusText + '</span></div>';
-  }).join('');
-  
+  const html = '<div class="sandbox-tab active"><span class="dot ' + dotClass + '"></span><span>Agent</span><span style="font-size:10px;color:var(--ink-faint);margin-left:2px">' + statusText + '</span></div>';
   el.innerHTML = html;
-  
-  // Show/hide terminals
-  for (const [sid, t] of Object.entries(sandboxTerminals)) {
-    t.el.style.display = sid === currentSid ? 'flex' : 'none';
-  }
 }
 
-function ensureManagerTerminal() {
-  if (sandboxTerminals['_manager']) return;
-  const container = document.getElementById('sandbox-terminals');
-  const wrapper = document.createElement('div');
-  wrapper.id = 'term-wrap-_manager';
-  wrapper.className = 'sandbox-terminal-wrapper';
-  wrapper.style.display = 'none';
-  wrapper.style.flexDirection = 'column';
-  wrapper.style.height = '100%';
-  wrapper.style.overflow = 'hidden';
-  
-  // Build provider/model options
-  const models = config.models || [];
-  const providers = [...new Set(models.map(m => m.id.split('/')[0]))].sort();
-  const mgr = config.manager || {};
-  const currentModel = mgr.model || config.activeModel || 'anthropic/claude-sonnet-4-6';
-  const currentProvider = currentModel.split('/')[0];
-  const provOpts = providers.map(p => '<option value="' + esc(p) + '"' + (p === currentProvider ? ' selected' : '') + '>' + esc(p) + '</option>').join('');
-  const modelOpts = models.filter(m => m.id.startsWith(currentProvider + '/')).map(m => '<option value="' + esc(m.id) + '"' + (m.id === currentModel ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('');
-
-  wrapper.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">'
-    + '<select id="mgr-provider" onchange="updateManagerModelDropdown()" style="padding:4px 6px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px">' + provOpts + '</select>'
-    + '<select id="mgr-model" onchange="saveManagerModel()" style="padding:4px 6px;font-size:11px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px;max-width:200px">' + modelOpts + '</select>'
-    + '<button class="btn sm" onclick="newManagerSession()" style="font-size:10px;padding:3px 8px">New Chat</button>'
-    + '<button class="btn sm" onclick="stopManager()" style="font-size:10px;padding:3px 8px" id="mgr-stop-btn">Stop</button>'
-    + '<button class="btn sm" onclick="toggleManagerSettings()" style="font-size:10px;padding:3px 8px">Settings</button>'
-    + '</div>'
-    + '<div id="mgr-settings" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0">'
-    + '<div style="font-size:11px;font-weight:600;margin-bottom:6px">Manager Custom Instructions</div>'
-    + '<textarea id="mgr-custom-prompt" rows="4" style="width:100%;font-size:11px;font-family:monospace;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:6px" placeholder="Add custom instructions for the manager...">' + esc(mgr.customPrompt || '') + '</textarea>'
-    + '<button class="btn sm primary" onclick="saveManagerPrompt()" style="margin-top:4px;font-size:10px">Save</button>'
-    + '</div>'
-    + '<div class="terminal-split">'
-    + '<div class="chat-pane" data-chatpane="_manager"><div class="chat-bubble chat-bubble-ai">Manager ready. Configure agents, strategies, and research here.<span class="chat-time">System</span></div></div>'
-    + '<div class="terminal" data-terminal="_manager" style="display:none" style="flex:1">'
-    + '<div class="log-entry info"><span class="time">--:--:--</span>Manager backend logs...</div>'
-    + '</div></div>'
-    + '<div class="chat-input-bar">'
-    + '<input type="text" placeholder="Ask the manager to create agents, strategies, research..." onkeydown="if(event.key===\'Enter\')sendManagerMessage()" autocomplete="off" id="manager-chat-input">'
-    + '<button class="btn primary sm" onclick="sendManagerMessage()">Send</button>'
-    + '<button class="btn sm" onclick="toggleConsole(\'_manager\')" title="Toggle System Logs" style="margin-left:auto;">&#128435; Logs</button>'
-    + '</div>';
-  container.appendChild(wrapper);
-  sandboxTerminals['_manager'] = { el: wrapper, termEl: wrapper.querySelector('[data-terminal]'), chatEl: wrapper.querySelector('[data-chatpane]') };
-}
-
-function updateManagerModelDropdown() {
-  const prov = document.getElementById('mgr-provider')?.value;
-  const modelSel = document.getElementById('mgr-model');
-  if (!prov || !modelSel) return;
-  const filtered = (config.models || []).filter(m => m.id.startsWith(prov + '/'));
-  modelSel.innerHTML = filtered.map(m => '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>').join('');
-  saveManagerModel();
-}
-
-async function saveManagerModel() {
-  const model = document.getElementById('mgr-model')?.value;
-  if (!model) return;
-  await fetch('/api/manager/config', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model }),
-  });
-  showToast('Manager model: ' + model.split('/').pop(), 'info');
-}
-
-async function saveManagerPrompt() {
-  const prompt = document.getElementById('mgr-custom-prompt')?.value || '';
-  await fetch('/api/manager/config', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ customPrompt: prompt }),
-  });
-  showToast('Manager instructions saved', 'success');
-}
-
-async function newManagerSession() {
-  await fetch('/api/manager/new-session', { method: 'POST' });
-  const term = sandboxTerminals['_manager']?.termEl;
-  if (term) term.innerHTML = '<div class="log-entry info"><span class="time">' + fmtTime() + '</span>New conversation started.</div>';
-  showToast('New manager session', 'info');
-}
-
-async function stopManager() {
-  await fetch('/api/manager/stop', { method: 'POST' });
-  showToast('Manager stopped', 'warning');
-}
-
-function toggleManagerSettings() {
-  const el = document.getElementById('mgr-settings');
-  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-}
-
-let _managerThinking = false;
-async function sendManagerMessage() {
-  const input = document.getElementById('manager-chat-input');
-  if (!input || _managerThinking) return;
-  const message = input.value.trim();
-  if (!message) return;
-  input.value = '';
-  _managerThinking = true;
-  chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-user">' + esc(message) + '<span class="chat-time">' + fmtTime() + '</span></div>');
-  chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai" id="manager-thinking"><span style="color:var(--ink-faint)">Thinking...</span><span class="chat-time">' + fmtTime() + '</span></div>');
-  // Disable input while thinking
-  input.disabled = true;
-  input.placeholder = 'Manager is thinking...';
-  try {
-    const r = await fetch('/api/manager/message', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
-    });
-    if (!r.ok) {
-      const d = await r.json();
-      throw new Error(d.error || 'Failed');
-    }
-    // Remove thinking indicator once first text arrives (handled by SSE)
-  } catch (e) {
-    _managerThinking = false;
-    input.disabled = false;
-    input.placeholder = 'Ask the manager to create agents, strategies, research...';
-    const thinkEl = document.getElementById('manager-thinking');
-    if (thinkEl) thinkEl.remove();
-    chatToSandbox('_manager', '<div class="chat-bubble chat-bubble-ai" style="background:var(--error-bg);color:var(--error);border-color:var(--error)">Error: ' + esc(e.message) + '<span class="chat-time">' + fmtTime() + '</span></div>');
-  }
-}
-
-async function switchSandboxTab(sandboxId) {
-  // 1. Set selection immediately for UI
-  selectedSandboxId = sandboxId || null;
-  renderSandboxTabs();
-  
-  // 2. Manager tab - no sandbox state needed
-  if (sandboxId === '_manager') {
-    const btn = document.getElementById('btn-start');
-    if (btn) { btn.style.display = 'none'; }
-    const stopBtn = document.getElementById('btn-stop');
-    if (stopBtn) stopBtn.style.display = 'none';
-    const pauseBtn = document.getElementById('btn-pause');
-    if (pauseBtn) pauseBtn.style.display = 'none';
-    return;
-  }
-  
-  // 3. Reset start button for sandbox tabs
-  const btn = document.getElementById('btn-start');
-  if (btn) { btn.style.display = ''; btn.textContent = 'Start'; btn.disabled = false; }
-  
-  // 4. Fetch fresh state + config + portfolio in parallel
-  try {
-    const [stateResp] = await Promise.all([
-      fetch('/api/sandboxes/' + encodeURIComponent(sandboxId) + '/state'),
-      refreshSelectedSandboxConfig(),
-      refreshPortfolio(),
-    ]);
-    if (stateResp.ok) {
-      const state = await stateResp.json();
-      if (state.running && !state.paused) updateButtons('started');
-      else if (state.running && state.paused) updateButtons('paused');
-      else updateButtons('stopped');
-    } else {
-      updateButtons('stopped');
-    }
-  } catch {
-    updateButtons('stopped');
-  }
-  
-  renderSandboxTabs();
-  renderAccounts();
-}
-
-function chatToSandbox(sandboxId, html) {
-  const t = sandboxTerminals[sandboxId];
+function chatToSandbox(html) {
+  const t = mainTerminal;
   if (!t || !t.chatEl) return;
   t.chatEl.insertAdjacentHTML('beforeend', html);
   t.chatEl.scrollTop = t.chatEl.scrollHeight;
 }
 
-function toggleConsole(sandboxId) {
-  const t = sandboxTerminals[sandboxId];
+function toggleConsole() {
+  const t = mainTerminal;
   if (!t) return;
   const isHidden = t.termEl.style.display === 'none';
   t.termEl.style.display = isHidden ? 'block' : 'none';
@@ -2233,8 +2018,8 @@ function toggleConsole(sandboxId) {
   if (searchBar) searchBar.style.display = isHidden ? 'flex' : 'none';
 }
 
-function toggleHeartbeats(checkbox, sandboxId) {
-  const t = sandboxTerminals[sandboxId];
+function toggleHeartbeats(checkbox) {
+  const t = mainTerminal;
   if (!t || !t.termEl) return;
   if (checkbox.checked) {
     t.termEl.classList.add('show-beats');
@@ -2243,17 +2028,17 @@ function toggleHeartbeats(checkbox, sandboxId) {
   }
 }
 
-function logToSandbox(sandboxId, html) {
-  const t = sandboxTerminals[sandboxId];
-  if (!t) return;
+function logToSandbox(html) {
+  const t = mainTerminal;
+  if (!t || !t.termEl) return;
   t.termEl.insertAdjacentHTML('beforeend', html);
   t.termEl.scrollTop = t.termEl.scrollHeight;
 }
 
-function filterTerminalFor(sandboxId) {
-  const search = (document.querySelector(`[data-search="${sandboxId}"]`)?.value || '').toLowerCase();
-  const level = document.querySelector(`[data-level="${sandboxId}"]`)?.value || 'all';
-  const term = sandboxTerminals[sandboxId]?.termEl;
+function filterTerminalFor() {
+  const search = (document.querySelector(`[data-search="main"]`)?.value || '').toLowerCase();
+  const level = document.querySelector(`[data-level="main"]`)?.value || 'all';
+  const term = mainTerminal.termEl;
   if (!term) return;
   let count = 0;
   term.querySelectorAll('.log-entry').forEach(el => {
@@ -2262,33 +2047,33 @@ function filterTerminalFor(sandboxId) {
     el.style.display = matchSearch && matchLevel ? '' : 'none';
     if (matchSearch && matchLevel) count++;
   });
-  const countEl = document.querySelector(`[data-count="${sandboxId}"]`);
+  const countEl = document.querySelector(`[data-count="main"]`);
   if (countEl) countEl.textContent = search || level !== 'all' ? `${count} results` : '';
 }
 
-async function applyProfile(sandboxId, profile) {
+async function applyProfile(profile) {
   if (!profile) return;
   try {
     const r = await fetch('/api/heartbeat/apply-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile, sandboxId }),
+      body: JSON.stringify({ profile }),
     });
     const d = await r.json();
     if (d.ok) {
-      logToSandbox(sandboxId, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Applied heartbeat profile: ${esc(profile)}</div>`);
+      logToSandbox(`<div class="log-entry success"><span class="time">${fmtTime()}</span>Applied heartbeat profile: ${esc(profile)}</div>`);
     } else {
-      logToSandbox(sandboxId, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Failed: ${esc(d.error)}</div>`);
+      logToSandbox(`<div class="log-entry error"><span class="time">${fmtTime()}</span>Failed: ${esc(d.error)}</div>`);
     }
   } catch (e) {
-    logToSandbox(sandboxId, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
+    logToSandbox(`<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
   }
-  const sel = document.querySelector(`[data-stat="${sandboxId}-hb-profile"]`);
+  const sel = document.querySelector(`[data-stat="main-hb-profile"]`);
   if (sel) sel.value = '';
 }
 
-async function overrideHb(sandboxId) {
-  const input = document.querySelector(`[data-stat="${sandboxId}-hb-override"]`);
+async function overrideHb() {
+  const input = document.querySelector(`[data-stat="main-hb-override"]`);
   if (!input) return;
   const v = parseInt(input.value);
   if (!v || v < 15 || v > 7200) return;
@@ -2297,67 +2082,63 @@ async function overrideHb(sandboxId) {
     await fetch('/api/agent/heartbeat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seconds: v, sandboxId }),
+      body: JSON.stringify({ seconds: v }),
     });
-    logToSandbox(sandboxId, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Heartbeat override: ${v}s</div>`);
-    _setData(sandboxId + '-hb-interval', fmtInt(v));
+    logToSandbox(`<div class="log-entry success"><span class="time">${fmtTime()}</span>Heartbeat override: ${v}s</div>`);
+    _setData('main-hb-interval', fmtInt(v));
   } catch (e) {
-    logToSandbox(sandboxId, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
+    logToSandbox(`<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
   }
 }
 
-async function setSessionMode(sandboxId, mode) {
+async function setSessionMode(mode) {
   try {
-    await fetch('/api/sandboxes/' + encodeURIComponent(sandboxId) + '/agent/overrides', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionMode: mode }),
-    });
-    logToSandbox(sandboxId, `<div class="log-entry success"><span class="time">${fmtTime()}</span>Session mode: ${mode}</div>`);
+    // Currently disabled - needs Go backend support
+    logToSandbox(`<div class="log-entry success"><span class="time">${fmtTime()}</span>Session mode: ${mode}</div>`);
   } catch (e) {
-    logToSandbox(sandboxId, `<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
+    logToSandbox(`<div class="log-entry error"><span class="time">${fmtTime()}</span>Error: ${esc(e.message)}</div>`);
   }
 }
 
-async function sendMessageTo(sandboxId) {
-  const wrapper = document.getElementById('term-wrap-' + sandboxId);
+async function sendMessageTo() {
+  const wrapper = mainTerminal.el;
   const input = wrapper ? wrapper.querySelector('.chat-input-bar input') : null;
   if (!input) return;
   const message = input.value.trim();
   if (!message) return;
   input.value = '';
   input.disabled = true;
-  chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-user">${esc(message)}<span class="chat-time">${fmtTime()}</span></div>`);
-  chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai" id="thinking-${sandboxId}"><span style="color:var(--ink-faint)">Thinking...</span><span class="chat-time">${fmtTime()}</span></div>`);
+  chatToSandbox(`<div class="chat-bubble chat-bubble-user">${esc(message)}<span class="chat-time">${fmtTime()}</span></div>`);
+  chatToSandbox(`<div class="chat-bubble chat-bubble-ai" id="thinking-main"><span style="color:var(--ink-faint)">Thinking...</span><span class="chat-time">${fmtTime()}</span></div>`);
   try {
-    const r = await fetch('/api/sandboxes/' + encodeURIComponent(sandboxId) + '/message', {
+    const r = await fetch('/api/agent/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     });
     const d = await r.json();
     if (!r.ok) {
-      const t = document.getElementById(`thinking-${sandboxId}`);
+      const t = document.getElementById(`thinking-main`);
       if (t) t.remove();
       throw new Error(d.error || 'Failed');
     }
     // Only remove thinking indicator immediately if it's a synchronous command
     if (message.startsWith('/')) {
-      const t = document.getElementById(`thinking-${sandboxId}`);
+      const t = document.getElementById(`thinking-main`);
       if (t) t.remove();
-      if (d.text) chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai">${esc(d.text)}<span class="chat-time">${fmtTime()}</span></div>`);
+      if (d.text) chatToSandbox(`<div class="chat-bubble chat-bubble-ai">${esc(d.text)}<span class="chat-time">${fmtTime()}</span></div>`);
     } else {
       // Async message sent to agent. Keep thinking bubble.
-      if (d.text) logToSandbox(sandboxId, `<div class="log-entry info"><span class="time">${fmtTime()}</span>${esc(d.text)}</div>`);
+      if (d.text) logToSandbox(`<div class="log-entry info"><span class="time">${fmtTime()}</span>${esc(d.text)}</div>`);
     }
     input.disabled = false;
     input.focus();
   } catch (e) {
-    const t = document.getElementById(`thinking-${sandboxId}`);
+    const t = document.getElementById(`thinking-main`);
     if (t) t.remove();
     input.disabled = false;
     input.focus();
-    chatToSandbox(sandboxId, `<div class="chat-bubble chat-bubble-ai" style="background:var(--error-bg);color:var(--error);border-color:var(--error)">Failed to send: ${esc(e.message)}<span class="chat-time">${fmtTime()}</span></div>`);
+    chatToSandbox(`<div class="chat-bubble chat-bubble-ai" style="background:var(--error-bg);color:var(--error);border-color:var(--error)">Failed to send: ${esc(e.message)}<span class="chat-time">${fmtTime()}</span></div>`);
   }
 }
 
@@ -2365,27 +2146,21 @@ function renderSandboxSelector() {
   // Update topbar account label
   const labelEl = document.getElementById('topbar-account-label');
   if (labelEl) {
-    const sid = getEffectiveSandboxId();
-    const account = (config.accounts || []).find(a => 'sbx_' + a.id === sid);
-    labelEl.textContent = account ? account.name : '';
+    const account = config.activeAccount || {};
+    labelEl.textContent = account.name || 'Default';
   }
-  // Render all page pickers
-  renderSandboxPagePickers();
 }
 
 function renderSandboxPagePickers() {
   const pickerIds = ['settings-sandbox-picker', 'agents-sandbox-picker', 'strategies-sandbox-picker', 'plugins-sandbox-picker'];
-  const accounts = config.accounts || [];
-  const currentSid = getEffectiveSandboxId();
-  
   pickerIds.forEach(pickerId => {
     const el = document.getElementById(pickerId);
-    if (!el || !accounts.length) return;
-    
-    el.innerHTML = accounts.map(a => {
-      const sandboxId = 'sbx_' + a.id;
+    if (!el) return;
+    el.innerHTML = '';
+  });
+}
       const active = sandboxId === currentSid;
-      const runtime = (window._healthState?.sandboxes || []).find(s => s.sandboxId === sandboxId);
+      const runtime = window._healthState;
       const running = runtime?.state?.running;
       const dotClass = running ? 'running' : 'stopped';
       const label = a.name || (a.paper ? 'Paper' : 'Live');
@@ -2408,7 +2183,7 @@ async function switchSandboxFromPage(sandboxId) {
 function renderSandboxEditor() {
   const sandbox = getSelectedSandbox();
   const sandboxLabel = sandbox ? (sandbox.name || sandbox.id) : 'Active sandbox';
-  const agent = sandboxScoped.agent || {};
+  const agent = config.agent || {};
   const labelEl = document.getElementById('settings-sandbox-label');
   if (!labelEl) return; // Settings account config section removed
   labelEl.textContent = sandboxLabel;
@@ -2441,15 +2216,7 @@ function renderSandboxEditor() {
 }
 
 function _getAgentUsage(agentId) {
-  const sandboxes = Object.values(config.sandboxes || {});
-  const accounts = config.accounts || [];
-  const using = [];
-  accounts.forEach(a => {
-    const sbx = sandboxes.find(s => s.accountId === a.id);
-    const activeAgent = sbx?.agent?.activeAgentId || 'default';
-    if (activeAgent === agentId) using.push(a.name || (a.paper ? 'Paper' : 'Live'));
-  });
-  return using;
+  return config.activeAgentId === agentId ? ['Active'] : [];
 }
 
 function _getStrategyUsage(strategyId) {
@@ -2461,13 +2228,13 @@ function renderAgents() {
   const el = document.getElementById('agents-list');
   if(!config.agents?.length) { el.innerHTML = '<div class="no-data">No agents configured</div>'; return; }
   const currentSid = getEffectiveSandboxId();
-  const currentAgentId = sandboxScoped.agent?.id || config.activeAgentId;
-  const currentAcctName = (config.accounts || []).find(ac => 'sbx_' + ac.id === currentSid)?.name || 'current';
+  const currentAgentId = config.agent?.id || config.activeAgentId;
+  const currentAcctName = 'current';
   
   // Check for sandbox-level overrides on the currently viewed sandbox
-  const sbxOverrides = sandboxScoped.sandbox?.agent || {};
+  const sbxOverrides = config.agent || {};
   const hasPromptOverride = !!sbxOverrides.customSystemPrompt;
-  const hasStrategyOverride = !!sandboxScoped.sandbox?.customStrategyRules;
+  const hasStrategyOverride = !!config.customStrategyRules;
   
   // Show sandbox overrides banner if any
   if (hasPromptOverride || hasStrategyOverride) {
@@ -2569,27 +2336,10 @@ function renderStrategies() {
   }).join('');
 }
 
-async function viewSandboxOverrides() {
-  const sid = getEffectiveSandboxId();
-  const sbx = sandboxScoped.sandbox || {};
-  const overrides = sbx.agent || {};
-  const stratRules = sbx.customStrategyRules || '';
-  const prompt = overrides.customSystemPrompt || '';
-  
-  const modal = document.getElementById('modal-content');
-  modal.innerHTML = '<h3>Sandbox Overrides for ' + esc(sid) + '</h3>'
-    + '<div class="form-group"><label>Custom Prompt Override (' + prompt.length + ' chars)</label>'
-    + '<textarea id="sbx-override-prompt" rows="10" style="width:100%;font-size:11px;font-family:monospace;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px">' + esc(prompt) + '</textarea></div>'
-    + '<div class="form-group"><label>Custom Strategy Rules (' + stratRules.length + ' chars)</label>'
-    + '<textarea id="sbx-override-rules" rows="10" style="width:100%;font-size:11px;font-family:monospace;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px">' + esc(stratRules) + '</textarea></div>'
-    + '<div class="modal-actions" style="margin-top:12px;display:flex;gap:8px">'
-    + '<button class="btn primary sm" onclick="saveSandboxOverrides()">Save</button>'
-    + '<button class="btn sm" onclick="closeModal()">Cancel</button></div>';
-  document.getElementById('modal-overlay').classList.add('visible');
-}
+async function viewSandboxOverrides() {}
 
 async function saveSandboxOverrides() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   const prompt = document.getElementById('sbx-override-prompt')?.value || '';
   const rules = document.getElementById('sbx-override-rules')?.value || '';
   
@@ -2613,24 +2363,7 @@ async function saveSandboxOverrides() {
   renderAll();
 }
 
-async function clearSandboxOverrides() {
-  if (!confirm('Clear all sandbox-level overrides? The agent will revert to its base config.')) return;
-  const sid = getEffectiveSandboxId();
-  await Promise.all([
-    fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customSystemPrompt: '', systemPromptTemplate: 'default' }),
-    }),
-    fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules: '' }),
-    }),
-  ]);
-  await refreshSelectedSandboxConfig();
-  renderAll();
-}
+async function clearSandboxOverrides() {}
 
 function toggleAgentPrompt(agentId) {
   const el = document.getElementById('agent-prompt-' + agentId);
@@ -2671,8 +2404,8 @@ async function saveAgentPrompt(agentId) {
 
 async function previewAgentPrompt(agentId) {
   try {
-    const sid = getEffectiveSandboxId();
-    const r = await fetch('/api/agent/prompt-preview?sandboxId=' + encodeURIComponent(sid || ''));
+    const sid = "main";
+    const r = await fetch('/api/agent/prompt-preview);
     const d = await r.json();
     const textarea = document.getElementById('agent-prompt-text-' + agentId);
     if (textarea && !textarea.value) {
@@ -2703,9 +2436,9 @@ async function clearAgentPrompt(agentId) {
   renderAll();
 }
 
-async function assignAgentToSandbox(agentId, sandboxId) {
-  await fetch('/api/sandboxes/' + encodeURIComponent(sandboxId) + '/agent', {
-    method: 'PUT',
+async function assignAgent(agentId) {
+  await fetch('/api/agent/active', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activeAgentId: agentId }),
   });
@@ -2723,11 +2456,6 @@ async function assignStrategyToAgent(strategyId, agentId) {
   renderAll();
 }
 
-function getSandboxPort(sandboxId) {
-  let hash = 0;
-  for (const char of String(sandboxId || 'default')) {
-    hash = (hash * 31 + char.charCodeAt(0)) % 1000;
-  }
   return 4534 + (hash % 10) + 1;
 }
 
@@ -2740,11 +2468,11 @@ function renderAccounts() {
   el.innerHTML = config.accounts.map(a => {
     const viewing = getEffectiveSandboxId() === 'sbx_' + a.id;
     const badge = a.paper ? '<span class="badge paper">Paper</span>' : '<span class="badge live">Live</span>';
-    const sandboxId = 'sbx_' + a.id;
-    const runtime = (window._healthState?.sandboxes || []).find(s => s.sandboxId === sandboxId);
+    
+    const runtime = window._healthState;
     const running = runtime?.state?.running;
     const goReady = runtime?.goReady;
-    const port = runtime?.port || getSandboxPort(sandboxId);
+    const port = runtime?.port || 4002;
     const agentId = runtime?.state?.activeAgentId || '--';
     const beatCount = runtime?.state?.beatCount || 0;
     const phase = runtime?.state?.phase || 'stopped';
@@ -2777,7 +2505,7 @@ function renderModels() {
   const el = document.getElementById('models-list');
   if (!el) return; // Models list section removed from settings
   const models = config.models || [];
-  const activeModel = sandboxScoped.agent?.model || config.activeModel;
+  const activeModel = config.agent?.model || config.activeModel;
   const search = (document.getElementById('models-search')?.value || '').toLowerCase();
   const provFilter = document.getElementById('models-provider-filter')?.value || '';
   
@@ -2815,7 +2543,7 @@ function renderModels() {
 
 // ── CRUD actions ───────────────────────────
 async function activateAgent(id) {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid) {
     await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent', {
       method:'PUT',
@@ -2835,7 +2563,7 @@ async function activateAccount(id) {
 async function deleteAccount(id) { if(confirm('Delete this account?')) await fetch('/api/accounts/'+id,{method:'DELETE'}); }
 async function deleteStrategy(id) { if(confirm('Delete this strategy?')) await fetch('/api/strategies/'+id,{method:'DELETE'}); }
 async function activateModel(id) {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid) {
     await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent', {
       method:'PUT',
@@ -2920,7 +2648,7 @@ async function submitStrategy(id) {
   } catch (e) { alert('Error: ' + e.message); }
 }
 
-function openAgentBuilder(mode, agent, models, strategies, sandboxId) {
+function openAgentBuilder(mode, agent, models, strategies) {
   const isEdit = mode === 'edit' && agent;
   const a = agent || { name: '', description: '', systemPromptTemplate: 'default', customSystemPrompt: '', strategyId: 'default', model: config.activeModel, heartbeatOverrides: {} };
   const allModels = models || config.models || [];
@@ -2942,11 +2670,11 @@ function openAgentBuilder(mode, agent, models, strategies, sandboxId) {
     '<div id="f-ag-prompt-wrap" style="display:'+(a.systemPromptTemplate==='custom'?'block':'none')+'">' +
     '<div class="form-group"><label>Agent Prompt</label><textarea id="f-ag-prompt" rows="12" placeholder="Define the agent\'s personality, approach, and instructions...">'+(a.customSystemPrompt||'')+'</textarea><div class="form-hint">This is the agent\'s base personality prompt. Strategy rules are appended separately.</div></div></div>' +
     '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn primary" onclick="submitAgentFromBuilder(\''+(isEdit?esc(a.id):'')+'\', \''+esc(sandboxId||'')+'\')">' + (isEdit?'Save':'Create') + '</button></div>';
+    '<button class="btn primary" onclick="submitAgentFromBuilder(\''+(isEdit?esc(a.id):'')+'\')">' + (isEdit?'Save':'Create') + '</button></div>';
   document.getElementById('modal-overlay').classList.add('visible');
 }
 
-async function submitAgentFromBuilder(agentId, sandboxId) {
+async function submitAgentFromBuilder(agentId) {
   try {
     const body = { 
       name: v('f-ag-name'), 
@@ -2960,65 +2688,7 @@ async function submitAgentFromBuilder(agentId, sandboxId) {
     const method = agentId ? 'PUT' : 'POST';
     const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     if (!r.ok) throw new Error((await r.json()).error || 'Failed');
-    if (sandboxId) {
-      await fetch('/api/sandboxes/'+encodeURIComponent(sandboxId)+'/agent', {
-        method: 'PUT', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ activeAgentId: agentId || (await r.json()).id })
-      });
-    }
-    closeModal();
-    config = (await fetch('/api/config').then(r=>r.json()));
-    renderAll();
-  } catch(e) { alert('Error: '+e.message); }
-}
-
-function editAgent(id) { const a = config.agents.find(x => x.id === id); if(a) showModal('agent-edit', a); }
-function editStrategy(id) { const s = config.strategies.find(x => x.id === id); if(s) showModal('strategy-edit', s); }
-function v(id) { const e = document.getElementById(id); return e ? (e.type==='checkbox'?e.checked:e.value) : ''; }
-
-// ── Clock ──────────────────────────────────
-function updateClock() {
-  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true }) + ' ET';
-}
-
-// ── Health ─────────────────────────────────
-async function checkHealth() {
-  try {
-    const r = await fetch('/api/health');
-    const d = await r.json();
-    window._healthState = d; // Store for renderAccounts
-    const el = document.getElementById('bot-status');
-    const sid = getEffectiveSandboxId();
-    const sandboxState = (d.sandboxes || []).find(s => s.sandboxId === sid);
-    const healthy = sandboxState ? sandboxState.goReady : d.trading_bot === 'healthy';
-    el.textContent = healthy ? 'ok' : 'off';
-    el.style.color = healthy ? 'var(--success)' : 'var(--error)';
-    renderAccounts();
-    renderSandboxTabs();
-    refreshSandboxButtons();
-  } catch { document.getElementById('bot-status').textContent = 'err'; }
-}
-
-// ── Auth ───────────────────────────────────
-async function checkAuth() {
-  try {
-    const r = await fetch('/api/auth/status');
-    const d = await r.json();
-    const badge = document.getElementById('auth-badge');
-    if (!badge) return; // Auth section removed from settings
-    const desc = document.getElementById('auth-desc');
-    const loginBtn = document.getElementById('auth-login-btn');
-    const logoutBtn = document.getElementById('auth-logout-btn');
-    if (d.loggedIn) {
-      badge.textContent = 'Authenticated';
-      badge.style.borderColor = 'var(--success)';
-      badge.style.color = 'var(--success)';
-      badge.style.background = 'var(--success-bg)';
-      desc.textContent = 'Claude CLI is authenticated' + (d.authMethod ? ' via ' + d.authMethod : '') + '. Ready to trade.';
-      loginBtn.style.display = 'none';
-      logoutBtn.style.display = '';
-      document.getElementById('auth-url-container').style.display = 'none';
-    } else {
+    {
       badge.textContent = 'Not Logged In';
       badge.style.borderColor = 'var(--error)';
       badge.style.color = 'var(--error)';
@@ -3095,7 +2765,7 @@ async function triggerLogout() {
 
 // ── Chat / User Messages ───────────────────
 async function sendMessage() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid) return sendMessageTo(sid);
   // Fallback for no sandbox
   try {
@@ -3109,7 +2779,7 @@ async function sendMessage() {
 
 // ── Heartbeat Config ───────────────────────
 function renderHeartbeat() {
-  const hb = sandboxScoped.heartbeat || config.heartbeat || {};
+  const hb = config.heartbeat || config.heartbeat || {};
   const phases = ['pre_market','market_open','midday','market_close','after_hours','closed'];
   phases.forEach(p => {
     const el = document.getElementById('hb-' + p);
@@ -3126,8 +2796,8 @@ function saveHeartbeat() {
       const v = parseInt(document.getElementById('hb-' + p)?.value);
       if (v && v >= 30) body[p] = v;
     });
-    const sid = getEffectiveSandboxId();
-    if (sid) body.sandboxId = sid;
+    const sid = "main";
+    
     await fetch('/api/heartbeat', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     await refreshSelectedSandboxConfig();
   }, 600);
@@ -3135,7 +2805,7 @@ function saveHeartbeat() {
 
 // ── Permissions Config ─────────────────────
 function renderPermissions() {
-  const p = sandboxScoped.permissions || config.permissions || {};
+  const p = config.permissions || config.permissions || {};
   document.getElementById('perm-live').checked = p.allowLiveTrading !== false;
   document.getElementById('perm-options').checked = p.allowOptions !== false;
   document.getElementById('perm-stocks').checked = p.allowStocks !== false;
@@ -3169,8 +2839,8 @@ function savePermissions() {
       maxToolRoundsPerBeat: parseInt(document.getElementById('perm-maxtools').value) || 25,
       blockedTools: blocked,
     };
-    const sid = getEffectiveSandboxId();
-    if (sid) body.sandboxId = sid;
+    const sid = "main";
+    
     await fetch('/api/permissions', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     await refreshSelectedSandboxConfig();
   }, 600);
@@ -3178,7 +2848,7 @@ function savePermissions() {
 
 // ── Slack Plugin Config ────────────────────
 function renderSlack() {
-  const s = sandboxScoped.slack || config.plugins?.slack || {};
+  const s = config.plugins?.slack || config.plugins?.slack || {};
   document.getElementById('slack-enabled').checked = !!s.enabled;
   document.getElementById('slack-webhook').value = s.webhookUrl || '';
   document.getElementById('slack-channel').value = s.channel || '';
@@ -3216,8 +2886,8 @@ function saveSlackConfig() {
         heartbeat: document.getElementById('slack-n-hb').checked,
       },
     };
-    const sid = getEffectiveSandboxId();
-    if (sid) body.sandboxId = sid;
+    const sid = "main";
+    
     await fetch('/api/plugins/slack', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     await refreshSelectedSandboxConfig();
   }, 600);
@@ -3227,11 +2897,11 @@ async function testSlack() {
   const el = document.getElementById('slack-test-result');
   el.textContent = 'Sending...'; el.style.color = 'var(--ink-muted)';
   try {
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     const r = await fetch('/api/plugins/slack/test', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(sid ? { sandboxId: sid } : {}),
+      body: JSON.stringify(sid ? { } : {}),
     });
     const d = await r.json();
     if (d.ok) { el.textContent = 'Sent!'; el.style.color = 'var(--success)'; }
@@ -3243,8 +2913,8 @@ async function testSlack() {
 async function renderPromptPreview() {
   const el = document.getElementById('prompt-preview');
   try {
-    const sid = getEffectiveSandboxId();
-    const r = await fetch('/api/agent/prompt-preview' + (sid ? '?sandboxId=' + encodeURIComponent(sid) : ''));
+    const sid = "main";
+    const r = await fetch('/api/agent/prompt-preview' + '');
     const d = await r.json();
     if (d.prompt) {
       el.textContent = d.prompt;
@@ -3257,7 +2927,7 @@ async function renderPromptPreview() {
 }
 
 async function activateSelectedSandbox() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   const r = await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/activate', { method: 'POST' });
   const d = await r.json();
@@ -3273,7 +2943,7 @@ let _sandboxAgentTimer = null;
 function saveSandboxAgentSelection() {
   clearTimeout(_sandboxAgentTimer);
   _sandboxAgentTimer = setTimeout(async () => {
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     if (!sid) return;
     const body = {
       activeAgentId: document.getElementById('sandbox-agent-select').value,
@@ -3292,7 +2962,7 @@ let _sandboxPromptTimer = null;
 function saveSandboxPromptOverride() {
   clearTimeout(_sandboxPromptTimer);
   _sandboxPromptTimer = setTimeout(async () => {
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     if (!sid) return;
     await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
       method: 'PUT',
@@ -3307,7 +2977,7 @@ function saveSandboxPromptOverride() {
 }
 
 async function clearSandboxPromptOverride() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   document.getElementById('sandbox-prompt-override').value = '';
   await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/agent/overrides', {
@@ -3322,7 +2992,7 @@ let _sandboxStrategyTimer = null;
 function saveSandboxStrategyRules() {
   clearTimeout(_sandboxStrategyTimer);
   _sandboxStrategyTimer = setTimeout(async () => {
-    const sid = getEffectiveSandboxId();
+    const sid = "main";
     if (!sid) return;
     await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
       method: 'PUT',
@@ -3334,7 +3004,7 @@ function saveSandboxStrategyRules() {
 }
 
 async function clearSandboxStrategyRules() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (!sid) return;
   document.getElementById('sandbox-strategy-rules').value = '';
   await fetch('/api/sandboxes/' + encodeURIComponent(sid) + '/strategy-rules', {
@@ -3348,7 +3018,7 @@ async function clearSandboxStrategyRules() {
 // ── Terminal Search/Filter ──────────────────
 let _searchDebounce = null;
 function filterTerminal() {
-  const sid = getEffectiveSandboxId();
+  const sid = "main";
   if (sid) return filterTerminalFor(sid);
 }
 function _applyTerminalFilter() { filterTerminal(); }

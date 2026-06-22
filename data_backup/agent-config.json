@@ -1,0 +1,269 @@
+{
+  "schemaVersion": 2,
+  "activeAccountId": "6eb824ed",
+  "activeSandboxId": "sbx_6eb824ed",
+  "activeAgentId": "ceo",
+  "activeModel": "anthropic/claude-opus-4-8",
+  "heartbeat": {
+    "pre_market": 900,
+    "market_open": 120,
+    "midday": 600,
+    "market_close": 120,
+    "after_hours": 1800,
+    "closed": 3600
+  },
+  "permissions": {
+    "allowLiveTrading": true,
+    "maxPositionPct": 15,
+    "maxDeployedPct": 80,
+    "maxDailyLoss": 5,
+    "maxOpenPositions": 10,
+    "maxOrderValue": 0,
+    "allowedTools": [],
+    "blockedTools": [],
+    "allowOptions": true,
+    "allowStocks": true,
+    "allow0DTE": false,
+    "requireConfirmation": false,
+    "maxToolRoundsPerBeat": 25
+  },
+  "plugins": {
+    "slack": {
+      "enabled": false,
+      "webhookUrl": "",
+      "channel": "",
+      "notifyOn": {
+        "tradeExecuted": true,
+        "agentStartStop": true,
+        "errors": true,
+        "dailySummary": true,
+        "positionOpened": true,
+        "positionClosed": true,
+        "heartbeat": false
+      }
+    }
+  },
+  "accounts": [
+    {
+      "id": "6eb824ed",
+      "name": "IBKR Paper",
+      "publicKey": "dummy",
+      "secretKey": "dummy",
+      "baseUrl": "https://paper-api.alpaca.markets",
+      "paper": true,
+      "createdAt": "2026-06-20T10:18:40.720Z"
+    }
+  ],
+  "sandboxes": {
+    "sbx_6eb824ed": {
+      "id": "sbx_6eb824ed",
+      "accountId": "6eb824ed",
+      "name": "IBKR Paper",
+      "agent": {
+        "activeAgentId": "ceo",
+        "model": "anthropic/claude-opus-4-8",
+        "overrides": {
+          "name": null,
+          "description": null,
+          "systemPromptTemplate": null,
+          "customSystemPrompt": null,
+          "customStrategyRules": null,
+          "heartbeatOverrides": {},
+          "sessionMode": "continuous"
+        }
+      },
+      "heartbeat": {
+        "pre_market": 900,
+        "market_open": 120,
+        "midday": 600,
+        "market_close": 120,
+        "after_hours": 1800,
+        "closed": 3600
+      },
+      "permissions": {
+        "allowLiveTrading": true,
+        "maxPositionPct": 15,
+        "maxDeployedPct": 80,
+        "maxDailyLoss": 5,
+        "maxOpenPositions": 10,
+        "maxOrderValue": 0,
+        "allowedTools": [],
+        "blockedTools": [],
+        "allowOptions": true,
+        "allowStocks": true,
+        "allow0DTE": false,
+        "requireConfirmation": false,
+        "maxToolRoundsPerBeat": 25
+      },
+      "plugins": {
+        "slack": {
+          "enabled": false,
+          "webhookUrl": "",
+          "channel": "",
+          "notifyOn": {
+            "tradeExecuted": true,
+            "agentStartStop": true,
+            "errors": true,
+            "dailySummary": true,
+            "positionOpened": true,
+            "positionClosed": true,
+            "heartbeat": false
+          }
+        }
+      },
+      "createdAt": "2026-06-20T10:18:40.720Z",
+      "updatedAt": "2026-06-21T14:51:20.050Z"
+    }
+  },
+  "agents": [
+    {
+      "id": "default",
+      "name": "Prophet",
+      "description": "Aggressive discretionary options trader with scalping overlay",
+      "systemPromptTemplate": "default",
+      "strategyId": "default",
+      "model": "anthropic/claude-opus-4-6",
+      "heartbeatOverrides": {},
+      "customSystemPrompt": "",
+      "createdAt": "2026-06-19T13:07:32.550Z",
+      "updatedAt": "2026-06-20T10:53:08.847Z"
+    },
+    {
+      "id": "conservative",
+      "name": "Guardian",
+      "description": "Conservative swing trader focused on capital preservation",
+      "systemPromptTemplate": "custom",
+      "customSystemPrompt": "You are Guardian, a conservative AI trading agent. You prioritize capital preservation above all else.\n\n## Rules\n- Only take high-conviction setups with clear risk/reward > 3:1\n- Maximum 5% of portfolio per position\n- Maximum 30% deployed at any time (70%+ cash always)\n- Only swing trades: 30-90 DTE, delta 0.40-0.60\n- No scalping, no 0DTE, no earnings plays\n- Stop loss at -10%, take profit at +30%\n- Maximum 5 positions at once",
+      "strategyId": null,
+      "model": "anthropic/claude-opus-4-8",
+      "heartbeatOverrides": {
+        "pre_market": 1800,
+        "market_open": 300,
+        "midday": 900,
+        "market_close": 300,
+        "after_hours": 3600
+      },
+      "createdAt": "2026-06-19T13:07:32.551Z",
+      "updatedAt": "2026-06-20T13:33:33.124Z"
+    },
+    {
+      "id": "487a9f53",
+      "name": "Prophet",
+      "description": "",
+      "systemPromptTemplate": "default",
+      "customSystemPrompt": "",
+      "strategyId": "default",
+      "model": "google/gemini-3-1-pro",
+      "heartbeatOverrides": {},
+      "createdAt": "2026-06-20T13:38:03.625Z"
+    },
+    {
+      "id": "a9533342",
+      "name": "GProphet",
+      "description": "",
+      "systemPromptTemplate": "default",
+      "customSystemPrompt": "",
+      "strategyId": "default",
+      "model": "google/gemini-3-1-pro",
+      "heartbeatOverrides": {},
+      "createdAt": "2026-06-20T14:34:55.221Z"
+    },
+    {
+      "id": "ceo",
+      "name": "CEO",
+      "description": "Portfolio Manager & Final Executor",
+      "systemPromptTemplate": "custom",
+      "customSystemPrompt": "You are the CEO and Master Dispatcher. Your role is high-level capital allocation and orchestration. Review daily P&L, set macro tone, ensure no single instrument exceeds the 10% limit, and ensure total deployed capital never breaches 40%.\n\nCRITICAL: You are restricted to trading ONLY the ESTX50 index. SPX and other US indices are strictly prohibited and unsupported by our broker.\n\nCRITICAL DISPATCHER ROLE: When the user asks for market analysis, trade recommendations, or strategy brainstorming, you MUST use the `jim_rogers` tool to orchestrate your sub-agents.\n1. Use `jim_rogers` with target_agent_id=\"stratagem\" to generate setups.\n2. Use `jim_rogers` with target_agent_id=\"daedalus\" to risk-check those setups.\n3. Present the ranked, risk-checked list to the user.\n\nYou have the final say on executing trades proposed by Stratagem, provided Daedalus has approved them.",
+      "strategyId": "default",
+      "model": "anthropic/claude-opus-4-8",
+      "heartbeatOverrides": {},
+      "createdAt": "2026-06-20T15:13:35.890Z",
+      "updatedAt": "2026-06-20T15:19:38.086Z"
+    },
+    {
+      "id": "stratagem",
+      "name": "Stratagem",
+      "description": "Strategy Engine for Premium Selling",
+      "systemPromptTemplate": "custom",
+      "customSystemPrompt": "You are Stratagem, the Strategy Engine. Your role is technical analysis and trade identification. Scan for setups ONLY on the ESTX50 index (SPX is strictly prohibited), specifically seeking options to sell at ~45 DTE to collect thick premium. Formulate entry/exit thesis based on the 45/7 premium seller framework. Propose entry limits, calculate the 50% max profit target, and determine the 100% premium erosion hard stop.",
+      "strategyId": "default",
+      "model": "anthropic/claude-sonnet-4-6",
+      "heartbeatOverrides": {},
+      "createdAt": "2026-06-20T15:13:35.890Z",
+      "updatedAt": "2026-06-20T15:19:21.949Z"
+    },
+    {
+      "id": "daedalus",
+      "name": "Daedalus",
+      "description": "Risk Manager & Devil's Advocate",
+      "systemPromptTemplate": "custom",
+      "customSystemPrompt": "You are Daedalus, the strict Risk Manager. Your role is capital preservation and veto power. Act as the devil's advocate. Explicitly veto holding losers past 7-14 days. Force time-stops if a trade degrades. Enforce the strict 100% premium erosion hard stop to prevent catastrophic drawdowns. Ensure the CEO and Stratagem adhere to the 40% max deployed capital rule and 10% single instrument limit.",
+      "strategyId": "default",
+      "model": "anthropic/claude-opus-4-6",
+      "heartbeatOverrides": {},
+      "createdAt": "2026-06-20T15:13:35.890Z",
+      "updatedAt": "2026-06-20T15:13:35.890Z"
+    }
+  ],
+  "strategies": [
+    {
+      "id": "default",
+      "name": "Aggressive Options",
+      "description": "Multi-timeframe options with scalping overlay",
+      "rulesFile": "TRADING_RULES.md",
+      "customRules": null,
+      "createdAt": "2026-06-19T13:07:32.551Z"
+    }
+  ],
+  "manager": {
+    "model": "google/gemini-3-1-pro",
+    "customPrompt": ""
+  },
+  "models": [
+    {
+      "id": "anthropic/claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "description": "Best speed + intelligence, $3/$15 per MTok"
+    },
+    {
+      "id": "anthropic/claude-opus-4-6",
+      "name": "Claude Opus 4.6",
+      "description": "Most intelligent, best for agents, $5/$25 per MTok"
+    },
+    {
+      "id": "anthropic/claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "description": "Fastest, near-frontier, $1/$5 per MTok"
+    },
+    {
+      "id": "anthropic/claude-sonnet-4-5",
+      "name": "Claude Sonnet 4.5 (Legacy)",
+      "description": "Previous gen Sonnet, $3/$15 per MTok"
+    },
+    {
+      "id": "anthropic/claude-opus-4-5",
+      "name": "Claude Opus 4.5 (Legacy)",
+      "description": "Previous gen Opus, $5/$25 per MTok"
+    },
+    {
+      "id": "anthropic/claude-sonnet-4-0",
+      "name": "Claude Sonnet 4 (Legacy)",
+      "description": "Original Sonnet 4, $3/$15 per MTok"
+    },
+    {
+      "id": "anthropic/claude-opus-4-0",
+      "name": "Claude Opus 4 (Legacy)",
+      "description": "Original Opus 4, $15/$75 per MTok"
+    },
+    {
+      "id": "anthropic/claude-opus-4-8",
+      "name": "Claude Opus 4.8",
+      "description": "Next generation Opus, $15/$75 per MTok"
+    },
+    {
+      "id": "google/gemini-3-1-pro",
+      "name": "Gemini 3.1 Pro",
+      "description": "Google Advanced Pro Model"
+    }
+  ]
+}
