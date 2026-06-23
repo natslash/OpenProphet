@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"prophet-trader/interfaces"
+	"prophet-trader/tws"
 
 	"github.com/sirupsen/logrus"
 )
@@ -30,6 +31,7 @@ type AutonomousBeat struct {
 	llm interfaces.LLMProvider
 	intentManager        *IntentManager
 	requireDoubleConfirm bool
+	resolver             *tws.ContractResolver
 
 	mu           sync.Mutex
 	isRunning    bool
@@ -74,6 +76,8 @@ func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading
 		requireDoubleConfirm: requireDoubleConfirm,
 	}
 }
+
+func (b *AutonomousBeat) SetResolver(r *tws.ContractResolver) { b.resolver = r }
 
 // Start spawns the heartbeat in the background
 func (b *AutonomousBeat) Start() error {
@@ -284,6 +288,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				Trading:              b.trading,
 				LLM:                  b.llm,
 				Intent:               b.intentManager,
+				Resolver:             b.resolver,
 				RequireDoubleConfirm: b.requireDoubleConfirm,
 			})
 			toolCancel()

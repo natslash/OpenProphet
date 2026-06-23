@@ -14,20 +14,22 @@ import (
 
 type IBKRDataService struct {
 	tws.DefaultWrapper
-	client  *tws.Client
-	mu      sync.RWMutex
-	streams map[int64]chan any
-	histBuf map[int64][]*interfaces.Bar
+	client   *tws.Client
+	resolver *tws.ContractResolver
+	mu       sync.RWMutex
+	streams  map[int64]chan any
+	histBuf  map[int64][]*interfaces.Bar
 }
 
 // Ensure IBKRDataService implements interfaces.DataService
 var _ interfaces.DataService = (*IBKRDataService)(nil)
 
-func NewIBKRDataService(client *tws.Client) *IBKRDataService {
+func NewIBKRDataService(client *tws.Client, resolver *tws.ContractResolver) *IBKRDataService {
 	s := &IBKRDataService{
-		client:  client,
-		streams: make(map[int64]chan any),
-		histBuf: make(map[int64][]*interfaces.Bar),
+		client:   client,
+		resolver: resolver,
+		streams:  make(map[int64]chan any),
+		histBuf:  make(map[int64][]*interfaces.Bar),
 	}
 	client.AddWrapper(s)
 	// Type 4 = delayed-frozen: use live data when available, fall back to
@@ -37,10 +39,10 @@ func NewIBKRDataService(client *tws.Client) *IBKRDataService {
 	return s
 }
 
-// symbolToContract resolves an interface Symbol via the shared symbology
-// convention (US stock by default, "OESX:<expiry>:<C|P>:<strike>" for OESX).
-func symbolToContract(symbol string) (tws.Contract, error) {
-	return tws.ParseSymbol(symbol)
+// resolveContract resolves an interface Symbol via the ContractResolver,
+// which tries the hardcoded symbology first and falls back to IBKR lookup.
+func (s *IBKRDataService) resolveContract(ctx context.Context, symbol string) (tws.Contract, error) {
+	return s.resolver.Resolve(ctx, symbol)
 }
 
 // OnDisconnect cleans up stale state when IB Gateway drops. Closes all
@@ -247,7 +249,7 @@ func getWhatToShow(secType tws.InstrumentType) string {
 }
 
 func (s *IBKRDataService) GetHistoricalBars(ctx context.Context, symbol string, start, end time.Time, timeframe string) ([]*interfaces.Bar, error) {
-	contract, err := symbolToContract(symbol)
+	contract, err := s.resolveContract(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("GetHistoricalBars: %w", err)
 	}
@@ -307,7 +309,7 @@ func (s *IBKRDataService) StreamBars(ctx context.Context, symbols []string) (<-c
 }
 
 func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*interfaces.Quote, error) {
-	contract, err := symbolToContract(symbol)
+	contract, err := s.resolveContract(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("GetLatestQuote: %w", err)
 	}
@@ -379,7 +381,7 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 }
 
 func (s *IBKRDataService) GetLatestTrade(ctx context.Context, symbol string) (*interfaces.Trade, error) {
-	contract, err := symbolToContract(symbol)
+	contract, err := s.resolveContract(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("GetLatestTrade: %w", err)
 	}

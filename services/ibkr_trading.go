@@ -19,6 +19,7 @@ import (
 type IBKRTradingService struct {
 	tws.DefaultWrapper
 	client      *tws.Client
+	resolver    *tws.ContractResolver
 	dataService interfaces.DataService
 	globalReqMu sync.Mutex
 
@@ -33,9 +34,10 @@ func (s *IBKRTradingService) SetDataService(ds interfaces.DataService) {
 // Ensure IBKRTradingService implements interfaces.TradingService
 var _ interfaces.TradingService = (*IBKRTradingService)(nil)
 
-func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
+func NewIBKRTradingService(client *tws.Client, resolver *tws.ContractResolver) *IBKRTradingService {
 	s := &IBKRTradingService{
 		client:     client,
+		resolver:   resolver,
 		orderCache: make(map[string]*interfaces.Order),
 	}
 	client.AddWrapper(s)
@@ -73,7 +75,7 @@ func normalizeOrderType(t string) (string, error) {
 }
 
 func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
-	contract, err := tws.ParseSymbol(order.Symbol)
+	contract, err := s.resolver.Resolve(ctx, order.Symbol)
 	if err != nil {
 		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
@@ -365,7 +367,7 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 			case tws.OpenOrderMsg:
 				o := &interfaces.Order{
 					ID:     strconv.FormatInt(t.OrderId, 10),
-					Symbol: tws.FormatSymbol(t.Contract),
+					Symbol: s.resolver.Format(t.Contract),
 					Qty:    t.Order.TotalQuantity.InexactFloat64(),
 					Side:   t.Order.Action,
 					Type:   t.Order.OrderType,
@@ -432,7 +434,7 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 				costBasis := avgPrice * absQty * multiplier
 
 				p := &interfaces.Position{
-					Symbol:         tws.FormatSymbol(t.Contract),
+					Symbol:         s.resolver.Format(t.Contract),
 					Qty:            absQty,
 					AvgEntryPrice:  avgPrice,
 					MarketValue:    t.MarketValue,
@@ -522,9 +524,9 @@ func (s *IBKRTradingService) PlaceOptionsOrder(ctx context.Context, order *inter
 }
 
 func (s *IBKRTradingService) GetOptionsChain(ctx context.Context, underlying string, expiration time.Time) ([]*interfaces.OptionContract, error) {
-	underContract, err := tws.ParseSymbol(underlying)
+	underContract, err := s.resolver.Resolve(ctx, underlying)
 	if err != nil {
-		return nil, fmt.Errorf("GetOptionsChain: parse underlying %q: %w", underlying, err)
+		return nil, fmt.Errorf("GetOptionsChain: resolve underlying %q: %w", underlying, err)
 	}
 
 	details, err := s.client.ReqContractDetails(ctx, underContract)

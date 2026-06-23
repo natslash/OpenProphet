@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 	"prophet-trader/interfaces"
+	"prophet-trader/tws"
 )
 
 func BuildAgentTools() []interfaces.LLMTool {
@@ -93,6 +94,20 @@ func BuildAgentTools() []interfaces.LLMTool {
 			},
 		},
 		{
+			Name:        "search_contract",
+			Description: "Search for tradable instruments on IBKR by name or symbol. Returns matching contracts with exchange, currency, and type. Use this to discover symbols you don't know the exact format for.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":   map[string]interface{}{"type": "string", "description": "Symbol or partial name to search, e.g. 'SPX', 'AAPL', 'ESTX50'"},
+					"sec_type": map[string]interface{}{"type": "string", "description": "Security type filter: STK, OPT, FUT, IND. Leave empty for any."},
+					"exchange": map[string]interface{}{"type": "string", "description": "Exchange filter, e.g. 'SMART', 'EUREX', 'CBOE'. Leave empty for any."},
+					"currency": map[string]interface{}{"type": "string", "description": "Currency filter, e.g. 'USD', 'EUR'. Leave empty for any."},
+				},
+				"required": []string{"symbol"},
+			},
+		},
+		{
 			Name:        "jim_rogers",
 			Description: "Consult another agent (e.g. 'stratagem' or 'daedalus') to analyze data or review risk. They will return a text response.",
 			InputSchema: map[string]interface{}{
@@ -113,6 +128,7 @@ type ToolContext struct {
 	Trading              interfaces.TradingService
 	LLM                  interfaces.LLMProvider
 	Intent               *IntentManager
+	Resolver             *tws.ContractResolver
 	RequireDoubleConfirm bool
 }
 
@@ -277,6 +293,50 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return "", err
 		}
 		return formatOptionsChain(ctx, tc.Data, req.Symbol, chain), nil
+
+	case "search_contract":
+		var req struct {
+			Symbol   string `json:"symbol"`
+			SecType  string `json:"sec_type"`
+			Exchange string `json:"exchange"`
+			Currency string `json:"currency"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if tc.Resolver == nil {
+			return "", fmt.Errorf("contract resolver not available")
+		}
+		searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		results, err := tc.Resolver.Search(searchCtx, req.Symbol, req.SecType, req.Exchange, req.Currency)
+		cancel()
+		if err != nil {
+			return "", fmt.Errorf("search failed: %w", err)
+		}
+		type contractResult struct {
+			Symbol   string `json:"symbol"`
+			SecType  string `json:"sec_type"`
+			Exchange string `json:"exchange"`
+			Currency string `json:"currency"`
+			ConId    int64  `json:"con_id"`
+			LongName string `json:"long_name,omitempty"`
+		}
+		var out []contractResult
+		for _, cd := range results {
+			out = append(out, contractResult{
+				Symbol:   cd.Contract.Symbol,
+				SecType:  string(cd.Contract.SecType),
+				Exchange: cd.Contract.Exchange,
+				Currency: cd.Contract.Currency,
+				ConId:    cd.Contract.ConId,
+				LongName: cd.LongName,
+			})
+		}
+		if len(out) == 0 {
+			return `{"results": [], "message": "No contracts found"}`, nil
+		}
+		b, _ := json.Marshal(map[string]interface{}{"results": out, "count": len(out)})
+		return string(b), nil
 
 	case "jim_rogers":
 		var req struct {

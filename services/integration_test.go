@@ -57,11 +57,15 @@ func floatPtr(v float64) *float64 {
 	return &v
 }
 
+func testResolver(client *tws.Client) *tws.ContractResolver {
+	return tws.NewContractResolver(client)
+}
+
 func TestIntegration_GetAccount(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()
 
-	svc := NewIBKRTradingService(client)
+	svc := NewIBKRTradingService(client, testResolver(client))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -82,8 +86,8 @@ func TestIntegration_PlaceManagedPosition_OffHours(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()
 
-	tradingSvc := NewIBKRTradingService(client)
-	dataSvc := NewIBKRDataService(client)
+	tradingSvc := NewIBKRTradingService(client, testResolver(client))
+	dataSvc := NewIBKRDataService(client, testResolver(client))
 	db, err := database.NewLocalStorage("test_integration_pm_db.json")
 	if err != nil {
 		t.Fatalf("Failed to create mock db: %v", err)
@@ -123,7 +127,7 @@ func TestIntegration_GetLatestQuote_OffHours(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()
 
-	dataSvc := NewIBKRDataService(client)
+	dataSvc := NewIBKRDataService(client, testResolver(client))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -149,7 +153,7 @@ func TestIntegration_RejectedOrder(t *testing.T) {
 	client, wrapper := setupIntegrationClient(t)
 	defer client.Close()
 
-	svc := NewIBKRTradingService(client)
+	svc := NewIBKRTradingService(client, testResolver(client))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -178,7 +182,7 @@ func TestIntegration_GetPositions(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()
 
-	svc := NewIBKRTradingService(client)
+	svc := NewIBKRTradingService(client, testResolver(client))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -202,7 +206,7 @@ func TestIntegration_GetHistoricalBars_OffHours(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()
 
-	dataSvc := NewIBKRDataService(client)
+	dataSvc := NewIBKRDataService(client, testResolver(client))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

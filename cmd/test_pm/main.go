@@ -43,8 +43,9 @@ func main() {
 	time.Sleep(2 * time.Second)
 	fmt.Println("Connected.")
 
-	tradingSvc := services.NewIBKRTradingService(client)
-	dataSvc := services.NewIBKRDataService(client)
+	resolver := tws.NewContractResolver(client)
+	tradingSvc := services.NewIBKRTradingService(client, resolver)
+	dataSvc := services.NewIBKRDataService(client, resolver)
 	db, err := database.NewLocalStorage("test_pm_db.json")
 	if err != nil {
 		fmt.Printf("FAIL: database: %v\n", err)

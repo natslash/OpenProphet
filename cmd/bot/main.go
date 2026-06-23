@@ -65,12 +65,14 @@ func main() {
 	connectCancel()
 	logger.Info("Connected to IB Gateway (paper).")
 
+	resolver := tws.NewContractResolver(client)
+
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
-	ibkrTrading := services.NewIBKRTradingService(client)
+	ibkrTrading := services.NewIBKRTradingService(client, resolver)
 	gated := services.NewGatedTradingService(ibkrTrading, cfg.TradingEnabled)
 	tradingService = gated
 	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
-	ibkrData := services.NewIBKRDataService(client)
+	ibkrData := services.NewIBKRDataService(client, resolver)
 	dataService = ibkrData
 	ibkrTrading.SetDataService(dataService)
 
@@ -171,7 +173,8 @@ func main() {
 		LLMPollingEnabled:  cfg.LLMPollingEnabled,
 		LLMPollingInterval: time.Duration(cfg.LLMPollingIntervalSecs) * time.Second,
 	}, intentManager, cfg.RequireDoubleConfirm)
-	
+	autonomousBeat.SetResolver(resolver)
+
 	intentManager.SetFeedbackCallback(func(intent *services.Intent, reason string) {
 		msg := fmt.Sprintf("System feedback: Your trade intent (ID: %s, Symbol: %s, Side: %s) was %s.", intent.ID, intent.Symbol, intent.Side, reason)
 		autonomousBeat.InjectMessage(msg)
