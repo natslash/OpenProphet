@@ -198,6 +198,37 @@ func main() {
 	// Setup HTTP server
 	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController, intentController)
 
+	// Manual reconnect endpoint — triggers the same cleanup/reconnect/enable
+	// flow as the automatic loop, but on-demand from the dashboard.
+	router.POST("/api/v1/broker/reconnect", func(c *gin.Context) {
+		logger.Info("Manual reconnect requested via API")
+		gated.Disable("manual reconnect requested")
+		ibkrData.OnDisconnect()
+		ibkrTrading.OnDisconnect()
+
+		rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer rcancel()
+		if err := client.Reconnect(rctx); err != nil {
+			logger.WithError(err).Error("Manual reconnect failed")
+			c.JSON(500, gin.H{"error": "reconnect failed: " + err.Error()})
+			return
+		}
+		ibkrData.OnReconnect()
+		gated.Enable("manual reconnect succeeded")
+		logger.Info("Manual reconnect succeeded")
+		c.JSON(200, gin.H{"status": "reconnected"})
+	})
+
+	// Broker status endpoint — reports whether the TWS connection is alive.
+	router.GET("/api/v1/broker/status", func(c *gin.Context) {
+		connected := client.IsConnected()
+		tradingEnabled := gated.Enabled()
+		c.JSON(200, gin.H{
+			"connected":       connected,
+			"trading_enabled": tradingEnabled,
+		})
+	})
+
 	// Start the supervised beat only when explicitly enabled.
 	if cfg.BeatEnabled {
 		logger.Warn("Autonomous beat ENABLED — Starting native AI agent in background")

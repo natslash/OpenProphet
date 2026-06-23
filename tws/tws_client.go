@@ -310,6 +310,11 @@ func isWarningCode(code int) bool {
 
 func (c *Client) ServerVersion() int    { return c.serverVersion }
 func (c *Client) ConnectionTime() string { return c.connTime }
+func (c *Client) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connected
+}
 
 
 
