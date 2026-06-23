@@ -44,6 +44,7 @@ type AutonomousBeat struct {
 
 	overrideInterval time.Duration
 	overrideOnce     bool
+	beatCounter      int64
 }
 
 type beatMessage struct {
@@ -205,6 +206,8 @@ func (b *AutonomousBeat) injectBeatMessage(msg beatMessage) {
 func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.mu.Lock()
 	b.inTick = true
+	b.beatCounter++
+	currentBeatId = b.beatCounter
 	var pending []beatMessage
 	if len(b.messageQueue) > 0 {
 		pending = b.messageQueue
@@ -457,6 +460,8 @@ func truncateForHistory(s string) string {
 	return s[:maxToolResultChars] + fmt.Sprintf("\n...[truncated %d chars to conserve context]", len(s)-maxToolResultChars)
 }
 
+var currentBeatId int64
+
 func appendJSONToBotLog(event string, sandboxId string, text string) {
 	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
@@ -466,6 +471,7 @@ func appendJSONToBotLog(event string, sandboxId string, text string) {
 			"data": map[string]interface{}{
 				"sandboxId": sandboxId,
 				"text":      text,
+				"beatId":    currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)
@@ -479,13 +485,14 @@ func appendToolToBotLog(sandboxId string, toolName string, args []byte) {
 		defer f.Close()
 		var argsMap map[string]interface{}
 		json.Unmarshal(args, &argsMap)
-		
+
 		data := map[string]interface{}{
 			"event": "agent_tool",
 			"data": map[string]interface{}{
 				"sandboxId": sandboxId,
 				"tool":      toolName,
 				"args":      argsMap,
+				"beatId":    currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)

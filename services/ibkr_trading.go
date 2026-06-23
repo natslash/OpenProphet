@@ -25,6 +25,11 @@ type IBKRTradingService struct {
 
 	cacheMu    sync.RWMutex
 	orderCache map[string]*interfaces.Order
+
+	posMu        sync.RWMutex
+	posCache     []*interfaces.Position
+	posReady     chan struct{}
+	posSubscribed bool
 }
 
 func (s *IBKRTradingService) SetDataService(ds interfaces.DataService) {
@@ -44,11 +49,106 @@ func NewIBKRTradingService(client *tws.Client, resolver *tws.ContractResolver) *
 	return s
 }
 
-// OnDisconnect clears stale order cache when IB Gateway drops.
+// OnDisconnect clears stale caches when IB Gateway drops.
 func (s *IBKRTradingService) OnDisconnect() {
 	s.cacheMu.Lock()
 	s.orderCache = make(map[string]*interfaces.Order)
 	s.cacheMu.Unlock()
+
+	s.posMu.Lock()
+	s.posCache = nil
+	s.posSubscribed = false
+	s.posMu.Unlock()
+}
+
+// OnReconnect re-subscribes to account updates after a successful reconnect.
+func (s *IBKRTradingService) OnReconnect() {
+	s.SubscribePositions()
+}
+
+// SubscribePositions starts a persistent reqAccountUpdates subscription.
+// Position cache is maintained via UpdatePortfolio/AccountDownloadEnd callbacks.
+func (s *IBKRTradingService) SubscribePositions() {
+	s.posMu.Lock()
+	if s.posSubscribed {
+		s.posMu.Unlock()
+		return
+	}
+	s.posReady = make(chan struct{})
+	s.posSubscribed = true
+	s.posMu.Unlock()
+
+	acct := strings.TrimSpace(strings.Split(s.client.Accounts(), ",")[0])
+	if err := s.client.Encoder().ReqAccountUpdates(true, acct); err != nil {
+		log.Printf("[IBKR] SubscribePositions error: %v", err)
+		s.posMu.Lock()
+		s.posSubscribed = false
+		s.posMu.Unlock()
+	}
+}
+
+func (s *IBKRTradingService) UpdatePortfolio(contract tws.Contract, position decimal.Decimal, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL float64, accountName string) {
+	qty := position.InexactFloat64()
+	if qty == 0 {
+		return
+	}
+
+	avgPrice := averageCost
+	multiplier := 1.0
+	if contract.Multiplier != "" {
+		if m, err := strconv.ParseFloat(contract.Multiplier, 64); err == nil && m > 0 {
+			multiplier = m
+			avgPrice = averageCost / m
+		}
+	}
+
+	absQty := qty
+	side := "long"
+	if qty < 0 {
+		absQty = -qty
+		side = "short"
+	}
+
+	costBasis := avgPrice * absQty * multiplier
+	sym := s.resolver.Format(contract)
+
+	p := &interfaces.Position{
+		Symbol:        sym,
+		Qty:           absQty,
+		AvgEntryPrice: avgPrice,
+		MarketValue:   marketValue,
+		CostBasis:     costBasis,
+		UnrealizedPL:  unrealizedPNL,
+		CurrentPrice:  marketPrice,
+		Side:          side,
+	}
+	if costBasis != 0 {
+		p.UnrealizedPLPC = unrealizedPNL / costBasis
+	}
+
+	s.posMu.Lock()
+	found := false
+	for i, existing := range s.posCache {
+		if existing.Symbol == sym {
+			s.posCache[i] = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.posCache = append(s.posCache, p)
+	}
+	s.posMu.Unlock()
+}
+
+func (s *IBKRTradingService) AccountDownloadEnd(accountName string) {
+	s.posMu.Lock()
+	select {
+	case <-s.posReady:
+	default:
+		close(s.posReady)
+	}
+	s.posMu.Unlock()
 }
 
 // normalizeOrderType maps the interface's order-type strings (Alpaca-style,
@@ -386,76 +486,31 @@ func (s *IBKRTradingService) ListOrders(ctx context.Context, status string) ([]*
 }
 
 func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
-	s.globalReqMu.Lock()
-	defer s.globalReqMu.Unlock()
+	s.posMu.RLock()
+	subscribed := s.posSubscribed
+	ready := s.posReady
+	s.posMu.RUnlock()
 
-	acct := strings.TrimSpace(strings.Split(s.client.Accounts(), ",")[0])
-
-	ch := s.client.Register(tws.AccountUpdatesDispatchKey)
-	defer s.client.Complete(tws.AccountUpdatesDispatchKey)
-
-	if err := s.client.Encoder().ReqAccountUpdates(true, acct); err != nil {
-		return nil, fmt.Errorf("ReqAccountUpdates error: %w", err)
+	if !subscribed {
+		s.SubscribePositions()
+		s.posMu.RLock()
+		ready = s.posReady
+		s.posMu.RUnlock()
 	}
-	defer s.client.Encoder().ReqAccountUpdates(false, acct)
 
-	var positions []*interfaces.Position
-
-	for {
+	if ready != nil {
 		select {
-		case msg, ok := <-ch:
-			if !ok {
-				return positions, nil
-			}
-
-			switch t := msg.(type) {
-			case tws.UpdatePortfolioMsg:
-				qty := t.Position.InexactFloat64()
-				if qty == 0 {
-					continue
-				}
-
-				avgPrice := t.AverageCost
-				multiplier := 1.0
-				if t.Contract.Multiplier != "" {
-					if m, err := strconv.ParseFloat(t.Contract.Multiplier, 64); err == nil && m > 0 {
-						multiplier = m
-						avgPrice = t.AverageCost / m
-					}
-				}
-
-				absQty := qty
-				side := "long"
-				if qty < 0 {
-					absQty = -qty
-					side = "short"
-				}
-
-				costBasis := avgPrice * absQty * multiplier
-
-				p := &interfaces.Position{
-					Symbol:         s.resolver.Format(t.Contract),
-					Qty:            absQty,
-					AvgEntryPrice:  avgPrice,
-					MarketValue:    t.MarketValue,
-					CostBasis:      costBasis,
-					UnrealizedPL:   t.UnrealizedPNL,
-					CurrentPrice:   t.MarketPrice,
-					Side:           side,
-				}
-				if costBasis != 0 {
-					p.UnrealizedPLPC = t.UnrealizedPNL / costBasis
-				}
-				positions = append(positions, p)
-			case tws.AccountDownloadEndMsg:
-				// Handled by channel close
-			case error:
-				return nil, fmt.Errorf("tws error: %w", t)
-			}
+		case <-ready:
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
+
+	s.posMu.RLock()
+	out := make([]*interfaces.Position, len(s.posCache))
+	copy(out, s.posCache)
+	s.posMu.RUnlock()
+	return out, nil
 }
 
 func (s *IBKRTradingService) GetAccount(ctx context.Context) (*interfaces.Account, error) {

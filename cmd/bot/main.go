@@ -75,6 +75,7 @@ func main() {
 	ibkrData := services.NewIBKRDataService(client, resolver)
 	dataService = ibkrData
 	ibkrTrading.SetDataService(dataService)
+	ibkrTrading.SubscribePositions()
 
 	// Auto-reconnect loop: when IB Gateway drops (daily restart, network
 	// issue), disable trading and retry with exponential backoff.
@@ -105,6 +106,7 @@ func main() {
 
 				logger.Info("Reconnected to IB Gateway successfully")
 				ibkrData.OnReconnect()
+				ibkrTrading.OnReconnect()
 				gated.Enable("IB Gateway reconnected")
 				backoff = 5 * time.Second
 				break
@@ -217,6 +219,7 @@ func main() {
 			return
 		}
 		ibkrData.OnReconnect()
+		ibkrTrading.OnReconnect()
 		gated.Enable("manual reconnect succeeded")
 		logger.Info("Manual reconnect succeeded")
 		c.JSON(200, gin.H{"status": "reconnected"})
