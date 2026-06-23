@@ -49,5 +49,8 @@
     "sqlite-vec-darwin-x64": "^0.1.7-alpha.2",
     "sqlite-vec-linux-x64": "^0.1.7-alpha.2",
     "sqlite-vec-win32-x64": "^0.1.7-alpha.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
   }
 }
