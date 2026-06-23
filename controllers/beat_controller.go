@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -107,7 +108,12 @@ func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
 			}
 			line = strings.TrimSpace(line)
 			if line != "" {
-				c.SSEvent("log", line)
+				eventType := "log"
+				var parsed struct{ Event string `json:"event"` }
+				if json.Unmarshal([]byte(line), &parsed) == nil && parsed.Event != "" {
+					eventType = parsed.Event
+				}
+				c.SSEvent(eventType, line)
 				c.Writer.Flush()
 			}
 		}
