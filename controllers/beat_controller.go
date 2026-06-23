@@ -48,7 +48,10 @@ func (bc *BeatController) HandleStop(c *gin.Context) {
 }
 
 func (bc *BeatController) HandleStatus(c *gin.Context) {
-	c.JSON(200, gin.H{"running": bc.beat.IsRunning()})
+	c.JSON(200, gin.H{
+		"running":          bc.beat.IsRunning(),
+		"heartbeatSeconds": int(bc.beat.Interval().Seconds()),
+	})
 }
 
 func (bc *BeatController) HandleMessage(c *gin.Context) {

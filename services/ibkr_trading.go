@@ -56,6 +56,8 @@ func normalizeOrderType(t string) (string, error) {
 		return "STP", nil
 	case "stop_limit", "stop limit", "stp lmt":
 		return "STP LMT", nil
+	case "midprice", "mid", "midpoint":
+		return "MIDPRICE", nil
 	case "":
 		return "", fmt.Errorf("order type is required (market/limit/stop); refusing to default to a market order")
 	default:

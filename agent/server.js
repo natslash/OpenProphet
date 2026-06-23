@@ -272,7 +272,7 @@ app.get('/api/events', async (req, res) => {
     const goPort = TRADING_BOT_PORT;
     const response = await fetch(`http://localhost:${goPort}/api/v1/agent/status`);
     const stateData = await response.json().catch(() => ({ running: false }));
-    res.write(`event: state\ndata: ${JSON.stringify({ running: stateData.running })}\n\n`);
+    res.write(`event: state\ndata: ${JSON.stringify({ running: stateData.running, heartbeatSeconds: stateData.heartbeatSeconds || 0 })}\n\n`);
     res.write(`event: status\ndata: ${JSON.stringify({ status: stateData.running ? 'active' : 'stopped' })}\n\n`);
   } catch(e) {
     res.write(`event: state\ndata: ${JSON.stringify({ running: false, error: e.message })}\n\n`);
@@ -786,7 +786,7 @@ app.get('/api/portfolio/account', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
     const { data } = await client.get('/api/v1/account');
     res.json(data);
-  } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
+  } catch(e) { console.error('Portfolio account proxy error:', e.message); res.status(502).json({ error: 'Trading bot unavailable' }); }
 });
 
 app.get('/api/portfolio/positions', async (req, res) => {
@@ -795,7 +795,7 @@ app.get('/api/portfolio/positions', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
     const { data } = await client.get('/api/v1/positions');
     res.json(data);
-  } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
+  } catch(e) { console.error('Portfolio positions proxy error:', e.message); res.status(502).json({ error: 'Trading bot unavailable' }); }
 });
 
 app.get('/api/portfolio/orders', async (req, res) => {

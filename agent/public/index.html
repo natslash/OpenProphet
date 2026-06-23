@@ -1337,7 +1337,7 @@ function updatePhase(phase) {
   else if(phase==='market_close'||phase==='after_hours') b.classList.add('close');
 }
 
-function fmtInt(s) { return s>=3600? (s/3600).toFixed(1)+'h' : s>=60? Math.floor(s/60)+'m '+s%60+'s' : s+'s'; }
+function fmtInt(s) { if(s==null||isNaN(s)) return '--'; return s>=3600? (s/3600).toFixed(1)+'h' : s>=60? Math.floor(s/60)+'m '+s%60+'s' : s+'s'; }
 
 function startProgress() {
   if(progressInterval) clearInterval(progressInterval);
@@ -1564,9 +1564,9 @@ async function refreshPortfolio() {
     const [a, p] = await Promise.all([fetch('/api/portfolio/account'), fetch('/api/portfolio/positions')]);
     if(a.ok) {
       const acc = await a.json();
-      const pv = '$' + Number(acc.portfolioValue||acc.PortfolioValue||acc.portfolio_value||0).toLocaleString('en-US',{minimumFractionDigits:2});
-      const cv = '$' + Number(acc.cash||acc.Cash||0).toLocaleString('en-US',{minimumFractionDigits:2});
-      const bv = '$' + Number(acc.buyingPower||acc.BuyingPower||acc.buying_power||0).toLocaleString('en-US',{minimumFractionDigits:2});
+      const pv = '€' + Number(acc.portfolioValue||acc.PortfolioValue||acc.portfolio_value||0).toLocaleString('de-DE',{minimumFractionDigits:2});
+      const cv = '€' + Number(acc.cash||acc.Cash||0).toLocaleString('de-DE',{minimumFractionDigits:2});
+      const bv = '€' + Number(acc.buyingPower||acc.BuyingPower||acc.buying_power||0).toLocaleString('de-DE',{minimumFractionDigits:2});
       ['portfolio-value','m-portfolio'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = pv; });
       ['cash-value','m-cash'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = cv; });
       ['bp-value','m-bp'].forEach(id => { const e = document.getElementById(id); if(e) e.textContent = bv; });
@@ -1581,7 +1581,7 @@ async function refreshPortfolio() {
         const sym = pos.symbol||pos.Symbol||'??', pnl = Number(pos.unrealizedPL||pos.UnrealizedPL||0);
         const pct = (Number(pos.unrealizedPLPercent||pos.UnrealizedPLPercent||0)*100).toFixed(1);
         const c = pnl>=0? 'var(--success)' : 'var(--error)';
-        return '<div class="card"><div style="display:flex;justify-content:space-between"><span class="symbol">'+sym+'</span><span class="pnl" style="color:'+c+'">'+(pnl>=0?'+':'')+'$'+pnl.toFixed(2)+' ('+pct+'%)</span></div><div style="color:var(--ink-faint);font-size:11px;margin-top:3px">Qty: '+(pos.qty||pos.Qty)+' | Avg: $'+Number(pos.avgEntryPrice||pos.AvgEntryPrice||0).toFixed(2)+'</div></div>';
+        return '<div class="card"><div style="display:flex;justify-content:space-between"><span class="symbol">'+sym+'</span><span class="pnl" style="color:'+c+'">'+(pnl>=0?'+':'')+'€'+pnl.toFixed(2)+' ('+pct+'%)</span></div><div style="color:var(--ink-faint);font-size:11px;margin-top:3px">Qty: '+(pos.qty||pos.Qty)+' | Avg: €'+Number(pos.avgEntryPrice||pos.AvgEntryPrice||0).toFixed(2)+'</div></div>';
       }).join('') : '<div class="no-data">No open positions</div>';
       ['positions-container','m-positions'].forEach(id => { const e = document.getElementById(id); if(e) e.innerHTML = html; });
       const posEl = document.querySelector('[data-stat="main-positions"]');
