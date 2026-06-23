@@ -7,6 +7,7 @@ import (
 )
 
 type mockWrapper struct {
+	DefaultWrapper
 	nextValidId     int64
 	managedAccts    string
 	errReqId        int
@@ -31,9 +32,19 @@ type mockWrapper struct {
 	histBars  []HistoricalBar
 	histEndStart string
 	histEndEnd   string
-	
+
 	histUpdReqId int64
 	histUpdBar   HistoricalBar
+
+	portfolioContract    Contract
+	portfolioPosition    decimal.Decimal
+	portfolioMarketPrice float64
+	portfolioMarketValue float64
+	portfolioAvgCost     float64
+	portfolioUnrealPNL   float64
+	portfolioRealPNL     float64
+	portfolioAccount     string
+	acctDownloadEndAcct  string
 }
 
 func (m *mockWrapper) HistoricalData(reqId int64, bar HistoricalBar) {
@@ -100,6 +111,21 @@ func (m *mockWrapper) PositionEnd() {}
 func (m *mockWrapper) OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState) {}
 func (m *mockWrapper) OpenOrderEnd() {}
 func (m *mockWrapper) OrderStatus(orderId int64, status string, filled, remaining decimal.Decimal, avgFillPrice float64, permId, parentId int64, lastFillPrice float64, clientId int, whyHeld string, mktCapPrice float64) {}
+
+func (m *mockWrapper) UpdatePortfolio(contract Contract, position decimal.Decimal, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL float64, accountName string) {
+	m.portfolioContract = contract
+	m.portfolioPosition = position
+	m.portfolioMarketPrice = marketPrice
+	m.portfolioMarketValue = marketValue
+	m.portfolioAvgCost = averageCost
+	m.portfolioUnrealPNL = unrealizedPNL
+	m.portfolioRealPNL = realizedPNL
+	m.portfolioAccount = accountName
+}
+
+func (m *mockWrapper) AccountDownloadEnd(accountName string) {
+	m.acctDownloadEndAcct = accountName
+}
 
 func TestDecoder_Decode(t *testing.T) {
 	mock := &mockWrapper{}
@@ -249,6 +275,62 @@ func TestDecoder_Decode(t *testing.T) {
 				}
 				if m.histEndStart != "start" || m.histEndEnd != "end" {
 					t.Errorf("Unexpected histEnd: %s, %s", m.histEndStart, m.histEndEnd)
+				}
+			},
+		},
+		{
+			name: "portfolio value v8 OESX option",
+			// msgID(7), version(8), conId, symbol, secType, expiry, strike, right,
+			// multiplier, primaryExch, currency, localSymbol, tradingClass,
+			// position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL, accountName
+			fields: []string{
+				"7", "8",
+				"12345", "ESTX50", "OPT", "20260620", "5200.0", "C",
+				"10", "EUREX", "EUR", "OESX JUN25 5200 C", "OESX",
+				"2", "8.50", "170.0", "83.50", "3.0", "0.0", "DU5894187",
+			},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.portfolioContract.ConId != 12345 {
+					t.Errorf("Expected conId 12345, got %d", m.portfolioContract.ConId)
+				}
+				if m.portfolioContract.Symbol != "ESTX50" {
+					t.Errorf("Expected symbol ESTX50, got %s", m.portfolioContract.Symbol)
+				}
+				if m.portfolioContract.SecType != "OPT" {
+					t.Errorf("Expected secType OPT, got %s", m.portfolioContract.SecType)
+				}
+				if m.portfolioContract.Multiplier != "10" {
+					t.Errorf("Expected multiplier 10, got %s", m.portfolioContract.Multiplier)
+				}
+				if m.portfolioContract.TradingClass != "OESX" {
+					t.Errorf("Expected tradingClass OESX, got %s", m.portfolioContract.TradingClass)
+				}
+				if !m.portfolioPosition.Equal(decimal.NewFromInt(2)) {
+					t.Errorf("Expected position 2, got %s", m.portfolioPosition)
+				}
+				if m.portfolioMarketPrice != 8.50 {
+					t.Errorf("Expected marketPrice 8.50, got %f", m.portfolioMarketPrice)
+				}
+				if m.portfolioMarketValue != 170.0 {
+					t.Errorf("Expected marketValue 170, got %f", m.portfolioMarketValue)
+				}
+				if m.portfolioAvgCost != 83.50 {
+					t.Errorf("Expected avgCost 83.50, got %f", m.portfolioAvgCost)
+				}
+				if m.portfolioUnrealPNL != 3.0 {
+					t.Errorf("Expected unrealizedPNL 3.0, got %f", m.portfolioUnrealPNL)
+				}
+				if m.portfolioAccount != "DU5894187" {
+					t.Errorf("Expected account DU5894187, got %s", m.portfolioAccount)
+				}
+			},
+		},
+		{
+			name:   "account download end",
+			fields: []string{"54", "1", "DU5894187"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.acctDownloadEndAcct != "DU5894187" {
+					t.Errorf("Expected account DU5894187, got %s", m.acctDownloadEndAcct)
 				}
 			},
 		},

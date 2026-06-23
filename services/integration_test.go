@@ -174,6 +174,30 @@ func TestIntegration_RejectedOrder(t *testing.T) {
 	}
 }
 
+func TestIntegration_GetPositions(t *testing.T) {
+	client, _ := setupIntegrationClient(t)
+	defer client.Close()
+
+	svc := NewIBKRTradingService(client)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	positions, err := svc.GetPositions(ctx)
+	if err != nil {
+		t.Fatalf("GetPositions failed: %v", err)
+	}
+
+	t.Logf("Fetched %d positions via reqAccountUpdates", len(positions))
+	for _, p := range positions {
+		t.Logf("  %s: qty=%.0f side=%s avgEntry=%.2f mktVal=%.2f unrealPL=%.2f (%.2f%%) curPrice=%.2f",
+			p.Symbol, p.Qty, p.Side, p.AvgEntryPrice, p.MarketValue, p.UnrealizedPL, p.UnrealizedPLPC*100, p.CurrentPrice)
+		if p.MarketValue == 0 && p.CurrentPrice == 0 && p.UnrealizedPL == 0 {
+			t.Errorf("Position %s has zero market data — reqAccountUpdates may not be returning portfolio values", p.Symbol)
+		}
+	}
+}
+
 func TestIntegration_GetHistoricalBars_OffHours(t *testing.T) {
 	client, _ := setupIntegrationClient(t)
 	defer client.Close()

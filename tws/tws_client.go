@@ -554,6 +554,34 @@ func (c *Client) PositionEnd() {
 	}
 }
 
+const AccountUpdatesDispatchKey int64 = -1
+
+func (c *Client) UpdatePortfolio(contract Contract, position decimal.Decimal, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL float64, accountName string) {
+	c.dispatcher.Dispatch(AccountUpdatesDispatchKey, UpdatePortfolioMsg{
+		Contract: contract, Position: position, MarketPrice: marketPrice,
+		MarketValue: marketValue, AverageCost: averageCost,
+		UnrealizedPNL: unrealizedPNL, RealizedPNL: realizedPNL, AccountName: accountName,
+	})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.UpdatePortfolio(contract, position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL, accountName)
+	}
+}
+
+func (c *Client) AccountDownloadEnd(accountName string) {
+	c.dispatcher.Complete(AccountUpdatesDispatchKey)
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.AccountDownloadEnd(accountName)
+	}
+}
+
 func (c *Client) OpenOrder(orderId int64, contract Contract, order Order, orderState OrderState) {
 	// Open orders don't always have a strict request ID if requested globally, but we can dispatch to 0.
 	c.dispatcher.Dispatch(0, OpenOrderMsg{OrderId: orderId, Contract: contract, Order: order, OrderState: orderState})

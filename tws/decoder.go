@@ -79,6 +79,17 @@ func (d *Decoder) Decode(fields []string) error {
 			}
 		}
 
+	case inPortfolioValue:
+		d.handlePortfolioValue(fields)
+
+	case inAcctUpdateTime:
+		// Ignored — we don't need the account update timestamp
+
+	case inAcctDownloadEnd:
+		if len(fields) >= 3 {
+			d.wrapper.AccountDownloadEnd(fields[2])
+		}
+
 	case inAccountSummary:
 		if len(fields) >= 7 {
 			reqId, _ := strconv.ParseInt(fields[2], 10, 64)
@@ -370,4 +381,54 @@ func (d *Decoder) handleHistoricalDataEnd(fields []string) {
 	startDateStr := fields[2]
 	endDateStr := fields[3]
 	d.wrapper.HistoricalDataEnd(reqId, startDateStr, endDateStr)
+}
+
+func (d *Decoder) handlePortfolioValue(fields []string) {
+	if len(fields) < 3 {
+		return
+	}
+	idx := 1
+	version, _ := strconv.Atoi(fields[idx]); idx++
+
+	var c Contract
+	if version >= 6 {
+		c.ConId, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	}
+	c.Symbol = fields[idx]; idx++
+	c.SecType = InstrumentType(fields[idx]); idx++
+	c.LastTradeDateOrContractMonth = fields[idx]; idx++
+	c.Strike, _ = strconv.ParseFloat(fields[idx], 64); idx++
+	c.Right = fields[idx]; idx++
+	if version >= 7 {
+		c.Multiplier = fields[idx]; idx++
+		c.PrimaryExch = fields[idx]; idx++
+	}
+	c.Currency = fields[idx]; idx++
+	if version >= 2 {
+		c.LocalSymbol = fields[idx]; idx++
+	}
+	if version >= 8 {
+		c.TradingClass = fields[idx]; idx++
+	}
+
+	if idx >= len(fields) { return }
+	position, _ := decimal.NewFromString(fields[idx]); idx++
+	if idx >= len(fields) { return }
+	marketPrice, _ := strconv.ParseFloat(fields[idx], 64); idx++
+	if idx >= len(fields) { return }
+	marketValue, _ := strconv.ParseFloat(fields[idx], 64); idx++
+
+	var averageCost, unrealizedPNL, realizedPNL float64
+	if version >= 3 && idx+2 < len(fields) {
+		averageCost, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		unrealizedPNL, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		realizedPNL, _ = strconv.ParseFloat(fields[idx], 64); idx++
+	}
+
+	var accountName string
+	if version >= 4 && idx < len(fields) {
+		accountName = fields[idx]
+	}
+
+	d.wrapper.UpdatePortfolio(c, position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL, accountName)
 }
