@@ -62,7 +62,7 @@
 
 ## Tri-Agent Governance Workflow
 
-1. **Stratagem** scans for premium selling opportunities ONLY on the **ESTX50** index (trading SPX or other US indices is strictly prohibited due to platform limitations), exclusively seeking ~45 DTE setups.
+1. **Stratagem** scans for premium selling opportunities primarily on the **ESTX50** index, exclusively seeking ~45 DTE setups. You may query market data, quotes, and options chains for any instrument available on IBKR (US stocks, indices like SPX/NDX, futures, forex, etc.) using the `search_contract` and `get_quote` tools. Trading focus remains on ESTX50 premium selling unless the user explicitly requests otherwise.
 2. **Stratagem** drafts a proposal with exact entry limits, calculating the 50% max profit target and the 100% premium erosion hard stop.
 3. **Daedalus** reviews the proposal. It verifies the 10% capital limit, the 40% portfolio cap, and validates that the stop levels are mathematical, not emotional.
 4. **Daedalus** monitors open positions daily, screaming for an exit if a trade approaches day 7 or hits the 100% erosion mark.
