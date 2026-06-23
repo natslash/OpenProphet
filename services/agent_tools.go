@@ -94,6 +94,18 @@ func BuildAgentTools() []interfaces.LLMTool {
 			},
 		},
 		{
+			Name:        "set_heartbeat",
+			Description: "Change the interval until the next heartbeat tick. Use when the user asks to wait, delay, or change timing. The override applies to the next tick only, then reverts to the default interval.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"seconds": map[string]interface{}{"type": "integer", "description": "Seconds until next heartbeat (60-3600)", "minimum": 60, "maximum": 3600},
+					"reason":  map[string]interface{}{"type": "string", "description": "Why the interval is being changed"},
+				},
+				"required": []string{"seconds", "reason"},
+			},
+		},
+		{
 			Name:        "search_contract",
 			Description: "Search for tradable instruments on IBKR by name or symbol. Returns matching contracts with exchange, currency, and type. Use this to discover symbols you don't know the exact format for.",
 			InputSchema: map[string]interface{}{
@@ -128,6 +140,7 @@ type ToolContext struct {
 	Trading              interfaces.TradingService
 	LLM                  interfaces.LLMProvider
 	Intent               *IntentManager
+	Beat                 *AutonomousBeat
 	Resolver             *tws.ContractResolver
 	RequireDoubleConfirm bool
 }
@@ -293,6 +306,26 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return "", err
 		}
 		return formatOptionsChain(ctx, tc.Data, req.Symbol, chain), nil
+
+	case "set_heartbeat":
+		var req struct {
+			Seconds int    `json:"seconds"`
+			Reason  string `json:"reason"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if tc.Beat == nil {
+			return "", fmt.Errorf("heartbeat control not available")
+		}
+		if req.Seconds < 60 {
+			req.Seconds = 60
+		}
+		if req.Seconds > 3600 {
+			req.Seconds = 3600
+		}
+		tc.Beat.SetNextInterval(time.Duration(req.Seconds)*time.Second, req.Reason)
+		return fmt.Sprintf("Next heartbeat interval set to %d seconds. Reason: %s", req.Seconds, req.Reason), nil
 
 	case "search_contract":
 		var req struct {
