@@ -1174,6 +1174,15 @@ function connectSSE() {
   });
   es.addEventListener('intent_resolved', e => {
     refreshIntents();
+    try {
+      const d = JSON.parse(e.data);
+      const intent = d.text ? JSON.parse(d.text) : d;
+      if (intent.Status === 'COMPLETED') {
+        showToast(`Order executed: ${intent.Side} ${intent.Quantity} ${intent.Symbol}`, 'success');
+      } else if (intent.Status === 'REJECTED') {
+        showToast(`Intent rejected: ${intent.Symbol}`, 'error');
+      }
+    } catch(err) { /* best-effort toast */ }
   });
   es.addEventListener('agent_tool', e => {
     const d = JSON.parse(e.data);

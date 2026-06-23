@@ -340,7 +340,12 @@ func (c *Client) Closed() <-chan struct{} { return c.closed }
 
 // --- framing helpers ---
 
+var twsDebug = os.Getenv("TWS_DEBUG") == "1"
+
 func debugLogFrame(prefix string, fields []string) {
+	if !twsDebug {
+		return
+	}
 	masked := make([]string, len(fields))
 	for i, f := range fields {
 		if strings.HasPrefix(f, "DU") && len(f) >= 8 {

@@ -197,6 +197,10 @@ func (im *IntentManager) MarkCompleted(id string) {
 	if intent, exists := im.intents[id]; exists {
 		intent.Status = IntentStatusCompleted
 		im.emitIntentEvent("intent_resolved", intent)
+
+		confirmation := fmt.Sprintf("Order executed: %s %.0f %s", intent.Side, intent.Quantity, intent.Symbol)
+		go appendJSONToBotLog("agent_text", "", confirmation)
+
 		delete(im.intents, id)
 	}
 }
