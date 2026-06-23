@@ -129,13 +129,17 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 ---
 
-## Backlog (Unranked)
+## Backlog
 
-- **Multi-Leg Option Combos**: Support for net credit/debit limit orders (BAG routing) for option spreads.
-- **Agent Dialogue UX**: Group conversations together to prevent long message chains.
-- **Agent Identity UI**: Show messages by role (CEO, Stratagem, Daedalus) to keep dialogues tidy and understandable.
-- **Trading Safety Checks**: Tidy up "Enable Trading" logic to ensure no trades are placed when trading is disabled (make live vs dry-run mode explicitly clear).
-- **Dashboard UI Overhaul**: General UX/UI improvements for the frontend.
+| Rank | Item | Priority | Notes |
+|------|------|----------|-------|
+| 1 | **Enable Gemini LLM provider via UI** | P0 — Cost | Fix `gemini_client.go` (3 bugs), wire provider env in `server.js`. Fetch model list dynamically from provider APIs on server startup + cache (not per-page-load); `POST /api/models/refresh` already exists for manual refresh. Drops LLM cost ~250x. |
+| 2 | **Cache TRADING_RULES.md at startup** | P1 — Perf | Load once in `Start()`, store in field. No per-beat disk I/O. |
+| 3 | **Dashboard beat grouping** | P2 — UX | Group bot log events by `beatId` into collapsible cards. Backend `beatId` tagging already done. Subsumes "Agent Dialogue UX". |
+| 4 | Multi-Leg Option Combos | P3 | BAG routing for net credit/debit limit orders on option spreads. |
+| 5 | Agent Identity UI | P3 | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. |
+| 6 | Trading Safety Checks | P3 | Tidy "Enable Trading" logic; make live vs dry-run mode explicitly clear. |
+| 7 | Dashboard UI Overhaul | P4 | General UX/UI improvements. |
 
 ---
 
