@@ -277,7 +277,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			// Emit tool use to the UI
 			appendToolToBotLog("", toolCall.Name, toolCall.Arguments)
 
-			resStr, toolErr := HandleToolCall(ctx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm, b.intentManager, b.requireDoubleConfirm)
+			toolCtx, toolCancel := context.WithTimeout(ctx, 90*time.Second)
+			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm, b.intentManager, b.requireDoubleConfirm)
+			toolCancel()
 
 			var resultMsg string
 			if toolErr != nil {
@@ -308,7 +310,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			Role:    "user",
 			Content: "You have reached your tool-use limit for this cycle. Do NOT call any more tools. Based only on the data you have already gathered, give the user your final recommendation now.",
 		})
-		resp, err := b.llm.GenerateResponse(ctx, messages, nil) // nil tools → the model must answer in text
+		summaryCtx, summaryCancel := context.WithTimeout(ctx, 60*time.Second)
+		resp, err := b.llm.GenerateResponse(summaryCtx, messages, nil) // nil tools → the model must answer in text
+		summaryCancel()
 		if err != nil {
 			b.logger.WithError(err).Error("[BEAT] Forced summary failed")
 			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
