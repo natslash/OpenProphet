@@ -122,4 +122,15 @@ const (
 	TickLow       = 7
 	TickVolume    = 8
 	TickClose     = 9
+
+	TickDelayedBid      = 66
+	TickDelayedAsk      = 67
+	TickDelayedLast     = 68
+	TickDelayedBidSize  = 69
+	TickDelayedAskSize  = 70
+	TickDelayedLastSize = 71
+	TickDelayedHigh     = 72
+	TickDelayedLow      = 73
+	TickDelayedClose    = 75
+	TickDelayedOpen     = 76
 )

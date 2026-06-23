@@ -65,14 +65,10 @@ func main() {
 	connectCancel()
 	logger.Info("Connected to IB Gateway (paper).")
 
-	// Set market data type to delayed (3) by default, or else we get 10089 errors on paper accounts without subscriptions
-	if err := client.Encoder().ReqMarketDataType(3); err != nil {
-		logger.Warn("Failed to set market data type to delayed:", err)
-	}
-
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
 	gated := services.NewGatedTradingService(services.NewIBKRTradingService(client), cfg.TradingEnabled)
 	tradingService = gated
+	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
 	dataService = services.NewIBKRDataService(client)
 
 	// Disconnect -> halt: stop sending orders if the socket drops (IB

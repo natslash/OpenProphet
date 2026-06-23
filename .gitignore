@@ -61,6 +61,8 @@ activity_logs/
 
 # Test artifacts
 services/test_integration_pm_db.json
+test-results/
+/mktdata_test
 
 # Scratch utilities
 count_tokens.go
