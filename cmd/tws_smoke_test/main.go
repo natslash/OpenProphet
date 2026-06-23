@@ -69,7 +69,8 @@ func main() {
 	}
 
 	fmt.Println("Connected. Initializing Data Service...")
-	dataService := services.NewIBKRDataService(client)
+	resolver := tws.NewContractResolver(client)
+	dataService := services.NewIBKRDataService(client, resolver)
 
 	fmt.Println("Requesting Historical Data for AAPL via DataService...")
 	

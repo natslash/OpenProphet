@@ -845,6 +845,29 @@ app.post('/api/intents/reject/:id', async (req, res) => {
   }
 });
 
+// ── Broker connection management ───────────────────────────────────
+app.post('/api/broker/reconnect', async (req, res) => {
+  try {
+    const client = getGoClient();
+    if (!client) return res.status(502).json({ error: 'Trading backend unavailable' });
+    const { data } = await client.post('/api/v1/broker/reconnect');
+    res.json(data);
+  } catch (err) {
+    res.status(err.response?.status || 502).json(err.response?.data || { error: 'Reconnect failed' });
+  }
+});
+
+app.get('/api/broker/status', async (req, res) => {
+  try {
+    const client = getGoClient();
+    if (!client) return res.json({ connected: false, trading_enabled: false });
+    const { data } = await client.get('/api/v1/broker/status');
+    res.json(data);
+  } catch (err) {
+    res.json({ connected: false, trading_enabled: false });
+  }
+});
+
 // ── Auth (OpenCode) ────────────────────────────────────────────────
 app.get('/api/auth/status', (req, res) => {
   // API key in env is the fastest check

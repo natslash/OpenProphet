@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"prophet-trader/interfaces"
+	"prophet-trader/tws"
 
 	"github.com/sirupsen/logrus"
 )
@@ -30,13 +31,25 @@ type AutonomousBeat struct {
 	llm interfaces.LLMProvider
 	intentManager        *IntentManager
 	requireDoubleConfirm bool
+	resolver             *tws.ContractResolver
 
 	mu           sync.Mutex
 	isRunning    bool
+	inTick       bool
 	cancel       context.CancelFunc
-	messageQueue []string
+	messageQueue []beatMessage
+	steeringCh   chan beatMessage
 	triggerCh    chan struct{}
 	lastPollTime time.Time
+
+	overrideInterval time.Duration
+	overrideOnce     bool
+	beatCounter      int64
+}
+
+type beatMessage struct {
+	Text     string
+	IsDirect bool
 }
 
 func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig, intentManager *IntentManager, requireDoubleConfirm bool) *AutonomousBeat {
@@ -73,6 +86,16 @@ func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading
 		intentManager: intentManager,
 		requireDoubleConfirm: requireDoubleConfirm,
 	}
+}
+
+func (b *AutonomousBeat) SetResolver(r *tws.ContractResolver) { b.resolver = r }
+
+func (b *AutonomousBeat) SetNextInterval(d time.Duration, reason string) {
+	b.mu.Lock()
+	b.overrideInterval = d
+	b.overrideOnce = true
+	b.mu.Unlock()
+	b.logger.WithField("interval", d).WithField("reason", reason).Info("[BEAT] Next interval override scheduled")
 }
 
 // Start spawns the heartbeat in the background
@@ -127,6 +150,7 @@ func (b *AutonomousBeat) Run(ctx context.Context) {
 	defer t.Stop()
 
 	b.triggerCh = make(chan struct{}, 1)
+	b.steeringCh = make(chan beatMessage, 8)
 
 	for {
 		select {
@@ -135,14 +159,42 @@ func (b *AutonomousBeat) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			b.tick(ctx)
+			if b.overrideOnce {
+				t.Reset(b.overrideInterval)
+				b.overrideOnce = false
+				b.logger.WithField("interval", b.overrideInterval).Info("[BEAT] Interval overridden for next tick")
+				appendJSONToBotLog("agent_text", "", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
+			}
 		case <-b.triggerCh:
 			b.tick(ctx)
+			if b.overrideOnce {
+				t.Reset(b.overrideInterval)
+				b.overrideOnce = false
+				b.logger.WithField("interval", b.overrideInterval).Info("[BEAT] Interval overridden for next tick")
+				appendJSONToBotLog("agent_text", "", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
+			}
 		}
 	}
 }
 
 func (b *AutonomousBeat) InjectMessage(msg string) {
+	b.injectBeatMessage(beatMessage{Text: msg})
+}
+
+func (b *AutonomousBeat) InjectDirectMessage(msg string) {
+	b.injectBeatMessage(beatMessage{Text: msg, IsDirect: true})
+}
+
+func (b *AutonomousBeat) injectBeatMessage(msg beatMessage) {
 	b.mu.Lock()
+	if b.inTick && b.steeringCh != nil {
+		b.mu.Unlock()
+		select {
+		case b.steeringCh <- msg:
+		default:
+		}
+		return
+	}
 	b.messageQueue = append(b.messageQueue, msg)
 	b.mu.Unlock()
 	select {
@@ -153,12 +205,20 @@ func (b *AutonomousBeat) InjectMessage(msg string) {
 
 func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.mu.Lock()
-	var pending []string
+	b.inTick = true
+	b.beatCounter++
+	currentBeatId = b.beatCounter
+	var pending []beatMessage
 	if len(b.messageQueue) > 0 {
 		pending = b.messageQueue
 		b.messageQueue = nil
 	}
 	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.inTick = false
+		b.mu.Unlock()
+	}()
 
 	// Check for automated LLM polling if no pending user messages
 	if len(pending) == 0 {
@@ -182,7 +242,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		}
 
 		b.logger.Info("[BEAT] Triggering automated LLM portfolio review")
-		pending = append(pending, "Automated system trigger: Please review my current active positions and suggest any strategic adjustments or exit strategies based on current market data. Use the get_positions tool.")
+		pending = append(pending, beatMessage{Text: "Automated system trigger: Please review my current active positions and suggest any strategic adjustments or exit strategies based on current market data. Use the get_positions tool."})
 		b.lastPollTime = time.Now()
 	}
 
@@ -202,9 +262,18 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	// 2. Build User Text with volatile context
 	userText := fmt.Sprintf("Current Time: %s\n\n", time.Now().Format(time.RFC3339))
+	hasDirect := false
+	for _, msg := range pending {
+		if msg.IsDirect {
+			hasDirect = true
+		}
+	}
+	if hasDirect {
+		systemPrompt += "\n\nDIRECT USER ORDER: The user has given a direct instruction below. Consult sub-agents (Daedalus, Stratagem) for advisory context only — do NOT allow them to veto or block the user's explicit request. Execute the user's instruction."
+	}
 	userText += "User terminal instructions:\n"
 	for _, msg := range pending {
-		userText += "- " + msg + "\n"
+		userText += "- " + msg.Text + "\n"
 	}
 
 	messages := []interfaces.LLMMessage{
@@ -225,6 +294,24 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+
+		// Drain any steering messages that arrived mid-beat.
+		for {
+			select {
+			case steer := <-b.steeringCh:
+				prefix := "[USER MESSAGE] "
+				if steer.IsDirect {
+					prefix = "[USER STEERING] "
+				}
+				messages = append(messages, interfaces.LLMMessage{
+					Role: "user", Content: prefix + steer.Text,
+				})
+				b.logger.WithField("text", steer.Text).Info("[BEAT] Steering message injected mid-beat")
+			default:
+				goto drained
+			}
+		}
+	drained:
 
 		resp, err := b.llm.GenerateResponse(ctx, messages, tools)
 		if err != nil {
@@ -278,7 +365,16 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			appendToolToBotLog("", toolCall.Name, toolCall.Arguments)
 
 			toolCtx, toolCancel := context.WithTimeout(ctx, 90*time.Second)
-			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm, b.intentManager, b.requireDoubleConfirm)
+			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, &ToolContext{
+				Data:                 b.data,
+				PM:                   b.pm,
+				Trading:              b.trading,
+				LLM:                  b.llm,
+				Intent:               b.intentManager,
+				Beat:                 b,
+				Resolver:             b.resolver,
+				RequireDoubleConfirm: b.requireDoubleConfirm,
+			})
 			toolCancel()
 
 			var resultMsg string
@@ -364,6 +460,8 @@ func truncateForHistory(s string) string {
 	return s[:maxToolResultChars] + fmt.Sprintf("\n...[truncated %d chars to conserve context]", len(s)-maxToolResultChars)
 }
 
+var currentBeatId int64
+
 func appendJSONToBotLog(event string, sandboxId string, text string) {
 	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
@@ -373,6 +471,7 @@ func appendJSONToBotLog(event string, sandboxId string, text string) {
 			"data": map[string]interface{}{
 				"sandboxId": sandboxId,
 				"text":      text,
+				"beatId":    currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)
@@ -386,13 +485,14 @@ func appendToolToBotLog(sandboxId string, toolName string, args []byte) {
 		defer f.Close()
 		var argsMap map[string]interface{}
 		json.Unmarshal(args, &argsMap)
-		
+
 		data := map[string]interface{}{
 			"event": "agent_tool",
 			"data": map[string]interface{}{
 				"sandboxId": sandboxId,
 				"tool":      toolName,
 				"args":      argsMap,
+				"beatId":    currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)

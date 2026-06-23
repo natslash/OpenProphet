@@ -81,7 +81,8 @@ func main() {
 	time.Sleep(2 * time.Second)
 	fmt.Println("Connected.")
 
-	svc := services.NewIBKRTradingService(client)
+	resolver := tws.NewContractResolver(client)
+	svc := services.NewIBKRTradingService(client, resolver)
 
 	// --- reads ---
 	withCtx := func(d time.Duration) (context.Context, context.CancelFunc) {

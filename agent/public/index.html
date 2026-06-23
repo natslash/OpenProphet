@@ -510,6 +510,11 @@
       <button class="btn sm" id="btn-pause" onclick="pauseAgent()" style="display:none">Pause</button>
       <button class="btn sm" id="btn-resume" onclick="resumeAgent()" style="display:none">Resume</button>
       <button class="btn danger sm" id="btn-stop" onclick="stopAgent()" style="display:none">Stop</button>
+      <div class="status-pill" id="broker-pill" style="margin-left:8px" title="IB Gateway connection">
+        <div class="status-dot" id="broker-dot" style="background:var(--ink-muted)"></div>
+        <span id="broker-text" style="font-size:11px">IB</span>
+      </div>
+      <button class="btn sm" id="btn-reconnect" onclick="reconnectBroker()" style="display:none;margin-left:4px" title="Reconnect to IB Gateway">Reconnect</button>
     </div>
   </div>
 
@@ -1174,6 +1179,15 @@ function connectSSE() {
   });
   es.addEventListener('intent_resolved', e => {
     refreshIntents();
+    try {
+      const d = JSON.parse(e.data);
+      const intent = d.text ? JSON.parse(d.text) : d;
+      if (intent.Status === 'COMPLETED') {
+        showToast(`Order executed: ${intent.Side} ${intent.Quantity} ${intent.Symbol}`, 'success');
+      } else if (intent.Status === 'REJECTED') {
+        showToast(`Intent rejected: ${intent.Symbol}`, 'error');
+      }
+    } catch(err) { /* best-effort toast */ }
   });
   es.addEventListener('agent_tool', e => {
     const d = JSON.parse(e.data);
@@ -1383,6 +1397,49 @@ async function pauseAgent() {
 }
 async function resumeAgent() {
   log('Resume not supported in single-agent mode', 'warning');
+}
+
+async function reconnectBroker() {
+  const btn = document.getElementById('btn-reconnect');
+  btn.textContent = 'Reconnecting...'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/broker/reconnect', {method:'POST'});
+    const d = await r.json();
+    if (r.ok) {
+      log('IB Gateway reconnected', 'info');
+      showToast('IB Gateway reconnected', 'success');
+    } else {
+      log('Reconnect failed: ' + (d.error || 'unknown'), 'error');
+      showToast('Reconnect failed', 'error');
+    }
+  } catch (e) {
+    log('Reconnect error: ' + e.message, 'error');
+  }
+  btn.textContent = 'Reconnect'; btn.disabled = false;
+  checkBrokerStatus();
+}
+
+async function checkBrokerStatus() {
+  try {
+    const r = await fetch('/api/broker/status');
+    const d = await r.json();
+    const dot = document.getElementById('broker-dot');
+    const text = document.getElementById('broker-text');
+    const btn = document.getElementById('btn-reconnect');
+    if (d.connected) {
+      dot.style.background = d.trading_enabled ? 'var(--accent)' : 'var(--warning)';
+      text.textContent = d.trading_enabled ? 'IB' : 'IB (gated)';
+      btn.style.display = 'none';
+    } else {
+      dot.style.background = 'var(--error)';
+      text.textContent = 'IB offline';
+      btn.style.display = '';
+    }
+  } catch {
+    document.getElementById('broker-dot').style.background = 'var(--ink-muted)';
+    document.getElementById('broker-text').textContent = 'IB ?';
+    document.getElementById('btn-reconnect').style.display = '';
+  }
 }
 
 function refreshButtons() {
@@ -2595,9 +2652,10 @@ function startPolling() {
     setInterval(renderIntentsFeed, 1000),
     setInterval(checkHealth, 15000),
     setInterval(checkAuth, 30000),
+    setInterval(checkBrokerStatus, 10000),
   ];
   // Run immediately on start
-  updateClock(); refreshPortfolio(); refreshIntents(); checkHealth(); checkAuth(); loadEnvConfig();
+  updateClock(); refreshPortfolio(); refreshIntents(); checkHealth(); checkAuth(); checkBrokerStatus(); loadEnvConfig();
 }
 function stopPolling() {
   _pollIntervals.forEach(id => clearInterval(id));

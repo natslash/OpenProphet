@@ -65,20 +65,53 @@ func main() {
 	connectCancel()
 	logger.Info("Connected to IB Gateway (paper).")
 
+	resolver := tws.NewContractResolver(client)
+
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
-	ibkrTrading := services.NewIBKRTradingService(client)
+	ibkrTrading := services.NewIBKRTradingService(client, resolver)
 	gated := services.NewGatedTradingService(ibkrTrading, cfg.TradingEnabled)
 	tradingService = gated
 	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
-	dataService = services.NewIBKRDataService(client)
+	ibkrData := services.NewIBKRDataService(client, resolver)
+	dataService = ibkrData
 	ibkrTrading.SetDataService(dataService)
+	ibkrTrading.SubscribePositions()
 
-	// Disconnect -> halt: stop sending orders if the socket drops (IB
-	// Gateway restarts daily; tws.Client.Connect is one-shot).
+	// Auto-reconnect loop: when IB Gateway drops (daily restart, network
+	// issue), disable trading and retry with exponential backoff.
 	go func() {
-		<-client.Closed()
-		gated.Disable("IB Gateway connection closed")
-		logger.Error("IB Gateway disconnected — order placement halted")
+		backoff := 5 * time.Second
+		const maxBackoff = 5 * time.Minute
+		for {
+			<-client.Closed()
+			gated.Disable("IB Gateway connection closed")
+			logger.Error("IB Gateway disconnected — attempting reconnect...")
+
+			ibkrData.OnDisconnect()
+			ibkrTrading.OnDisconnect()
+
+			for {
+				time.Sleep(backoff)
+				logger.WithField("backoff", backoff).Info("Reconnecting to IB Gateway...")
+
+				rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+				err := client.Reconnect(rctx)
+				rcancel()
+
+				if err != nil {
+					logger.WithError(err).Error("Reconnect failed")
+					backoff = min(backoff*2, maxBackoff)
+					continue
+				}
+
+				logger.Info("Reconnected to IB Gateway successfully")
+				ibkrData.OnReconnect()
+				ibkrTrading.OnReconnect()
+				gated.Enable("IB Gateway reconnected")
+				backoff = 5 * time.Second
+				break
+			}
+		}
 	}()
 
 	// Create storage service
@@ -142,7 +175,8 @@ func main() {
 		LLMPollingEnabled:  cfg.LLMPollingEnabled,
 		LLMPollingInterval: time.Duration(cfg.LLMPollingIntervalSecs) * time.Second,
 	}, intentManager, cfg.RequireDoubleConfirm)
-	
+	autonomousBeat.SetResolver(resolver)
+
 	intentManager.SetFeedbackCallback(func(intent *services.Intent, reason string) {
 		msg := fmt.Sprintf("System feedback: Your trade intent (ID: %s, Symbol: %s, Side: %s) was %s.", intent.ID, intent.Symbol, intent.Side, reason)
 		autonomousBeat.InjectMessage(msg)
@@ -168,6 +202,38 @@ func main() {
 
 	// Setup HTTP server
 	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController, intentController)
+
+	// Manual reconnect endpoint — triggers the same cleanup/reconnect/enable
+	// flow as the automatic loop, but on-demand from the dashboard.
+	router.POST("/api/v1/broker/reconnect", func(c *gin.Context) {
+		logger.Info("Manual reconnect requested via API")
+		gated.Disable("manual reconnect requested")
+		ibkrData.OnDisconnect()
+		ibkrTrading.OnDisconnect()
+
+		rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer rcancel()
+		if err := client.Reconnect(rctx); err != nil {
+			logger.WithError(err).Error("Manual reconnect failed")
+			c.JSON(500, gin.H{"error": "reconnect failed: " + err.Error()})
+			return
+		}
+		ibkrData.OnReconnect()
+		ibkrTrading.OnReconnect()
+		gated.Enable("manual reconnect succeeded")
+		logger.Info("Manual reconnect succeeded")
+		c.JSON(200, gin.H{"status": "reconnected"})
+	})
+
+	// Broker status endpoint — reports whether the TWS connection is alive.
+	router.GET("/api/v1/broker/status", func(c *gin.Context) {
+		connected := client.IsConnected()
+		tradingEnabled := gated.Enabled()
+		c.JSON(200, gin.H{
+			"connected":       connected,
+			"trading_enabled": tradingEnabled,
+		})
+	})
 
 	// Start the supervised beat only when explicitly enabled.
 	if cfg.BeatEnabled {
