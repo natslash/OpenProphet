@@ -30,6 +30,10 @@ func NewIBKRDataService(client *tws.Client) *IBKRDataService {
 		histBuf: make(map[int64][]*interfaces.Bar),
 	}
 	client.AddWrapper(s)
+	// Type 4 = delayed-frozen: use live data when available, fall back to
+	// delayed/frozen snapshots when not (e.g. outside market hours or without
+	// a live subscription for the instrument).
+	_ = client.Encoder().ReqMarketDataType(4)
 	return s
 }
 
@@ -272,12 +276,12 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 		return nil, fmt.Errorf("GetLatestQuote: %w", err)
 	}
 
+	isIndex := contract.SecType == tws.Index
+
 	reqId := s.client.NextOrderId()
 	ch := s.subscribe(reqId)
 	defer s.unsubscribe(reqId)
 
-	// Subscribe to live market data (snapshot = false since we want to wait for streams if needed,
-	// though a snapshot might be cleaner, let's use continuous to get real ticks)
 	if err := s.client.Encoder().ReqMktData(reqId, contract, "", false, false); err != nil {
 		return nil, fmt.Errorf("ReqMktData error: %w", err)
 	}
@@ -288,11 +292,13 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 		Timestamp: time.Now(),
 	}
 
-	var hasBid, hasAsk bool
+	var hasBid, hasAsk, hasLast bool
 
 	for {
-		// A quote is complete once we have both bid and ask prices
-		if hasBid && hasAsk {
+		if isIndex && hasLast {
+			return quote, nil
+		}
+		if !isIndex && hasBid && hasAsk {
 			return quote, nil
 		}
 
@@ -300,23 +306,31 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 		case msg := <-ch:
 			switch t := msg.(type) {
 			case tws.TickPriceMsg:
-				if t.TickType == tws.TickBidPrice {
+				switch t.TickType {
+				case tws.TickBidPrice, tws.TickDelayedBid:
 					quote.BidPrice = t.Price
 					if !t.Size.IsZero() {
 						quote.BidSize = t.Size.IntPart()
 					}
 					hasBid = true
-				} else if t.TickType == tws.TickAskPrice {
+				case tws.TickAskPrice, tws.TickDelayedAsk:
 					quote.AskPrice = t.Price
 					if !t.Size.IsZero() {
 						quote.AskSize = t.Size.IntPart()
 					}
 					hasAsk = true
+				case tws.TickLastPrice, tws.TickDelayedLast:
+					if isIndex && t.Price > 0 {
+						quote.BidPrice = t.Price
+						quote.AskPrice = t.Price
+						hasLast = true
+					}
 				}
 			case tws.TickSizeMsg:
-				if t.TickType == tws.TickBidSize {
+				switch t.TickType {
+				case tws.TickBidSize, tws.TickDelayedBidSize:
 					quote.BidSize = t.Size.IntPart()
-				} else if t.TickType == tws.TickAskSize {
+				case tws.TickAskSize, tws.TickDelayedAskSize:
 					quote.AskSize = t.Size.IntPart()
 				}
 			case error:
@@ -359,7 +373,8 @@ func (s *IBKRDataService) GetLatestTrade(ctx context.Context, symbol string) (*i
 		case msg := <-ch:
 			switch t := msg.(type) {
 			case tws.TickPriceMsg:
-				if t.TickType == tws.TickLastPrice {
+				switch t.TickType {
+				case tws.TickLastPrice, tws.TickDelayedLast:
 					trade.Price = t.Price
 					if !t.Size.IsZero() {
 						trade.Size = t.Size.IntPart()
@@ -368,7 +383,8 @@ func (s *IBKRDataService) GetLatestTrade(ctx context.Context, symbol string) (*i
 					hasPrice = true
 				}
 			case tws.TickSizeMsg:
-				if t.TickType == tws.TickLastSize {
+				switch t.TickType {
+				case tws.TickLastSize, tws.TickDelayedLastSize:
 					trade.Size = t.Size.IntPart()
 					hasSize = true
 				}
