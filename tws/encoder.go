@@ -130,6 +130,20 @@ func (e *Encoder) CancelMktData(reqId int64) error {
 	return e.writer.SendFields(fields...)
 }
 
+// ReqSecDefOptParams requests available option parameters (expirations and
+// strikes) for a given underlying.
+func (e *Encoder) ReqSecDefOptParams(reqId int64, underlyingSymbol, futFopExchange, underlyingSecType string, underlyingConId int64) error {
+	fields := []string{
+		strconv.Itoa(outReqSecDefOptParams),
+		strconv.FormatInt(reqId, 10),
+		underlyingSymbol,
+		futFopExchange,
+		underlyingSecType,
+		strconv.FormatInt(underlyingConId, 10),
+	}
+	return e.writer.SendFields(fields...)
+}
+
 // ReqHistoricalData requests historical data.
 func (e *Encoder) ReqHistoricalData(serverVersion int, reqId int64, contract Contract, endDateTime, durationStr, barSizeSetting, whatToShow string, useRTH int, formatDate int, keepUpToDate bool) error {
 	f := []string{strconv.Itoa(outReqHistoricalData)}

@@ -17,6 +17,7 @@ const (
 	outReqCurrentTime       = 49
 	outReqMarketDataType    = 59
 	outStartAPI             = 71
+	outReqSecDefOptParams   = 78
 )
 
 // Inbound message IDs
@@ -36,8 +37,10 @@ const (
 	inHistoricalData  = 17
 	inTickOptionComp  = 21
 	inCurrentTime     = 49
-	inContractDataEnd   = 52
-	inOpenOrderEnd      = 53
+	inContractDataEnd       = 52
+	inOpenOrderEnd          = 53
+	inSecDefOptParam        = 75
+	inSecDefOptParamEnd     = 76
 	inPosition          = 61
 	inPositionEnd       = 62
 	inAcctDownloadEnd   = 54
@@ -86,6 +89,7 @@ const (
 	minServerVerOrderContainer       = 145
 	minServerVerDPegOrders           = 148
 	minServerVerPriceMgmtAlgo        = 151
+	minServerVerPriceBasedVolatility = 156
 	minServerVerDuration             = 158
 	minServerVerPostToAts            = 160
 	minServerVerAutoCancelParent     = 162

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -506,64 +508,259 @@ func (s *IBKRTradingService) PlaceOptionsOrder(ctx context.Context, order *inter
 }
 
 func (s *IBKRTradingService) GetOptionsChain(ctx context.Context, underlying string, expiration time.Time) ([]*interfaces.OptionContract, error) {
-	// Phase 5: Return a dynamically generated mock options chain.
-	// This unblocks the AI from hallucinating while keeping the backend stable.
-	// We will implement real TWS ReqSecDefOptParams / ReqContractDetails in Phase 6.
-
-	basePrice := 6300.0 // Default for ESTX50
-	if underlying == "AAPL" {
-		basePrice = 150.0
+	underContract, err := tws.ParseSymbol(underlying)
+	if err != nil {
+		return nil, fmt.Errorf("GetOptionsChain: parse underlying %q: %w", underlying, err)
 	}
+
+	details, err := s.client.ReqContractDetails(ctx, underContract)
+	if err != nil {
+		return nil, fmt.Errorf("GetOptionsChain: ReqContractDetails for %q: %w", underlying, err)
+	}
+	if len(details) == 0 {
+		return nil, fmt.Errorf("GetOptionsChain: no contract details found for %q", underlying)
+	}
+	underConId := details[0].Contract.ConId
+	underSecType := string(details[0].Contract.SecType)
+
+	sdops, err := s.client.ReqSecDefOptParams(ctx, underContract.Symbol, "", underSecType, underConId)
+	if err != nil {
+		return nil, fmt.Errorf("GetOptionsChain: ReqSecDefOptParams: %w", err)
+	}
+
+	expirationStr := expiration.Format("20060102")
+	var matchedStrikes []float64
+	var matchedTradingClass, matchedMultiplier, matchedExchange string
+	for _, sdop := range sdops {
+		hasExpiration := false
+		for _, exp := range sdop.Expirations {
+			if exp == expirationStr {
+				hasExpiration = true
+				break
+			}
+		}
+		if !hasExpiration {
+			continue
+		}
+		if underContract.Symbol == "ESTX50" && sdop.TradingClass != "OESX" {
+			continue
+		}
+		matchedStrikes = sdop.Strikes
+		matchedTradingClass = sdop.TradingClass
+		matchedMultiplier = sdop.Multiplier
+		matchedExchange = sdop.Exchange
+		break
+	}
+
+	if len(matchedStrikes) == 0 {
+		return nil, fmt.Errorf("GetOptionsChain: no strikes found for %s expiration %s", underlying, expirationStr)
+	}
+
+	sort.Float64s(matchedStrikes)
+
+	const batchSize = 25
+	const tickTimeout = 5 * time.Second
 
 	var chain []*interfaces.OptionContract
-	
-	step := 50.0
-	if basePrice < 1000 {
-		step = 5.0
+	dte := int(time.Until(expiration).Hours() / 24)
+	if dte < 0 {
+		dte = 0
 	}
 
-	startStrike := float64(int(basePrice*0.95/step)) * step
-	endStrike := float64(int(basePrice*1.05/step)) * step
-
-	for strike := startStrike; strike <= endStrike; strike += step {
-		// Calculate a fake delta based on moneyness
-		callDelta := 0.5
-		putDelta := -0.5
-		if strike > basePrice {
-			callDelta = 0.2
-			putDelta = -0.8
-		} else if strike < basePrice {
-			callDelta = 0.8
-			putDelta = -0.2
+	for batchStart := 0; batchStart < len(matchedStrikes); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(matchedStrikes) {
+			batchEnd = len(matchedStrikes)
 		}
+		batchStrikes := matchedStrikes[batchStart:batchEnd]
 
-		chain = append(chain, &interfaces.OptionContract{
-			Symbol:           fmt.Sprintf("%s:%s:C:%.0f", underlying, expiration.Format("20060102"), strike),
-			UnderlyingSymbol: underlying,
-			ContractType:     "call",
-			StrikePrice:      strike,
-			ExpirationDate:   expiration,
-			Delta:            callDelta,
-			Gamma:            0.05,
-			Theta:            -0.01,
-			Bid:              1.0,
-			Ask:              1.1,
-		})
-		chain = append(chain, &interfaces.OptionContract{
-			Symbol:           fmt.Sprintf("%s:%s:P:%.0f", underlying, expiration.Format("20060102"), strike),
-			UnderlyingSymbol: underlying,
-			ContractType:     "put",
-			StrikePrice:      strike,
-			ExpirationDate:   expiration,
-			Delta:            putDelta,
-			Gamma:            0.05,
-			Theta:            -0.01,
-			Bid:              1.0,
-			Ask:              1.1,
-		})
+		batchContracts, err := s.fetchOptionBatch(ctx, underlying, underContract, expirationStr, matchedTradingClass, matchedMultiplier, matchedExchange, batchStrikes, dte, tickTimeout)
+		if err != nil {
+			log.Printf("[IBKR] GetOptionsChain batch %d-%d error: %v", batchStart, batchEnd, err)
+			continue
+		}
+		chain = append(chain, batchContracts...)
 	}
 
 	return chain, nil
+}
+
+type optionTickData struct {
+	mu        sync.Mutex
+	bid       float64
+	ask       float64
+	iv        float64
+	delta     float64
+	gamma     float64
+	vega      float64
+	theta     float64
+	hasBid    bool
+	hasAsk    bool
+	hasGreeks bool
+}
+
+func (s *IBKRTradingService) fetchOptionBatch(
+	ctx context.Context,
+	underlying string,
+	underContract tws.Contract,
+	expirationStr, tradingClass, multiplier, exchange string,
+	strikes []float64,
+	dte int,
+	timeout time.Duration,
+) ([]*interfaces.OptionContract, error) {
+
+	type subInfo struct {
+		reqId  int64
+		strike float64
+		right  string
+		data   *optionTickData
+	}
+
+	var subs []subInfo
+	collector := &optionDataCollector{
+		subs: make(map[int64]*optionTickData),
+	}
+
+	s.client.AddWrapper(collector)
+	defer s.client.RemoveWrapper(collector)
+
+	for _, strike := range strikes {
+		for _, right := range []string{"C", "P"} {
+			contract := tws.Contract{
+				Symbol:                       underContract.Symbol,
+				SecType:                      tws.Option,
+				Exchange:                     exchange,
+				Currency:                     underContract.Currency,
+				LastTradeDateOrContractMonth: expirationStr,
+				Strike:                       strike,
+				Right:                        right,
+				Multiplier:                   multiplier,
+				TradingClass:                 tradingClass,
+			}
+
+			reqId := s.client.NextOrderId()
+			td := &optionTickData{
+				iv:    math.MaxFloat64,
+				delta: math.MaxFloat64,
+				gamma: math.MaxFloat64,
+				vega:  math.MaxFloat64,
+				theta: math.MaxFloat64,
+			}
+
+			collector.mu.Lock()
+			collector.subs[reqId] = td
+			collector.mu.Unlock()
+
+			if err := s.client.Encoder().ReqMktData(reqId, contract, "", false, false); err != nil {
+				log.Printf("[IBKR] GetOptionsChain: ReqMktData error for %s %.0f%s: %v", underlying, strike, right, err)
+				continue
+			}
+
+			subs = append(subs, subInfo{reqId: reqId, strike: strike, right: right, data: td})
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+
+	for _, sub := range subs {
+		_ = s.client.Encoder().CancelMktData(sub.reqId)
+	}
+
+	var contracts []*interfaces.OptionContract
+	for _, sub := range subs {
+		sub.data.mu.Lock()
+		contractType := "call"
+		if sub.right == "P" {
+			contractType = "put"
+		}
+
+		year, _ := strconv.Atoi(expirationStr[:4])
+		month, _ := strconv.Atoi(expirationStr[4:6])
+		day, _ := strconv.Atoi(expirationStr[6:8])
+
+		oc := &interfaces.OptionContract{
+			Symbol:           fmt.Sprintf("%s:%s:%s:%s", underContract.Symbol, expirationStr, sub.right, strconv.FormatFloat(sub.strike, 'f', -1, 64)),
+			UnderlyingSymbol: underlying,
+			ContractType:     contractType,
+			StrikePrice:      sub.strike,
+			ExpirationDate:   time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC),
+			DTE:              dte,
+			Bid:              sub.data.bid,
+			Ask:              sub.data.ask,
+		}
+
+		if sub.data.iv != math.MaxFloat64 && sub.data.iv > 0 {
+			oc.ImpliedVolatility = sub.data.iv
+		}
+		if sub.data.delta != math.MaxFloat64 {
+			oc.Delta = sub.data.delta
+		}
+		if sub.data.gamma != math.MaxFloat64 {
+			oc.Gamma = sub.data.gamma
+		}
+		if sub.data.theta != math.MaxFloat64 {
+			oc.Theta = sub.data.theta
+		}
+		if sub.data.vega != math.MaxFloat64 {
+			oc.Vega = sub.data.vega
+		}
+
+		if sub.data.hasBid && sub.data.hasAsk && sub.data.ask > 0 {
+			oc.Premium = (sub.data.bid + sub.data.ask) / 2
+		}
+
+		sub.data.mu.Unlock()
+		contracts = append(contracts, oc)
+	}
+
+	return contracts, nil
+}
+
+type optionDataCollector struct {
+	tws.DefaultWrapper
+	mu   sync.RWMutex
+	subs map[int64]*optionTickData
+}
+
+func (c *optionDataCollector) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr tws.TickAttrib) {
+	c.mu.RLock()
+	td, ok := c.subs[reqId]
+	c.mu.RUnlock()
+	if !ok || price <= 0 {
+		return
+	}
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	switch tickType {
+	case tws.TickBidPrice, tws.TickDelayedBid:
+		td.bid = price
+		td.hasBid = true
+	case tws.TickAskPrice, tws.TickDelayedAsk:
+		td.ask = price
+		td.hasAsk = true
+	}
+}
+
+func (c *optionDataCollector) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {
+	c.mu.RLock()
+	td, ok := c.subs[reqId]
+	c.mu.RUnlock()
+	if !ok {
+		return
+	}
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	td.iv = impliedVol
+	td.delta = delta
+	td.gamma = gamma
+	td.vega = vega
+	td.theta = theta
+	td.hasGreeks = true
 }
 
 func (s *IBKRTradingService) GetOptionsQuote(ctx context.Context, symbol string) (*interfaces.OptionsQuote, error) {

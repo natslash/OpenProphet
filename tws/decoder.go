@@ -166,6 +166,18 @@ func (d *Decoder) Decode(fields []string) error {
 	case inHistoricalDataEnd:
 		d.handleHistoricalDataEnd(fields)
 
+	case inSecDefOptParam:
+		d.handleSecDefOptParam(fields)
+
+	case inSecDefOptParamEnd:
+		if len(fields) >= 2 {
+			reqId, _ := strconv.ParseInt(fields[1], 10, 64)
+			d.wrapper.SecurityDefinitionOptionParameterEnd(reqId)
+		}
+
+	case inTickOptionComp:
+		d.handleTickOptionComputation(fields)
+
 	default:
 		// Unhandled message type in this phase
 	}
@@ -431,4 +443,95 @@ func (d *Decoder) handlePortfolioValue(fields []string) {
 	}
 
 	d.wrapper.UpdatePortfolio(c, position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL, accountName)
+}
+
+func (d *Decoder) handleSecDefOptParam(fields []string) {
+	if len(fields) < 7 {
+		return
+	}
+	idx := 1
+	reqId, _ := strconv.ParseInt(fields[idx], 10, 64); idx++
+	exchange := fields[idx]; idx++
+	underlyingConId, _ := strconv.ParseInt(fields[idx], 10, 64); idx++
+	tradingClass := fields[idx]; idx++
+	multiplier := fields[idx]; idx++
+
+	if idx >= len(fields) { return }
+	expCount, _ := strconv.Atoi(fields[idx]); idx++
+	expirations := make([]string, 0, expCount)
+	for i := 0; i < expCount && idx < len(fields); i++ {
+		expirations = append(expirations, fields[idx]); idx++
+	}
+
+	if idx >= len(fields) { return }
+	strikeCount, _ := strconv.Atoi(fields[idx]); idx++
+	strikes := make([]float64, 0, strikeCount)
+	for i := 0; i < strikeCount && idx < len(fields); i++ {
+		s, _ := strconv.ParseFloat(fields[idx], 64)
+		strikes = append(strikes, s)
+		idx++
+	}
+
+	d.wrapper.SecurityDefinitionOptionParameter(reqId, exchange, underlyingConId, tradingClass, multiplier, expirations, strikes)
+}
+
+func (d *Decoder) handleTickOptionComputation(fields []string) {
+	idx := 1
+
+	version := math.MaxInt32
+	if d.serverVersion < minServerVerPriceBasedVolatility {
+		if idx >= len(fields) { return }
+		version, _ = strconv.Atoi(fields[idx]); idx++
+	}
+
+	if idx+2 > len(fields) { return }
+	reqId, _ := strconv.ParseInt(fields[idx], 10, 64); idx++
+	tickType, _ := strconv.Atoi(fields[idx]); idx++
+
+	tickAttrib := 0
+	if d.serverVersion >= minServerVerPriceBasedVolatility {
+		if idx >= len(fields) { return }
+		tickAttrib, _ = strconv.Atoi(fields[idx]); idx++
+	}
+
+	if idx+2 > len(fields) { return }
+	impliedVol, _ := strconv.ParseFloat(fields[idx], 64); idx++
+	delta, _ := strconv.ParseFloat(fields[idx], 64); idx++
+
+	if impliedVol == -1 { impliedVol = math.MaxFloat64 }
+	if delta == -2 { delta = math.MaxFloat64 }
+
+	optPrice := math.MaxFloat64
+	pvDividend := math.MaxFloat64
+	gamma := math.MaxFloat64
+	vega := math.MaxFloat64
+	theta := math.MaxFloat64
+	undPrice := math.MaxFloat64
+
+	if version >= 6 || tickType == 13 || tickType == 83 {
+		if idx+2 > len(fields) { goto emit }
+		optPrice, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if optPrice == -1 { optPrice = math.MaxFloat64 }
+		pvDividend, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if pvDividend == -1 { pvDividend = math.MaxFloat64 }
+	}
+
+	if version >= 6 || tickType == 13 || tickType == 83 {
+		if idx+3 > len(fields) { goto emit }
+		gamma, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if gamma == -2 { gamma = math.MaxFloat64 }
+		vega, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if vega == -2 { vega = math.MaxFloat64 }
+		theta, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if theta == -2 { theta = math.MaxFloat64 }
+	}
+
+	if version >= 6 || tickType == 13 || tickType == 83 {
+		if idx >= len(fields) { goto emit }
+		undPrice, _ = strconv.ParseFloat(fields[idx], 64); idx++
+		if undPrice == -1 { undPrice = math.MaxFloat64 }
+	}
+
+emit:
+	d.wrapper.TickOptionComputation(reqId, tickType, tickAttrib, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice)
 }

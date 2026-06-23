@@ -1,6 +1,7 @@
 package tws
 
 import (
+	"math"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -45,6 +46,27 @@ type mockWrapper struct {
 	portfolioRealPNL     float64
 	portfolioAccount     string
 	acctDownloadEndAcct  string
+
+	sdopReqId        int64
+	sdopExchange     string
+	sdopUnderConId   int64
+	sdopTradingClass string
+	sdopMultiplier   string
+	sdopExpirations  []string
+	sdopStrikes      []float64
+	sdopEndReqId     int64
+
+	tocReqId    int64
+	tocTickType int
+	tocTickAttr int
+	tocIV       float64
+	tocDelta    float64
+	tocOptPrice float64
+	tocPvDiv    float64
+	tocGamma    float64
+	tocVega     float64
+	tocTheta    float64
+	tocUndPrice float64
 }
 
 func (m *mockWrapper) HistoricalData(reqId int64, bar HistoricalBar) {
@@ -127,14 +149,43 @@ func (m *mockWrapper) AccountDownloadEnd(accountName string) {
 	m.acctDownloadEndAcct = accountName
 }
 
+func (m *mockWrapper) SecurityDefinitionOptionParameter(reqId int64, exchange string, underlyingConId int64, tradingClass, multiplier string, expirations []string, strikes []float64) {
+	m.sdopReqId = reqId
+	m.sdopExchange = exchange
+	m.sdopUnderConId = underlyingConId
+	m.sdopTradingClass = tradingClass
+	m.sdopMultiplier = multiplier
+	m.sdopExpirations = expirations
+	m.sdopStrikes = strikes
+}
+
+func (m *mockWrapper) SecurityDefinitionOptionParameterEnd(reqId int64) {
+	m.sdopEndReqId = reqId
+}
+
+func (m *mockWrapper) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {
+	m.tocReqId = reqId
+	m.tocTickType = tickType
+	m.tocTickAttr = tickAttrib
+	m.tocIV = impliedVol
+	m.tocDelta = delta
+	m.tocOptPrice = optPrice
+	m.tocPvDiv = pvDividend
+	m.tocGamma = gamma
+	m.tocVega = vega
+	m.tocTheta = theta
+	m.tocUndPrice = undPrice
+}
+
 func TestDecoder_Decode(t *testing.T) {
 	mock := &mockWrapper{}
 	decoder := NewDecoder(mock)
 
 	tests := []struct {
-		name       string
-		fields     []string
-		validation func(t *testing.T, m *mockWrapper)
+		name          string
+		fields        []string
+		serverVersion int
+		validation    func(t *testing.T, m *mockWrapper)
 	}{
 		{
 			name:   "next valid id",
@@ -334,11 +385,104 @@ func TestDecoder_Decode(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "secdef opt param",
+			fields: []string{
+				"75", "42", "EUREX", "11004968", "OESX", "10",
+				"2", "20260620", "20260717",
+				"3", "5200", "5250", "5300",
+			},
+			serverVersion: 187,
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.sdopReqId != 42 {
+					t.Errorf("Expected reqId 42, got %d", m.sdopReqId)
+				}
+				if m.sdopExchange != "EUREX" {
+					t.Errorf("Expected exchange EUREX, got %s", m.sdopExchange)
+				}
+				if m.sdopUnderConId != 11004968 {
+					t.Errorf("Expected underConId 11004968, got %d", m.sdopUnderConId)
+				}
+				if m.sdopTradingClass != "OESX" {
+					t.Errorf("Expected tradingClass OESX, got %s", m.sdopTradingClass)
+				}
+				if len(m.sdopExpirations) != 2 || m.sdopExpirations[0] != "20260620" {
+					t.Errorf("Expected expirations [20260620 20260717], got %v", m.sdopExpirations)
+				}
+				if len(m.sdopStrikes) != 3 || m.sdopStrikes[0] != 5200 || m.sdopStrikes[2] != 5300 {
+					t.Errorf("Expected strikes [5200 5250 5300], got %v", m.sdopStrikes)
+				}
+			},
+		},
+		{
+			name:          "secdef opt param end",
+			fields:        []string{"76", "42"},
+			serverVersion: 187,
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.sdopEndReqId != 42 {
+					t.Errorf("Expected reqId 42, got %d", m.sdopEndReqId)
+				}
+			},
+		},
+		{
+			name:          "tick option computation",
+			fields:        []string{"21", "100", "13", "0", "0.25", "0.55", "12.5", "0.1", "0.03", "0.15", "-0.02", "5200"},
+			serverVersion: 187,
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.tocReqId != 100 {
+					t.Errorf("Expected reqId 100, got %d", m.tocReqId)
+				}
+				if m.tocTickType != 13 {
+					t.Errorf("Expected tickType 13, got %d", m.tocTickType)
+				}
+				if m.tocDelta != 0.55 {
+					t.Errorf("Expected delta 0.55, got %f", m.tocDelta)
+				}
+				if m.tocGamma != 0.03 {
+					t.Errorf("Expected gamma 0.03, got %f", m.tocGamma)
+				}
+				if m.tocTheta != -0.02 {
+					t.Errorf("Expected theta -0.02, got %f", m.tocTheta)
+				}
+				if m.tocVega != 0.15 {
+					t.Errorf("Expected vega 0.15, got %f", m.tocVega)
+				}
+				if m.tocIV != 0.25 {
+					t.Errorf("Expected IV 0.25, got %f", m.tocIV)
+				}
+			},
+		},
+		{
+			name:          "tick option computation with not-computed sentinels",
+			fields:        []string{"21", "101", "10", "0", "-1", "-2", "-1", "-1", "-2", "-2", "-2", "-1"},
+			serverVersion: 187,
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.tocIV != math.MaxFloat64 {
+					t.Errorf("Expected IV MaxFloat64, got %f", m.tocIV)
+				}
+				if m.tocDelta != math.MaxFloat64 {
+					t.Errorf("Expected delta MaxFloat64, got %f", m.tocDelta)
+				}
+				if m.tocGamma != math.MaxFloat64 {
+					t.Errorf("Expected gamma MaxFloat64, got %f", m.tocGamma)
+				}
+				if m.tocVega != math.MaxFloat64 {
+					t.Errorf("Expected vega MaxFloat64, got %f", m.tocVega)
+				}
+				if m.tocTheta != math.MaxFloat64 {
+					t.Errorf("Expected theta MaxFloat64, got %f", m.tocTheta)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			decoder.SetServerVersion(100) // Simulate server version < 196 for start/end date behavior
+			sv := tt.serverVersion
+			if sv == 0 {
+				sv = 100
+			}
+			decoder.SetServerVersion(sv)
 			err := decoder.Decode(tt.fields)
 			if err != nil {
 				t.Fatalf("Decode failed: %v", err)
