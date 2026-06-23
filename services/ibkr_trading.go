@@ -19,10 +19,15 @@ import (
 type IBKRTradingService struct {
 	tws.DefaultWrapper
 	client      *tws.Client
+	dataService interfaces.DataService
 	globalReqMu sync.Mutex
 
 	cacheMu    sync.RWMutex
 	orderCache map[string]*interfaces.Order
+}
+
+func (s *IBKRTradingService) SetDataService(ds interfaces.DataService) {
+	s.dataService = ds
 }
 
 // Ensure IBKRTradingService implements interfaces.TradingService
@@ -557,6 +562,34 @@ func (s *IBKRTradingService) GetOptionsChain(ctx context.Context, underlying str
 	}
 
 	sort.Float64s(matchedStrikes)
+
+	// Get underlying spot price to filter strikes to a tradeable range.
+	// Without this, OESX returns 300+ strikes and batching takes too long.
+	spotPrice := 0.0
+	if s.dataService != nil {
+		quoteCtx, quoteCancel := context.WithTimeout(ctx, 5*time.Second)
+		quote, qErr := s.dataService.GetLatestQuote(quoteCtx, underlying)
+		quoteCancel()
+		if qErr == nil && quote.BidPrice > 0 {
+			spotPrice = quote.BidPrice
+		}
+	}
+
+	if spotPrice > 0 {
+		lo := spotPrice * 0.85
+		hi := spotPrice * 1.15
+		filtered := make([]float64, 0, len(matchedStrikes))
+		for _, s := range matchedStrikes {
+			if s >= lo && s <= hi {
+				filtered = append(filtered, s)
+			}
+		}
+		matchedStrikes = filtered
+	}
+
+	if len(matchedStrikes) == 0 {
+		return nil, fmt.Errorf("GetOptionsChain: no strikes in tradeable range for %s", underlying)
+	}
 
 	const batchSize = 25
 	const tickTimeout = 5 * time.Second

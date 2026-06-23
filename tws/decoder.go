@@ -186,45 +186,76 @@ func (d *Decoder) Decode(fields []string) error {
 }
 
 func (d *Decoder) handleContractData(fields []string) {
-	if len(fields) < 30 {
+	if len(fields) < 10 {
 		return
 	}
-	
-	reqId, _ := strconv.ParseInt(fields[2], 10, 64)
-	
-	var cd ContractDetails
-	cd.Contract.Symbol = fields[3]
-	cd.Contract.SecType = InstrumentType(fields[4])
-	cd.Contract.LastTradeDateOrContractMonth = fields[5]
-	cd.Contract.Strike, _ = strconv.ParseFloat(fields[6], 64)
-	cd.Contract.Right = fields[7]
-	cd.Contract.Exchange = fields[8]
-	cd.Contract.Currency = fields[9]
-	cd.Contract.LocalSymbol = fields[10]
-	cd.MarketName = fields[11]
-	cd.Contract.TradingClass = fields[12]
-	cd.Contract.ConId, _ = strconv.ParseInt(fields[13], 10, 64)
-	cd.MinTick, _ = strconv.ParseFloat(fields[14], 64)
-	cd.MdSizeMultiplier, _ = strconv.ParseInt(fields[15], 10, 64)
-	cd.Contract.Multiplier = fields[16]
-	cd.OrderTypes = fields[17]
-	cd.ValidExchanges = fields[18]
-	cd.PriceMagnifier, _ = strconv.ParseInt(fields[19], 10, 64)
-	cd.UnderConId, _ = strconv.ParseInt(fields[20], 10, 64)
-	cd.LongName = fields[21]
-	cd.Contract.PrimaryExch = fields[22]
-	cd.ContractMonth = fields[23]
-	cd.Industry = fields[24]
-	cd.Category = fields[25]
-	cd.Subcategory = fields[26]
-	cd.TimeZoneId = fields[27]
-	cd.TradingHours = fields[28]
-	cd.LiquidHours = fields[29]
-	if len(fields) >= 32 {
-		cd.EvRule = fields[30]
-		cd.EvMultiplier, _ = strconv.ParseFloat(fields[31], 64)
+	idx := 1
+
+	// Server >= 164 (MIN_SERVER_VER_SIZE_RULES) omits the version field.
+	version := 8
+	if d.serverVersion < 164 {
+		version, _ = strconv.Atoi(fields[idx]); idx++
 	}
 
+	var reqId int64
+	if version >= 3 {
+		reqId, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	}
+
+	var cd ContractDetails
+	cd.Contract.Symbol = fields[idx]; idx++
+	cd.Contract.SecType = InstrumentType(fields[idx]); idx++
+	cd.Contract.LastTradeDateOrContractMonth = fields[idx]; idx++
+	if d.serverVersion >= 182 && idx < len(fields) {
+		idx++ // lastTradeDate (separate field on modern servers)
+	}
+	if idx >= len(fields) { return }
+	cd.Contract.Strike, _ = strconv.ParseFloat(fields[idx], 64); idx++
+	if idx >= len(fields) { return }
+	cd.Contract.Right = fields[idx]; idx++
+	cd.Contract.Exchange = fields[idx]; idx++
+	cd.Contract.Currency = fields[idx]; idx++
+	cd.Contract.LocalSymbol = fields[idx]; idx++
+	cd.MarketName = fields[idx]; idx++
+	cd.Contract.TradingClass = fields[idx]; idx++
+	cd.Contract.ConId, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	cd.MinTick, _ = strconv.ParseFloat(fields[idx], 64); idx++
+
+	if d.serverVersion >= 106 && d.serverVersion < 164 && idx < len(fields) {
+		cd.MdSizeMultiplier, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	}
+
+	if idx >= len(fields) { return }
+	cd.Contract.Multiplier = fields[idx]; idx++
+	cd.OrderTypes = fields[idx]; idx++
+	cd.ValidExchanges = fields[idx]; idx++
+
+	if version >= 2 && idx < len(fields) {
+		cd.PriceMagnifier, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	}
+	if version >= 4 && idx < len(fields) {
+		cd.UnderConId, _ = strconv.ParseInt(fields[idx], 10, 64); idx++
+	}
+	if version >= 5 && idx+1 < len(fields) {
+		cd.LongName = fields[idx]; idx++
+		cd.Contract.PrimaryExch = fields[idx]; idx++
+	}
+	if version >= 6 && idx+6 < len(fields) {
+		cd.ContractMonth = fields[idx]; idx++
+		cd.Industry = fields[idx]; idx++
+		cd.Category = fields[idx]; idx++
+		cd.Subcategory = fields[idx]; idx++
+		cd.TimeZoneId = fields[idx]; idx++
+		cd.TradingHours = fields[idx]; idx++
+		cd.LiquidHours = fields[idx]; idx++
+	}
+	if version >= 8 && idx+1 < len(fields) {
+		cd.EvRule = fields[idx]; idx++
+		cd.EvMultiplier, _ = strconv.ParseFloat(fields[idx], 64); idx++
+	}
+	// Skip remaining modern fields (secIdList, aggGroup, underSymbol, etc.)
+
+	_ = version
 	d.wrapper.ContractDetails(reqId, cd)
 }
 
