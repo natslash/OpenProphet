@@ -71,7 +71,7 @@ func (bc *BeatController) HandleMessage(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "Agent is not running. Please start the agent first."})
 		return
 	}
-	bc.beat.InjectMessage(req.Message)
+	bc.beat.InjectDirectMessage(req.Message)
 	c.JSON(200, gin.H{"status": "Message injected"})
 }
 

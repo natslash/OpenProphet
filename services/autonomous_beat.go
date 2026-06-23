@@ -36,9 +36,14 @@ type AutonomousBeat struct {
 	mu           sync.Mutex
 	isRunning    bool
 	cancel       context.CancelFunc
-	messageQueue []string
+	messageQueue []beatMessage
 	triggerCh    chan struct{}
 	lastPollTime time.Time
+}
+
+type beatMessage struct {
+	Text     string
+	IsDirect bool
 }
 
 func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig, intentManager *IntentManager, requireDoubleConfirm bool) *AutonomousBeat {
@@ -147,7 +152,17 @@ func (b *AutonomousBeat) Run(ctx context.Context) {
 
 func (b *AutonomousBeat) InjectMessage(msg string) {
 	b.mu.Lock()
-	b.messageQueue = append(b.messageQueue, msg)
+	b.messageQueue = append(b.messageQueue, beatMessage{Text: msg})
+	b.mu.Unlock()
+	select {
+	case b.triggerCh <- struct{}{}:
+	default:
+	}
+}
+
+func (b *AutonomousBeat) InjectDirectMessage(msg string) {
+	b.mu.Lock()
+	b.messageQueue = append(b.messageQueue, beatMessage{Text: msg, IsDirect: true})
 	b.mu.Unlock()
 	select {
 	case b.triggerCh <- struct{}{}:
@@ -157,7 +172,7 @@ func (b *AutonomousBeat) InjectMessage(msg string) {
 
 func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.mu.Lock()
-	var pending []string
+	var pending []beatMessage
 	if len(b.messageQueue) > 0 {
 		pending = b.messageQueue
 		b.messageQueue = nil
@@ -186,7 +201,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		}
 
 		b.logger.Info("[BEAT] Triggering automated LLM portfolio review")
-		pending = append(pending, "Automated system trigger: Please review my current active positions and suggest any strategic adjustments or exit strategies based on current market data. Use the get_positions tool.")
+		pending = append(pending, beatMessage{Text: "Automated system trigger: Please review my current active positions and suggest any strategic adjustments or exit strategies based on current market data. Use the get_positions tool."})
 		b.lastPollTime = time.Now()
 	}
 
@@ -206,9 +221,18 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	// 2. Build User Text with volatile context
 	userText := fmt.Sprintf("Current Time: %s\n\n", time.Now().Format(time.RFC3339))
+	hasDirect := false
+	for _, msg := range pending {
+		if msg.IsDirect {
+			hasDirect = true
+		}
+	}
+	if hasDirect {
+		systemPrompt += "\n\nDIRECT USER ORDER: The user has given a direct instruction below. Consult sub-agents (Daedalus, Stratagem) for advisory context only — do NOT allow them to veto or block the user's explicit request. Execute the user's instruction."
+	}
 	userText += "User terminal instructions:\n"
 	for _, msg := range pending {
-		userText += "- " + msg + "\n"
+		userText += "- " + msg.Text + "\n"
 	}
 
 	messages := []interfaces.LLMMessage{
