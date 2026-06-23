@@ -1575,8 +1575,8 @@ async function refreshPortfolio() {
       _setData('main-bp', bv);
     }
     if(p.ok) {
-      const positions = await p.json();
-      const arr = positions.positions || positions || [];
+      const positions = await p.json() || [];
+      const arr = (positions && positions.positions) || (Array.isArray(positions) ? positions : []);
       const html = arr.length ? arr.map(pos => {
         const sym = pos.symbol||pos.Symbol||'??', pnl = Number(pos.unrealizedPL||pos.UnrealizedPL||0);
         const pct = (Number(pos.unrealizedPLPercent||pos.UnrealizedPLPercent||0)*100).toFixed(1);
@@ -1587,11 +1587,21 @@ async function refreshPortfolio() {
       const posEl = document.querySelector('[data-stat="main-positions"]');
       if (posEl) posEl.innerHTML = html;
     } else {
-      clearPortfolioView();
+      clearPositionsView();
     }
-  } catch {
-    clearPortfolioView();
+  } catch(e) {
+    console.error('[Portfolio] refreshPortfolio error:', e);
+    clearPositionsView();
   }
+}
+
+function clearPositionsView() {
+  ['positions-container','m-positions'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<div class="no-data">No open positions</div>';
+  });
+  const posEl = document.querySelector('[data-stat="main-positions"]');
+  if (posEl) posEl.innerHTML = '<div class="no-data">No open positions</div>';
 }
 
 function clearPortfolioView() {
