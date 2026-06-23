@@ -108,6 +108,28 @@ type HistoricalDataUpdateMsg struct {
 	Bar   HistoricalBar
 }
 
+type SecDefOptParamsMsg struct {
+	Exchange        string
+	UnderlyingConId int64
+	TradingClass    string
+	Multiplier      string
+	Expirations     []string
+	Strikes         []float64
+}
+
+type TickOptionComputationMsg struct {
+	TickType   int
+	TickAttrib int
+	ImpliedVol float64
+	Delta      float64
+	OptPrice   float64
+	PvDividend float64
+	Gamma      float64
+	Vega       float64
+	Theta      float64
+	UndPrice   float64
+}
+
 // Wrapper is the callback interface for receiving decoded messages from TWS.
 // It represents the Go equivalent of the Java EWrapper interface.
 type Wrapper interface {
@@ -132,4 +154,7 @@ type Wrapper interface {
 	HistoricalData(reqId int64, bar HistoricalBar)
 	HistoricalDataEnd(reqId int64, startDateStr, endDateStr string)
 	HistoricalDataUpdate(reqId int64, bar HistoricalBar)
+	SecurityDefinitionOptionParameter(reqId int64, exchange string, underlyingConId int64, tradingClass, multiplier string, expirations []string, strikes []float64)
+	SecurityDefinitionOptionParameterEnd(reqId int64)
+	TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64)
 }

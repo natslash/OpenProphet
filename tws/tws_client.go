@@ -652,3 +652,73 @@ func (c *Client) HistoricalDataUpdate(reqId int64, bar HistoricalBar) {
 		w.HistoricalDataUpdate(reqId, bar)
 	}
 }
+
+func (c *Client) SecurityDefinitionOptionParameter(reqId int64, exchange string, underlyingConId int64, tradingClass, multiplier string, expirations []string, strikes []float64) {
+	c.dispatcher.Dispatch(reqId, SecDefOptParamsMsg{
+		Exchange: exchange, UnderlyingConId: underlyingConId,
+		TradingClass: tradingClass, Multiplier: multiplier,
+		Expirations: expirations, Strikes: strikes,
+	})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.SecurityDefinitionOptionParameter(reqId, exchange, underlyingConId, tradingClass, multiplier, expirations, strikes)
+	}
+}
+
+func (c *Client) SecurityDefinitionOptionParameterEnd(reqId int64) {
+	c.dispatcher.Complete(reqId)
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.SecurityDefinitionOptionParameterEnd(reqId)
+	}
+}
+
+func (c *Client) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {
+	c.dispatcher.Dispatch(reqId, TickOptionComputationMsg{
+		TickType: tickType, TickAttrib: tickAttrib,
+		ImpliedVol: impliedVol, Delta: delta, OptPrice: optPrice,
+		PvDividend: pvDividend, Gamma: gamma, Vega: vega,
+		Theta: theta, UndPrice: undPrice,
+	})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.TickOptionComputation(reqId, tickType, tickAttrib, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice)
+	}
+}
+
+// ReqSecDefOptParams fetches available option parameters synchronously.
+func (c *Client) ReqSecDefOptParams(ctx context.Context, underlyingSymbol, futFopExchange, underlyingSecType string, underlyingConId int64) ([]SecDefOptParamsMsg, error) {
+	reqId := c.NextOrderId()
+	ch := c.dispatcher.Register(reqId)
+	defer c.dispatcher.Complete(reqId)
+
+	if err := c.Encoder().ReqSecDefOptParams(reqId, underlyingSymbol, futFopExchange, underlyingSecType, underlyingConId); err != nil {
+		return nil, err
+	}
+
+	var results []SecDefOptParamsMsg
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return results, nil
+			}
+			if sdop, isSDOP := msg.(SecDefOptParamsMsg); isSDOP {
+				results = append(results, sdop)
+			} else if errWrapper, isErr := msg.(error); isErr {
+				return results, errWrapper
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}

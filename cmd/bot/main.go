@@ -66,10 +66,12 @@ func main() {
 	logger.Info("Connected to IB Gateway (paper).")
 
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
-	gated := services.NewGatedTradingService(services.NewIBKRTradingService(client), cfg.TradingEnabled)
+	ibkrTrading := services.NewIBKRTradingService(client)
+	gated := services.NewGatedTradingService(ibkrTrading, cfg.TradingEnabled)
 	tradingService = gated
 	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
 	dataService = services.NewIBKRDataService(client)
+	ibkrTrading.SetDataService(dataService)
 
 	// Disconnect -> halt: stop sending orders if the socket drops (IB
 	// Gateway restarts daily; tws.Client.Connect is one-shot).

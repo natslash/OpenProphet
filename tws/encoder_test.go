@@ -112,3 +112,18 @@ func TestEncoder_ReqHistoricalData(t *testing.T) {
 		t.Errorf("Encoder sent \n%q, want \n%q", mockWriter.fields, expected)
 	}
 }
+
+func TestEncoder_ReqSecDefOptParams(t *testing.T) {
+	mockWriter := &mockFieldWriter{}
+	encoder := NewEncoder(mockWriter)
+
+	err := encoder.ReqSecDefOptParams(42, "ESTX50", "", "IND", 11004968)
+	if err != nil {
+		t.Fatalf("ReqSecDefOptParams failed: %v", err)
+	}
+
+	expected := []string{"78", "42", "ESTX50", "", "IND", "11004968"}
+	if !reflect.DeepEqual(mockWriter.fields, expected) {
+		t.Errorf("Encoder sent %q, want %q", mockWriter.fields, expected)
+	}
+}

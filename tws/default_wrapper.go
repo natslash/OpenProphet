@@ -26,3 +26,6 @@ func (w *DefaultWrapper) OrderStatus(orderId int64, status string, filled, remai
 func (w *DefaultWrapper) HistoricalData(reqId int64, bar HistoricalBar) {}
 func (w *DefaultWrapper) HistoricalDataEnd(reqId int64, startDateStr, endDateStr string) {}
 func (w *DefaultWrapper) HistoricalDataUpdate(reqId int64, bar HistoricalBar) {}
+func (w *DefaultWrapper) SecurityDefinitionOptionParameter(reqId int64, exchange string, underlyingConId int64, tradingClass, multiplier string, expirations []string, strikes []float64) {}
+func (w *DefaultWrapper) SecurityDefinitionOptionParameterEnd(reqId int64) {}
+func (w *DefaultWrapper) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {}

@@ -67,6 +67,23 @@ func (s *IBKRDataService) TickSize(reqId int64, tickType int, size decimal.Decim
 	}
 }
 
+func (s *IBKRDataService) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {
+	s.mu.RLock()
+	ch, ok := s.streams[reqId]
+	s.mu.RUnlock()
+	if ok {
+		select {
+		case ch <- tws.TickOptionComputationMsg{
+			TickType: tickType, TickAttrib: tickAttrib,
+			ImpliedVol: impliedVol, Delta: delta, OptPrice: optPrice,
+			PvDividend: pvDividend, Gamma: gamma, Vega: vega,
+			Theta: theta, UndPrice: undPrice,
+		}:
+		default:
+		}
+	}
+}
+
 func (s *IBKRDataService) HistoricalData(reqId int64, bar tws.HistoricalBar) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
