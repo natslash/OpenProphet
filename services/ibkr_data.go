@@ -43,6 +43,25 @@ func symbolToContract(symbol string) (tws.Contract, error) {
 	return tws.ParseSymbol(symbol)
 }
 
+// OnDisconnect cleans up stale state when IB Gateway drops. Closes all
+// open streaming channels and clears historical buffers.
+func (s *IBKRDataService) OnDisconnect() {
+	s.mu.Lock()
+	for id, ch := range s.streams {
+		close(ch)
+		delete(s.streams, id)
+	}
+	for id := range s.histBuf {
+		delete(s.histBuf, id)
+	}
+	s.mu.Unlock()
+}
+
+// OnReconnect re-initialises state after a successful reconnect.
+func (s *IBKRDataService) OnReconnect() {
+	_ = s.client.Encoder().ReqMarketDataType(4)
+}
+
 func (s *IBKRDataService) TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr tws.TickAttrib) {
 	s.mu.RLock()
 	ch, ok := s.streams[reqId]

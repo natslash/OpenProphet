@@ -338,6 +338,37 @@ func (c *Client) signalClosed() {
 // (read-loop exit or Close()). Callers watch it to halt activity on disconnect.
 func (c *Client) Closed() <-chan struct{} { return c.closed }
 
+// Reconnect tears down the old connection, resets internal state, and
+// establishes a fresh session. Wrappers remain registered and will receive
+// callbacks from the new connection. Must not be called concurrently.
+func (c *Client) Reconnect(ctx context.Context) error {
+	if c.conn != nil {
+		c.conn.Close()
+	}
+
+	c.dispatcher.DrainAll()
+
+	c.mu.Lock()
+	c.connected = false
+	c.accounts = ""
+	c.orderIDs = OrderIdManager{}
+	c.nextIDCh = make(chan int64, 1)
+	c.acctCh = make(chan string, 1)
+	c.errCh = make(chan error, 1)
+	c.closed = make(chan struct{})
+	c.closeOnce = sync.Once{}
+	c.dispatcher = NewDispatcher()
+	c.conn = nil
+	c.reader = nil
+	c.serverVersion = 0
+	c.connTime = ""
+	c.mu.Unlock()
+
+	c.decoder = NewDecoder(c)
+
+	return c.Connect(ctx)
+}
+
 // --- framing helpers ---
 
 var twsDebug = os.Getenv("TWS_DEBUG") == "1"

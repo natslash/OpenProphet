@@ -45,6 +45,13 @@ func (g *GatedTradingService) Disable(reason string) {
 	}
 }
 
+// Enable turns on order placement at runtime (e.g. after successful reconnect).
+func (g *GatedTradingService) Enable(reason string) {
+	if !g.enabled.Swap(true) {
+		log.Printf("[GATE] trading ENABLED at runtime: %s", reason)
+	}
+}
+
 // blocked logs the dry-run intent and returns the standard refusal error.
 func (g *GatedTradingService) blocked(action string) error {
 	log.Printf("[GATE][DRY-RUN] %s suppressed — trading disabled; no order sent", action)

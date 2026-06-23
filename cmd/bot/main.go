@@ -70,15 +70,44 @@ func main() {
 	gated := services.NewGatedTradingService(ibkrTrading, cfg.TradingEnabled)
 	tradingService = gated
 	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
-	dataService = services.NewIBKRDataService(client)
+	ibkrData := services.NewIBKRDataService(client)
+	dataService = ibkrData
 	ibkrTrading.SetDataService(dataService)
 
-	// Disconnect -> halt: stop sending orders if the socket drops (IB
-	// Gateway restarts daily; tws.Client.Connect is one-shot).
+	// Auto-reconnect loop: when IB Gateway drops (daily restart, network
+	// issue), disable trading and retry with exponential backoff.
 	go func() {
-		<-client.Closed()
-		gated.Disable("IB Gateway connection closed")
-		logger.Error("IB Gateway disconnected — order placement halted")
+		backoff := 5 * time.Second
+		const maxBackoff = 5 * time.Minute
+		for {
+			<-client.Closed()
+			gated.Disable("IB Gateway connection closed")
+			logger.Error("IB Gateway disconnected — attempting reconnect...")
+
+			ibkrData.OnDisconnect()
+			ibkrTrading.OnDisconnect()
+
+			for {
+				time.Sleep(backoff)
+				logger.WithField("backoff", backoff).Info("Reconnecting to IB Gateway...")
+
+				rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+				err := client.Reconnect(rctx)
+				rcancel()
+
+				if err != nil {
+					logger.WithError(err).Error("Reconnect failed")
+					backoff = min(backoff*2, maxBackoff)
+					continue
+				}
+
+				logger.Info("Reconnected to IB Gateway successfully")
+				ibkrData.OnReconnect()
+				gated.Enable("IB Gateway reconnected")
+				backoff = 5 * time.Second
+				break
+			}
+		}
 	}()
 
 	// Create storage service

@@ -57,3 +57,15 @@ func (d *Dispatcher) Complete(reqId int64) {
 	}
 	d.mu.Unlock()
 }
+
+// DrainAll closes every pending channel and clears the registry. Callers
+// blocked on a channel receive will get a closed-channel signal and should
+// return an error. Used during reconnect to orphan stale in-flight requests.
+func (d *Dispatcher) DrainAll() {
+	d.mu.Lock()
+	for id, ch := range d.pending {
+		close(ch)
+		delete(d.pending, id)
+	}
+	d.mu.Unlock()
+}

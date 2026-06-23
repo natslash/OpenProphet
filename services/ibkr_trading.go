@@ -42,6 +42,13 @@ func NewIBKRTradingService(client *tws.Client) *IBKRTradingService {
 	return s
 }
 
+// OnDisconnect clears stale order cache when IB Gateway drops.
+func (s *IBKRTradingService) OnDisconnect() {
+	s.cacheMu.Lock()
+	s.orderCache = make(map[string]*interfaces.Order)
+	s.cacheMu.Unlock()
+}
+
 // normalizeOrderType maps the interface's order-type strings (Alpaca-style,
 // lower-case) to TWS order-type codes. An empty or unrecognized type is
 // rejected rather than silently defaulting to a market order (guardrail:
