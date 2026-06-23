@@ -111,6 +111,10 @@ func (b *AutonomousBeat) IsRunning() bool {
 	return b.isRunning
 }
 
+func (b *AutonomousBeat) Interval() time.Duration {
+	return b.cfg.Interval
+}
+
 func (b *AutonomousBeat) Run(ctx context.Context) {
 	b.logger.WithFields(logrus.Fields{
 		"interval": b.cfg.Interval,
