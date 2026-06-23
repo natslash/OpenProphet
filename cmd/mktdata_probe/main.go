@@ -126,7 +126,7 @@ func main() {
 	}
 
 	// Wait for responses
-	fmt.Println("Waiting 8 seconds for responses...\n")
+	fmt.Println("Waiting 8 seconds for responses...")
 	time.Sleep(8 * time.Second)
 
 	// Cancel all subscriptions

@@ -26,8 +26,8 @@ func (m *mockTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 
 func TestHandleToolCall_GetAccount(t *testing.T) {
 	ctx := context.Background()
-	mockTrading := &mockTradingService{}
-	res, err := HandleToolCall(ctx, "get_account", []byte(`{}`), nil, nil, mockTrading, nil, nil, false)
+	tc := &ToolContext{Trading: &mockTradingService{}}
+	res, err := HandleToolCall(ctx, "get_account", []byte(`{}`), tc)
 	assert.NoError(t, err)
 	assert.True(t, strings.Contains(res, "DU123"))
 	assert.True(t, strings.Contains(res, "4000"))
@@ -35,7 +35,8 @@ func TestHandleToolCall_GetAccount(t *testing.T) {
 
 func TestHandleToolCall_UnknownTool(t *testing.T) {
 	ctx := context.Background()
-	_, err := HandleToolCall(ctx, "unknown_tool", []byte(`{}`), nil, nil, nil, nil, nil, false)
+	tc := &ToolContext{}
+	_, err := HandleToolCall(ctx, "unknown_tool", []byte(`{}`), tc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown tool")
 }

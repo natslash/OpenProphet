@@ -278,7 +278,14 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			appendToolToBotLog("", toolCall.Name, toolCall.Arguments)
 
 			toolCtx, toolCancel := context.WithTimeout(ctx, 90*time.Second)
-			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, b.data, b.pm, b.trading, b.llm, b.intentManager, b.requireDoubleConfirm)
+			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, &ToolContext{
+				Data:                 b.data,
+				PM:                   b.pm,
+				Trading:              b.trading,
+				LLM:                  b.llm,
+				Intent:               b.intentManager,
+				RequireDoubleConfirm: b.requireDoubleConfirm,
+			})
 			toolCancel()
 
 			var resultMsg string

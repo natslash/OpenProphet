@@ -107,15 +107,23 @@ func BuildAgentTools() []interfaces.LLMTool {
 	}
 }
 
-func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider, intentManager *IntentManager, requireDoubleConfirm bool) (string, error) {
-	return HandleToolCall(ctx, toolName, args, data, pm, trading, llm, intentManager, requireDoubleConfirm)
+type ToolContext struct {
+	Data                 interfaces.DataService
+	PM                   *PositionManager
+	Trading              interfaces.TradingService
+	LLM                  interfaces.LLMProvider
+	Intent               *IntentManager
+	RequireDoubleConfirm bool
 }
 
-// HandleToolCall executes the local method and returns the JSON string result
-func HandleToolCall(ctx context.Context, toolName string, args []byte, data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, llm interfaces.LLMProvider, intentManager *IntentManager, requireDoubleConfirm bool) (string, error) {
+func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, tc *ToolContext) (string, error) {
+	return HandleToolCall(ctx, toolName, args, tc)
+}
+
+func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolContext) (string, error) {
 	switch toolName {
 	case "get_account":
-		acc, err := trading.GetAccount(ctx)
+		acc, err := tc.Trading.GetAccount(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -123,7 +131,7 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		return string(b), nil
 
 	case "get_positions":
-		pos, err := trading.GetPositions(ctx)
+		pos, err := tc.Trading.GetPositions(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -131,7 +139,7 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		return string(b), nil
 
 	case "get_options_positions":
-		pos, err := trading.ListOptionsPositions(ctx)
+		pos, err := tc.Trading.ListOptionsPositions(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -143,12 +151,12 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
-		
-		if requireDoubleConfirm && intentManager != nil {
+
+		if tc.RequireDoubleConfirm && tc.Intent != nil {
 			currentPrice := 0.0
-			if data != nil {
+			if tc.Data != nil {
 				quoteCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-				if quote, err := data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
+				if quote, err := tc.Data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
 					if quote.AskPrice > 0 {
 						currentPrice = quote.AskPrice
 					} else if quote.BidPrice > 0 {
@@ -157,22 +165,22 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 				}
 				cancel()
 			}
-			
+
 			qty := 0.0
 			if req.ExplicitQuantity != nil {
 				qty = float64(*req.ExplicitQuantity)
 			} else if currentPrice > 0 {
-				qty = pm.resolveQuantity(&req, currentPrice)
+				qty = tc.PM.resolveQuantity(&req, currentPrice)
 			}
-			
-			id, err := intentManager.CreateIntent(IntentTypeManagedPosition, args, req.Symbol, req.Side, qty, currentPrice)
+
+			id, err := tc.Intent.CreateIntent(IntentTypeManagedPosition, args, req.Symbol, req.Side, qty, currentPrice)
 			if err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("Order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
 		}
 
-		pos, err := pm.PlaceManagedPosition(ctx, &req)
+		pos, err := tc.PM.PlaceManagedPosition(ctx, &req)
 		if err != nil {
 			return "", err
 		}
@@ -203,13 +211,12 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			Type:       req.OrderType,
 			LimitPrice: lmtPricePtr,
 		}
-		
-		if requireDoubleConfirm && intentManager != nil {
+
+		if tc.RequireDoubleConfirm && tc.Intent != nil {
 			currentPrice := 0.0
-			if data != nil {
-				// Don't block forever if quote is sparse (especially for options out of hours)
+			if tc.Data != nil {
 				quoteCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-				if quote, err := data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
+				if quote, err := tc.Data.GetLatestQuote(quoteCtx, req.Symbol); err == nil && quote != nil {
 					if quote.AskPrice > 0 {
 						currentPrice = quote.AskPrice
 					} else if quote.BidPrice > 0 {
@@ -218,14 +225,14 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 				}
 				cancel()
 			}
-			id, err := intentManager.CreateIntent(IntentTypeOptionsOrder, args, req.Symbol, req.Action, req.Qty, currentPrice)
+			id, err := tc.Intent.CreateIntent(IntentTypeOptionsOrder, args, req.Symbol, req.Action, req.Qty, currentPrice)
 			if err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("Options order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
 		}
 
-		res, err := trading.PlaceOptionsOrder(ctx, order)
+		res, err := tc.Trading.PlaceOptionsOrder(ctx, order)
 		if err != nil {
 			return "", err
 		}
@@ -238,11 +245,11 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
-		if data == nil {
+		if tc.Data == nil {
 			return "", fmt.Errorf("data service not initialized")
 		}
 		quoteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		quote, err := data.GetLatestQuote(quoteCtx, req.Symbol)
+		quote, err := tc.Data.GetLatestQuote(quoteCtx, req.Symbol)
 		cancel()
 		if err != nil {
 			return "", err
@@ -258,20 +265,18 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
-		if trading == nil {
+		if tc.Trading == nil {
 			return "", fmt.Errorf("trading service not initialized")
 		}
-		// Try to parse expiration
 		exp, err := time.Parse("20060102", req.Expiration)
 		if err != nil {
-			// fallback, just use now
 			exp = time.Now().Add(45 * 24 * time.Hour)
 		}
-		chain, err := trading.GetOptionsChain(ctx, req.Symbol, exp)
+		chain, err := tc.Trading.GetOptionsChain(ctx, req.Symbol, exp)
 		if err != nil {
 			return "", err
 		}
-		return formatOptionsChain(ctx, data, req.Symbol, chain), nil
+		return formatOptionsChain(ctx, tc.Data, req.Symbol, chain), nil
 
 	case "jim_rogers":
 		var req struct {
@@ -306,7 +311,7 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			return "", fmt.Errorf("agent %s not found in config", req.TargetAgentID)
 		}
 
-		if llm == nil {
+		if tc.LLM == nil {
 			return "", fmt.Errorf("llm provider not initialized for jim_rogers tool")
 		}
 
@@ -315,11 +320,11 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, data inte
 			{Role: "user", Content: req.Prompt},
 		}
 
-		resp, err := llm.GenerateResponse(ctx, messages, nil)
+		resp, err := tc.LLM.GenerateResponse(ctx, messages, nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to consult agent: %v", err)
 		}
-		
+
 		return resp.Content, nil
 
 	default:
