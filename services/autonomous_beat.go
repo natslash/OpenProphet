@@ -46,6 +46,11 @@ type AutonomousBeat struct {
 	overrideOnce     bool
 	beatCounter      int64
 	cachedRules      string
+
+	totalBeats int64
+	toolCalls  int64
+	errors     int64
+	paused     bool
 }
 
 type beatMessage struct {
@@ -146,6 +151,30 @@ func (b *AutonomousBeat) Interval() time.Duration {
 	return b.cfg.Interval
 }
 
+type BeatStats struct {
+	TotalBeats int64 `json:"totalBeats"`
+	ToolCalls  int64 `json:"toolCalls"`
+	Errors     int64 `json:"errors"`
+}
+
+func (b *AutonomousBeat) Stats() BeatStats {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return BeatStats{TotalBeats: b.totalBeats, ToolCalls: b.toolCalls, Errors: b.errors}
+}
+
+func (b *AutonomousBeat) IsPaused() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.paused
+}
+
+func (b *AutonomousBeat) BeatCount() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.beatCounter
+}
+
 func (b *AutonomousBeat) Run(ctx context.Context) {
 	b.logger.WithFields(logrus.Fields{
 		"interval": b.cfg.Interval,
@@ -215,6 +244,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.mu.Lock()
 	b.inTick = true
 	b.beatCounter++
+	b.totalBeats++
 	currentBeatId = b.beatCounter
 	var pending []beatMessage
 	if len(b.messageQueue) > 0 {
@@ -366,6 +396,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				}
 			}
 
+			b.mu.Lock()
+			b.toolCalls++
+			b.mu.Unlock()
 			b.logger.WithField("tool", toolCall.Name).Info("[BEAT] AI executing tool")
 
 			// Emit tool use to the UI
@@ -387,6 +420,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			var resultMsg string
 			if toolErr != nil {
 				resultMsg = fmt.Sprintf("Error: %s", toolErr.Error())
+				b.mu.Lock()
+				b.errors++
+				b.mu.Unlock()
 				b.logger.WithError(toolErr).WithField("tool", toolCall.Name).Warn("[BEAT] Tool failed")
 			} else {
 				resultMsg = resStr

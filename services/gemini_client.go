@@ -10,8 +10,7 @@ import (
 
 	"prophet-trader/interfaces"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 type GeminiClient struct {
@@ -25,7 +24,10 @@ func NewGeminiClient() (*GeminiClient, error) {
 		return nil, fmt.Errorf("GEMINI_API_KEY environment variable is not set")
 	}
 
-	client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
+	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -46,28 +48,26 @@ func (gc *GeminiClient) GetName() string {
 }
 
 func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfaces.LLMMessage, tools []interfaces.LLMTool) (*interfaces.LLMResponse, error) {
-	model := gc.client.GenerativeModel(gc.model)
+	config := &genai.GenerateContentConfig{}
 
-	var history []*genai.Content
+	var contents []*genai.Content
 
-	// Batch consecutive tool results into a single "user" Content with
-	// multiple FunctionResponse parts — Gemini requires this.
-	var pendingFuncResults []genai.Part
+	var pendingFuncParts []*genai.Part
 
 	flushFuncResults := func() {
-		if len(pendingFuncResults) > 0 {
-			history = append(history, &genai.Content{
-				Role:  "function",
-				Parts: pendingFuncResults,
+		if len(pendingFuncParts) > 0 {
+			contents = append(contents, &genai.Content{
+				Role:  "user",
+				Parts: pendingFuncParts,
 			})
-			pendingFuncResults = nil
+			pendingFuncParts = nil
 		}
 	}
 
 	for _, msg := range messages {
 		if msg.Role == "system" {
-			model.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(msg.Content)},
+			config.SystemInstruction = &genai.Content{
+				Parts: []*genai.Part{{Text: msg.Content}},
 			}
 		} else if msg.ToolResultID != "" {
 			funcName := msg.ToolResultName
@@ -78,95 +78,77 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 			if err := json.Unmarshal([]byte(msg.Content), &resultMap); err != nil {
 				resultMap = map[string]any{"result": msg.Content}
 			}
-			pendingFuncResults = append(pendingFuncResults, genai.FunctionResponse{
-				Name:     funcName,
-				Response: resultMap,
+			pendingFuncParts = append(pendingFuncParts, &genai.Part{
+				FunctionResponse: &genai.FunctionResponse{
+					Name:     funcName,
+					Response: resultMap,
+				},
 			})
 		} else {
 			flushFuncResults()
 			if msg.Role == "assistant" {
-				// Prefer raw content to preserve thought signatures from Gemini 2.5+
 				if raw, ok := msg.RawContent.(*genai.Content); ok && raw != nil {
-					history = append(history, raw)
+					contents = append(contents, raw)
 				} else {
-					var parts []genai.Part
+					var parts []*genai.Part
 					if msg.Content != "" {
-						parts = append(parts, genai.Text(msg.Content))
+						parts = append(parts, &genai.Part{Text: msg.Content})
 					}
 					for _, tc := range msg.ToolCalls {
 						var args map[string]any
 						if err := json.Unmarshal(tc.Arguments, &args); err != nil {
 							args = map[string]any{}
 						}
-						parts = append(parts, genai.FunctionCall{
-							Name: tc.Name,
-							Args: args,
+						parts = append(parts, &genai.Part{
+							FunctionCall: &genai.FunctionCall{
+								Name: tc.Name,
+								Args: args,
+							},
 						})
 					}
 					if len(parts) > 0 {
-						history = append(history, &genai.Content{Role: "model", Parts: parts})
+						contents = append(contents, &genai.Content{Role: "model", Parts: parts})
 					}
 				}
 			} else {
-				history = append(history, &genai.Content{
+				contents = append(contents, &genai.Content{
 					Role:  "user",
-					Parts: []genai.Part{genai.Text(msg.Content)},
+					Parts: []*genai.Part{{Text: msg.Content}},
 				})
 			}
 		}
 	}
 	flushFuncResults()
 
-	// Register tools
 	if len(tools) > 0 {
-		var genaiTools []*genai.Tool
-		var functionDeclarations []*genai.FunctionDeclaration
-
+		var decls []*genai.FunctionDeclaration
 		for _, tool := range tools {
-			// Convert input schema (map) to genai.Schema
-			schema := convertGenaiSchema(tool.InputSchema)
-
-			functionDeclarations = append(functionDeclarations, &genai.FunctionDeclaration{
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  schema,
+			decls = append(decls, &genai.FunctionDeclaration{
+				Name:                 tool.Name,
+				Description:          tool.Description,
+				ParametersJsonSchema: tool.InputSchema,
 			})
 		}
-
-		genaiTools = append(genaiTools, &genai.Tool{
-			FunctionDeclarations: functionDeclarations,
-		})
-		model.Tools = genaiTools
+		config.Tools = []*genai.Tool{{FunctionDeclarations: decls}}
 	}
 
-	// Send request
-	var resp *genai.GenerateContentResponse
-	var err error
-
-	if len(history) == 0 {
+	if len(contents) == 0 {
 		return nil, fmt.Errorf("no user messages provided")
 	}
 
+	var resp *genai.GenerateContentResponse
+	var err error
+
 	maxRetries := 3
 	for i := 0; i <= maxRetries; i++ {
-		if len(history) == 1 {
-			resp, err = model.GenerateContent(ctx, history[0].Parts...)
-		} else {
-			session := model.StartChat()
-			// Feed all but last message to history
-			session.History = history[:len(history)-1]
-			resp, err = session.SendMessage(ctx, history[len(history)-1].Parts...)
-		}
-
+		resp, err = gc.client.Models.GenerateContent(ctx, gc.model, contents, config)
 		if err == nil {
 			break
 		}
-
 		if i < maxRetries && (strings.Contains(err.Error(), "503") || strings.Contains(err.Error(), "429")) {
 			time.Sleep(time.Duration(i+1) * 2 * time.Second)
 			continue
 		}
-
 		return nil, err
 	}
 
@@ -178,13 +160,13 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 	var toolCalls []interfaces.LLMToolCall
 
 	for i, part := range resp.Candidates[0].Content.Parts {
-		if text, ok := part.(genai.Text); ok {
-			content += string(text)
-		} else if funcCall, ok := part.(genai.FunctionCall); ok {
-			argsBytes, _ := json.Marshal(funcCall.Args)
+		if part.Text != "" && !part.Thought {
+			content += part.Text
+		} else if part.FunctionCall != nil {
+			argsBytes, _ := json.Marshal(part.FunctionCall.Args)
 			toolCalls = append(toolCalls, interfaces.LLMToolCall{
-				ID:        fmt.Sprintf("%s_%d", funcCall.Name, i),
-				Name:      funcCall.Name,
+				ID:        fmt.Sprintf("%s_%d", part.FunctionCall.Name, i),
+				Name:      part.FunctionCall.Name,
 				Arguments: argsBytes,
 			})
 		}
@@ -194,9 +176,8 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 	if resp.UsageMetadata != nil {
 		usage = int(resp.UsageMetadata.TotalTokenCount)
 		if resp.UsageMetadata.CachedContentTokenCount > 0 {
-			// Log when implicit caching is successfully used
-			fmt.Printf("[GEMINI] Implicit caching active! Cached tokens: %d / Total prompt: %d\n", 
-				resp.UsageMetadata.CachedContentTokenCount, 
+			fmt.Printf("[GEMINI] Implicit caching active! Cached tokens: %d / Total prompt: %d\n",
+				resp.UsageMetadata.CachedContentTokenCount,
 				resp.UsageMetadata.PromptTokenCount)
 		}
 	}
@@ -207,62 +188,4 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 		UsageToken: usage,
 		RawContent: resp.Candidates[0].Content,
 	}, nil
-}
-
-func convertGenaiSchema(input map[string]interface{}) *genai.Schema {
-	if input == nil {
-		return nil
-	}
-	
-	schema := &genai.Schema{}
-	
-	if t, ok := input["type"].(string); ok {
-		switch t {
-		case "object": schema.Type = genai.TypeObject
-		case "string": schema.Type = genai.TypeString
-		case "integer": schema.Type = genai.TypeInteger
-		case "number": schema.Type = genai.TypeNumber
-		case "boolean": schema.Type = genai.TypeBoolean
-		case "array": schema.Type = genai.TypeArray
-		}
-	}
-	
-	if desc, ok := input["description"].(string); ok {
-		schema.Description = desc
-	}
-	
-	if req, ok := input["required"].([]interface{}); ok {
-		for _, r := range req {
-			if rs, ok := r.(string); ok {
-				schema.Required = append(schema.Required, rs)
-			}
-		}
-	} else if req, ok := input["required"].([]string); ok {
-		schema.Required = req
-	}
-	
-	if props, ok := input["properties"].(map[string]interface{}); ok {
-		schema.Properties = make(map[string]*genai.Schema)
-		for k, v := range props {
-			if vMap, ok := v.(map[string]interface{}); ok {
-				schema.Properties[k] = convertGenaiSchema(vMap)
-			}
-		}
-	}
-	
-	if items, ok := input["items"].(map[string]interface{}); ok {
-		schema.Items = convertGenaiSchema(items)
-	}
-
-	if enums, ok := input["enum"].([]interface{}); ok {
-		for _, e := range enums {
-			if es, ok := e.(string); ok {
-				schema.Enum = append(schema.Enum, es)
-			}
-		}
-	} else if enums, ok := input["enum"].([]string); ok {
-		schema.Enum = enums
-	}
-	
-	return schema
 }

@@ -272,7 +272,15 @@ app.get('/api/events', async (req, res) => {
     const goPort = TRADING_BOT_PORT;
     const response = await fetch(`http://localhost:${goPort}/api/v1/agent/status`);
     const stateData = await response.json().catch(() => ({ running: false }));
-    res.write(`event: state\ndata: ${JSON.stringify({ running: stateData.running, heartbeatSeconds: stateData.heartbeatSeconds || 0 })}\n\n`);
+    const activeAgent = getResolvedAgent(getActiveAgent());
+    res.write(`event: state\ndata: ${JSON.stringify({
+      running: stateData.running,
+      paused: stateData.paused || false,
+      heartbeatSeconds: stateData.heartbeatSeconds || 0,
+      beatCount: stateData.beatCount || 0,
+      stats: stateData.stats || { totalBeats: 0, toolCalls: 0, errors: 0 },
+      activeModel: activeAgent?.model || getConfig().activeModel || '--',
+    })}\n\n`);
     res.write(`event: status\ndata: ${JSON.stringify({ status: stateData.running ? 'active' : 'stopped' })}\n\n`);
   } catch(e) {
     res.write(`event: state\ndata: ${JSON.stringify({ running: false, error: e.message })}\n\n`);
@@ -1015,6 +1023,24 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Network:                http://0.0.0.0:${PORT}`);
   console.log(`  Trading Bot Backend:    ${TRADING_BOT_URL}\n`);
 });
+
+// Poll Go backend for state updates and broadcast to dashboard clients
+setInterval(async () => {
+  if (sseClients.size === 0 || !goReady) return;
+  try {
+    const r = await goAxios.get('/api/v1/agent/status', { timeout: 2000 });
+    const s = r.data;
+    const activeAgent = getResolvedAgent(getActiveAgent());
+    broadcast('state', {
+      running: s.running,
+      paused: s.paused || false,
+      heartbeatSeconds: s.heartbeatSeconds || 0,
+      beatCount: s.beatCount || 0,
+      stats: s.stats || { totalBeats: 0, toolCalls: 0, errors: 0 },
+      activeModel: activeAgent?.model || getConfig().activeModel || '--',
+    });
+  } catch {}
+}, 5000);
 
 // Proxy logs from Go.
 // The Go backend is (re)started on account switch, the restart button, crash

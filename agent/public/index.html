@@ -1317,6 +1317,7 @@ function updateState(s) {
   _set('footer-model', dispModel.replace('anthropic/', '').replace('claude-', '').replace('google/', '').split('-202')[0]);
   updatePhase(s.phase);
   updateButtons(s.running ? (s.paused ? 'paused' : 'started') : 'stopped');
+  _set('bot-status', s.running ? (s.paused ? 'Paused' : 'Running') : 'Stopped');
   if (s.recentTrades) s.recentTrades.forEach(t => addTradeCard(t));
 }
 

@@ -131,17 +131,26 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 
 ## Backlog
 
-| Rank | Item | Priority | Notes |
-|------|------|----------|-------|
-| 1 | **Enable Gemini LLM provider via UI** | P0 — Cost | Fix `gemini_client.go` (3 bugs), wire provider env in `server.js`. Fetch model list dynamically from provider APIs on server startup + cache (not per-page-load); replace stale hardcoded allowlist in `/api/models/refresh`. Drops LLM cost ~250x. |
-| 2 | **Index quote timeout + fallback** | P0 — Reliability | `get_quote` for ESTX50 (index) hangs up to 90s waiting for `TickLastPrice` that may never arrive. Add 15s internal deadline; accept any available tick data (close, delayed) as fallback. |
-| 3 | **Cache TRADING_RULES.md at startup** | P1 — Perf | Load once in `Start()`, store in field. No per-beat disk I/O. |
-| 4 | **Dashboard beat grouping** | P2 — UX | Group bot log events by `beatId` into collapsible cards. Backend `beatId` tagging already done. Subsumes "Agent Dialogue UX". |
-| 5 | Multi-Leg Option Combos | P3 | BAG routing for net credit/debit limit orders on option spreads. |
-| 6 | Agent Identity UI | P3 | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. |
-| 7 | Trading Safety Checks | P3 | Tidy "Enable Trading" logic; make live vs dry-run mode explicitly clear. |
-| 8 | **Beat activity indicator** | P2 — UX | No visual feedback while agent is processing. Show a "thinking" spinner/pulse in the chat area while a beat is active (between beat start and complete). Disappears when beat finishes. |
-| 9 | Dashboard UI Overhaul | P4 | General UX/UI improvements. |
+| Rank | Item | Priority | Status | Notes |
+|------|------|----------|--------|-------|
+| 1 | **Gemini thought_signature fix** | P0 — Blocker | ✅ Done | Rewrote `gemini_client.go` to new `google.golang.org/genai` SDK; old SDK stripped thought signatures. |
+| 2 | **EUREX order placement (error 387)** | P0 — Blocker | ✅ Done | Three fixes: skip native STP for EUREX options, resolve ConId via ReqContractDetails, truncate expiry time suffix. |
+| 3 | **Enable Gemini LLM provider via UI** | P0 — Cost | ✅ Done | 3 client bugs fixed, provider env wiring, dynamic model list from APIs. |
+| 4 | **Index quote timeout + fallback** | P0 — Reliability | ✅ Done | 15s deadline, close/delayed tick fallback for indices. |
+| 5 | **Cache TRADING_RULES.md at startup** | P1 — Perf | ✅ Done | Load once in `Start()`, no per-beat disk I/O. |
+| 6 | **Bot status shows "--"** | P1 — UX | ✅ Done | Added stats tracking (beats/tools/errors) to Go backend, state polling in agent server, wired `bot-status` element. |
+| 7 | **Keyboard shortcuts for dashboard** | P1 — UX | ⬜ | Enter to send messages and authorize intents. Escape to close modals. Currently mouse-only. |
+| 8 | **Live Trades tab empty** | P1 — UX | ⬜ | Trades tab blank despite authorized/executed orders. Activity log records them but dashboard doesn't display. |
+| 9 | **Beat activity indicator** | P2 — UX | ⬜ | No visual feedback while agent is processing. Show thinking spinner/pulse during active beats. |
+| 10 | **Position detail view** | P2 — UX | ⬜ | Positions not clickable. Add detail view with avg entry price, CMP, and unrealized P&L. |
+| 11 | **Isolate backend logs from browser console** | P2 — UX | ⬜ | Backend logs flood browser dev console. Show only in Logs panel, not `console.log`. |
+| 12 | **Dashboard beat grouping** | P2 — UX | ⬜ | Group log events by `beatId` into collapsible cards. Backend tagging already done. |
+| 13 | **Rename Settings → Agent Settings** | P3 — UX | ⬜ | "Backend Engine Settings" is misleading — these are agent-level config (model, heartbeat, permissions). |
+| 14 | **Wire Accounts tab** | P3 — UX | ⬜ | Backend returns account data but tab doesn't display it. Wire up or merge into portfolio view. |
+| 15 | **Trading Safety Checks** | P3 | ⬜ | Tidy "Enable Trading" logic; make live vs dry-run mode explicitly clear. |
+| 16 | **Agent Identity UI** | P3 | ⬜ | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. |
+| 17 | **Multi-Leg Option Combos** | P3 | ⬜ | BAG routing for net credit/debit limit orders on option spreads. |
+| 18 | Dashboard UI Overhaul | P4 | ⬜ | General UX/UI improvements. |
 
 ---
 

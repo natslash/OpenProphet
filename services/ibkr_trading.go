@@ -180,6 +180,29 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 		return nil, fmt.Errorf("PlaceOrder: %w", err)
 	}
 
+	// For options without a ConId, resolve via IBKR to get the fully qualified
+	// contract. PlaceOrder is stricter than reqMktData about contract identity.
+	if contract.ConId == 0 && contract.SecType == tws.Option {
+		details, err := s.client.ReqContractDetails(ctx, contract)
+		if err != nil {
+			return nil, fmt.Errorf("PlaceOrder: resolve contract details: %w", err)
+		}
+		if len(details) == 0 {
+			return nil, fmt.Errorf("PlaceOrder: no matching contract for %s", order.Symbol)
+		}
+		if len(details) > 1 {
+			return nil, fmt.Errorf("PlaceOrder: ambiguous contract for %s (%d matches)", order.Symbol, len(details))
+		}
+		contract = details[0].Contract
+		// ReqContractDetails returns expiry with a time+zone suffix
+		// (e.g. "20260807 12:00:00 MET") but PlaceOrder needs bare "YYYYMMDD".
+		if len(contract.LastTradeDateOrContractMonth) > 8 {
+			contract.LastTradeDateOrContractMonth = contract.LastTradeDateOrContractMonth[:8]
+		}
+		log.Printf("[IBKR] Resolved option conid=%d local=%s exch=%s",
+			contract.ConId, contract.LocalSymbol, contract.Exchange)
+	}
+
 	parentID := s.client.NextOrderId()
 
 	side := "BUY"
@@ -229,7 +252,10 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 		}
 	}
 
-	if order.StopLossPrice != nil {
+	// EUREX does not support native stop orders for options — skip the STP
+	// bracket leg and let the position manager's programmatic stop handle it.
+	eurexOpt := strings.EqualFold(contract.Exchange, "EUREX") && contract.SecType == tws.Option
+	if order.StopLossPrice != nil && !eurexOpt {
 		slID = s.client.NextOrderId()
 		slOrder = tws.Order{
 			Action:        reverseSide,
@@ -261,8 +287,9 @@ func (s *IBKRTradingService) PlaceOrder(ctx context.Context, order *interfaces.O
 	if order.LimitPrice != nil {
 		lmtStr = fmt.Sprintf("%.4f", *order.LimitPrice)
 	}
-	log.Printf("[IBKR] ORDER INTENT id=%d %s %s qty=%v type=%s lmt=%s tif=%s tp=%v sl=%v (paper)",
-		parentID, side, order.Symbol, order.Qty, orderType, lmtStr, parentOrder.Tif, tpID > 0, slID > 0)
+	log.Printf("[IBKR] ORDER INTENT id=%d %s %s qty=%v type=%s lmt=%s tif=%s tp=%v sl=%v exchange=%s sectype=%s conid=%d (paper)",
+		parentID, side, order.Symbol, order.Qty, orderType, lmtStr, parentOrder.Tif, tpID > 0, slID > 0,
+		contract.Exchange, contract.SecType, contract.ConId)
 
 	// Register channels for all legs
 	type resultMsg struct {

@@ -340,6 +340,11 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 		if tc.Resolver == nil {
 			return "", fmt.Errorf("contract resolver not available")
 		}
+		switch req.SecType {
+		case "", "STK", "OPT", "FUT", "IND", "FOP", "WAR", "CFD":
+		default:
+			req.SecType = ""
+		}
 		searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		results, err := tc.Resolver.Search(searchCtx, req.Symbol, req.SecType, req.Exchange, req.Currency)
 		cancel()
