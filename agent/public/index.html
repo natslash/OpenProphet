@@ -187,6 +187,7 @@
       font-size: 10px; opacity: 0.7; margin-top: 6px; display: block; text-align: right;
     }
     .chat-bubble-ai .chat-time { text-align: left; }
+    .chat-bubble-ai .chat-content { white-space: pre-wrap; }
 
 
     .terminal {
@@ -387,7 +388,7 @@
     .form-hint { font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
 
     /* ── Settings Panels ────────────────── */
-    .settings-content { padding: 20px; max-width: 800px; padding-bottom: 80px; }
+    .settings-content { padding: 20px; max-width: 800px; padding-bottom: 24px; }
     .settings-content h2 { font-family: 'Crimson Pro', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
     .settings-content p.subtitle { color: var(--ink-muted); font-size: 14px; margin-bottom: 20px; }
 
@@ -1194,16 +1195,26 @@ function connectSSE() {
   });
   es.addEventListener('agent_text', e => {
     const d = JSON.parse(e.data);
+    const beatId = d.beatId || 0;
 
     const t = document.getElementById('thinking-main');
     if (t) t.remove();
-    d.text.split('\n').forEach(l => { 
-      if(l.trim()) {
-        chatToTerminal(`<div class="chat-bubble chat-bubble-ai">${esc(l)}<span class="chat-time">${fmtTime()}</span></div>`);
-        logToTerminal(`<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(l)}</div>`);
-        log(l, 'text');
-      }
-    });
+
+    const text = (d.text || '').trim();
+    if (!text) return;
+
+    const existing = beatId ? document.getElementById('chat-beat-' + beatId) : null;
+    if (existing) {
+      const content = existing.querySelector('.chat-content');
+      if (content) content.textContent += '\n\n' + text;
+      existing.querySelector('.chat-time').textContent = fmtTime();
+      const chatPane = mainTerminal?.chatEl;
+      if (chatPane) chatPane.scrollTop = chatPane.scrollHeight;
+    } else {
+      const id = beatId ? ` id="chat-beat-${beatId}"` : '';
+      chatToTerminal(`<div class="chat-bubble chat-bubble-ai"${id}><span class="chat-content">${esc(text)}</span><span class="chat-time">${fmtTime()}</span></div>`);
+    }
+    logToTerminal(`<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(text.split('\n')[0].substring(0, 120))}</div>`);
   });
   es.addEventListener('intent_created', e => {
     refreshIntents();
@@ -1299,9 +1310,7 @@ function connectSSE() {
     const thinkEl = document.getElementById('manager-thinking');
     if (thinkEl) thinkEl.remove();
     const d = JSON.parse(e.data);
-    if (d.text) d.text.split('\n').forEach(function(l) {
-      if (l.trim()) chatToTerminal('<div class="chat-bubble chat-bubble-ai">' + esc(l) + '<span class="chat-time">' + fmtTime() + '</span></div>');
-    });
+    if (d.text?.trim()) chatToTerminal(`<div class="chat-bubble chat-bubble-ai"><span class="chat-content">${esc(d.text.trim())}</span><span class="chat-time">${fmtTime()}</span></div>`);
   });
   es.addEventListener('manager_tool', e => {
     const thinkEl = document.getElementById('manager-thinking');
