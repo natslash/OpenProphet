@@ -1,9 +1,0 @@
-[
-  {
-    "symbol": "GENERAL",
-    "action": "KNOWLEDGE",
-    "strategy": "OPTIONS_BASICS",
-    "reasoning": "When trading long call or put options for swing trades, use 30-45 days to expiration. This gives enough time for the thesis to play out while avoiding excessive theta decay.",
-    "market_context": "Monthly options provide better liquidity and tighter spreads than weeklies. Theta accelerates dramatically under 21 DTE."
-  }
-]
