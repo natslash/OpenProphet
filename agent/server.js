@@ -635,61 +635,47 @@ app.post('/api/models/activate', async (req, res) => {
 
 app.post('/api/models/refresh', async (req, res) => {
   try {
-    const out = execSync('opencode models 2>&1', { encoding: 'utf-8', timeout: 10000 });
-    const lines = out.trim().split('\n').filter(l => l && l.includes('/'));
     const models = [];
     const seen = new Set();
-    
-    for (const line of lines) {
-      const id = line.trim();
-      if (!id || seen.has(id)) continue;
-      
-      // Filter models: No GPT, keep Gemini and select Claude models
-      if (id.startsWith('openai/') || id.startsWith('openrouter/') || id.startsWith('opencode/')) continue;
-      
-      // Keep only up to 3 Claude variants (Opus, Sonnet, Haiku) and Gemini
-      const isAllowed = [
-        'anthropic/claude-3-opus',
-        'anthropic/claude-3-5-sonnet',
-        'anthropic/claude-3-haiku',
-        'google/gemini-1.5-pro',
-        'google/gemini-2.0-flash',
-        'google/gemini-pro'
-      ].some(allowed => id.startsWith(allowed));
-      
-      if (!isAllowed) continue;
-      seen.add(id);
-      
-      let name = id;
-      let description = '';
-      
-      if (id.startsWith('anthropic/')) {
-        const model = id.replace('anthropic/', '');
-        if (model.includes('opus')) {
-          name = `Claude Opus ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Opus model (Powerful)';
-        } else if (model.includes('sonnet')) {
-          name = `Claude Sonnet ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Sonnet model (Balanced)';
-        } else if (model.includes('haiku')) {
-          name = `Claude Haiku ${model.replace(/[^\d.]/g, '')}`;
-          description = 'Anthropic Haiku model (Fast)';
+    const add = (id, name, desc) => { if (!seen.has(id)) { seen.add(id); models.push({ id, name, description: desc }); } };
+
+    // Fetch Anthropic models
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      try {
+        const r = await axios.get('https://api.anthropic.com/v1/models', {
+          headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+          timeout: 10000,
+        });
+        for (const m of (r.data?.data || [])) {
+          const id = 'anthropic/' + m.id;
+          const displayName = m.display_name || m.id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          add(id, displayName, m.id);
         }
-      } else if (id.startsWith('google/')) {
-        name = 'Gemini ' + id.replace('google/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        description = 'Google Gemini model (Excellent for trading logic)';
-      } else {
-        name = id.split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        description = 'Available model';
-      }
-      
-      models.push({ id, name, description });
+      } catch (e) { console.log('  [models] Anthropic API fetch failed:', e.message); }
     }
-    
-    const config = getConfig();
-    config.models = models;
-    await saveConfig();
-    broadcast('config', safeConfig());
+
+    // Fetch Google Gemini models
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        const r = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`, { timeout: 10000 });
+        for (const m of (r.data?.models || [])) {
+          if (!m.name?.startsWith('models/gemini-')) continue;
+          if (!m.supportedGenerationMethods?.includes('generateContent')) continue;
+          const modelId = m.name.replace('models/', '');
+          const id = 'google/' + modelId;
+          add(id, m.displayName || modelId, m.description || '');
+        }
+      } catch (e) { console.log('  [models] Gemini API fetch failed:', e.message); }
+    }
+
+    if (models.length > 0) {
+      const config = getConfig();
+      config.models = models;
+      await saveConfig();
+      broadcast('config', safeConfig());
+    }
     res.json({ ok: true, count: models.length });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
