@@ -2130,6 +2130,45 @@ async function clearAgentPrompt(agentId) {
 
 
 
+function editAgent(agentId) {
+  const agent = (config.agents || []).find(a => a.id === agentId);
+  if (!agent) return;
+  const modelOptions = (config.models || []).map(m =>
+    '<option value="' + esc(m.id) + '"' + (m.id === agent.model ? ' selected' : '') + '>' + esc(m.name || m.id) + '</option>'
+  ).join('');
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = '<h3>Edit Agent</h3>'
+    + '<div style="display:flex;flex-direction:column;gap:10px">'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Name<input id="edit-agent-name" value="' + esc(agent.name || '') + '" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px"></label>'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Description<input id="edit-agent-desc" value="' + esc(agent.description || '') + '" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px"></label>'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Model<select id="edit-agent-model" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px">' + modelOptions + '</select></label>'
+    + '</div>'
+    + '<div class="modal-actions" style="margin-top:14px;display:flex;gap:8px">'
+    + '<button class="btn sm primary" onclick="saveAgentEdit(\'' + esc(agentId) + '\')">Save</button>'
+    + '<button class="btn sm" onclick="closeModal()">Cancel</button>'
+    + '</div>';
+  document.getElementById('modal-overlay').classList.add('visible');
+}
+
+async function saveAgentEdit(agentId) {
+  const name = document.getElementById('edit-agent-name')?.value.trim();
+  const description = document.getElementById('edit-agent-desc')?.value.trim();
+  const model = document.getElementById('edit-agent-model')?.value;
+  try {
+    await fetch('/api/agents/' + encodeURIComponent(agentId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, model }),
+    });
+    config = await fetch('/api/config').then(r => r.json());
+    closeModal();
+    renderAll();
+    logToTerminal('<div class="log-entry success"><span class="time">' + fmtTime() + '</span>Agent updated: ' + esc(name) + '</div>');
+  } catch (e) {
+    alert('Error saving agent: ' + e.message);
+  }
+}
+
 async function assignStrategyToAgent(strategyId, agentId) {
   await fetch('/api/agents/' + encodeURIComponent(agentId), {
     method: 'PUT',
@@ -2188,6 +2227,24 @@ async function activateAgent(id) {
   renderAll();
 }
 async function deleteAgent(id) { if(confirm('Delete this agent?')) await fetch('/api/agents/'+id,{method:'DELETE'}); }
+function editStrategy(strategyId) {
+  const s = (config.strategies || []).find(x => x.id === strategyId);
+  if (!s) return;
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = '<h3>Edit Strategy</h3>'
+    + '<div style="display:flex;flex-direction:column;gap:10px">'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Name<input id="f-st-name" value="' + esc(s.name || '') + '" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px"></label>'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Description<input id="f-st-desc" value="' + esc(s.description || '') + '" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px"></label>'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Rules File<input id="f-st-file" value="' + esc(s.rulesFile || '') + '" style="width:100%;margin-top:4px;padding:6px 8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px" placeholder="e.g. TRADING_RULES.md"></label>'
+    + '<label style="font-size:12px;color:var(--ink-muted)">Custom Rules (overrides file if set)<textarea id="f-st-rules" rows="12" style="width:100%;margin-top:4px;padding:8px;background:var(--bg-dark);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:11px;font-family:monospace;resize:vertical">' + esc(s.customRules || '') + '</textarea></label>'
+    + '</div>'
+    + '<div class="modal-actions" style="margin-top:14px;display:flex;gap:8px">'
+    + '<button class="btn sm primary" onclick="submitStrategy(\'' + esc(strategyId) + '\')">Save</button>'
+    + '<button class="btn sm" onclick="closeModal()">Cancel</button>'
+    + '</div>';
+  document.getElementById('modal-overlay').classList.add('visible');
+}
+
 async function deleteStrategy(id) { if(confirm('Delete this strategy?')) await fetch('/api/strategies/'+id,{method:'DELETE'}); }
 async function activateModel(id) {
   await fetch('/api/models/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
@@ -2246,7 +2303,8 @@ async function submitAgent(id) {
 }
 
 async function submitStrategy(id) {
-  const body = { name: v('f-st-name'), description: v('f-st-desc'), customRules: v('f-st-rules') };
+  const fileEl = document.getElementById('f-st-file');
+  const body = { name: v('f-st-name'), description: v('f-st-desc'), customRules: v('f-st-rules'), rulesFile: fileEl ? fileEl.value.trim() : undefined };
   try {
     const r = id
       ? await fetch('/api/strategies/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
