@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
@@ -91,6 +92,33 @@ func BuildAgentTools() []interfaces.LLMTool {
 					"lmt_price":  map[string]interface{}{"type": "number"},
 				},
 				"required": []string{"symbol", "action", "qty", "order_type"},
+			},
+		},
+		{
+			Name:        "place_combo_order",
+			Description: "Place a multi-leg combo (spread) order. Each leg is an option symbol with action and ratio. The order is placed as a BAG contract with a net limit price.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"legs": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"symbol": map[string]interface{}{"type": "string", "description": "e.g. ESTX50:20260821:P:5450"},
+								"action": map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}},
+								"ratio":  map[string]interface{}{"type": "integer", "description": "Leg ratio (default 1)"},
+							},
+							"required": []string{"symbol", "action"},
+						},
+						"minItems": 2,
+					},
+					"action":    map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}, "description": "Net combo action"},
+					"qty":       map[string]interface{}{"type": "integer"},
+					"order_type": map[string]interface{}{"type": "string", "enum": []string{"LMT", "MKT"}},
+					"lmt_price": map[string]interface{}{"type": "number", "description": "Net limit price (positive = debit, negative = credit)"},
+				},
+				"required": []string{"legs", "action", "qty", "order_type"},
 			},
 		},
 		{
@@ -262,6 +290,74 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 		}
 
 		res, err := tc.Trading.PlaceOptionsOrder(ctx, order)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"order_id": "%s"}`, res.OrderID), nil
+
+	case "place_combo_order":
+		var req struct {
+			Legs      []struct {
+				Symbol string `json:"symbol"`
+				Action string `json:"action"`
+				Ratio  int    `json:"ratio"`
+			} `json:"legs"`
+			Action    string  `json:"action"`
+			Qty       float64 `json:"qty"`
+			OrderType string  `json:"order_type"`
+			LmtPrice  float64 `json:"lmt_price"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if tc.Trading == nil {
+			return "", fmt.Errorf("trading service not initialized")
+		}
+		if len(req.Legs) < 2 {
+			return "", fmt.Errorf("combo order requires at least 2 legs")
+		}
+
+		legs := make([]interfaces.ComboLeg, len(req.Legs))
+		for i, l := range req.Legs {
+			ratio := l.Ratio
+			if ratio <= 0 {
+				ratio = 1
+			}
+			legs[i] = interfaces.ComboLeg{Symbol: l.Symbol, Action: l.Action, Ratio: ratio}
+		}
+
+		var lmtPricePtr *float64
+		if req.OrderType == "LMT" {
+			lmtPricePtr = &req.LmtPrice
+		}
+
+		comboOrder := &interfaces.ComboOrder{
+			Legs:       legs,
+			Action:     req.Action,
+			Qty:        req.Qty,
+			OrderType:  req.OrderType,
+			LimitPrice: lmtPricePtr,
+		}
+
+		legDesc := make([]string, len(legs))
+		for i, l := range legs {
+			legDesc[i] = fmt.Sprintf("%s %s x%d", l.Action, l.Symbol, l.Ratio)
+		}
+		comboSymbol := fmt.Sprintf("COMBO[%s]", strings.Join(legDesc, " / "))
+
+		if tc.RequireDoubleConfirm && tc.Intent != nil {
+			currentPrice := 0.0
+			if lmtPricePtr != nil {
+				currentPrice = *lmtPricePtr
+			}
+			id, err := tc.Intent.CreateIntent(IntentTypeOptionsOrder, args, comboSymbol, req.Action, req.Qty, currentPrice)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Combo order intent created and pending human authorization (Intent ID: %s). Do not retry.", id), nil
+		}
+
+		res, err := tc.Trading.PlaceComboOrder(ctx, comboOrder)
 		if err != nil {
 			return "", err
 		}

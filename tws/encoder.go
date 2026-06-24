@@ -189,8 +189,14 @@ func (e *Encoder) ReqHistoricalData(serverVersion int, reqId int64, contract Con
 		add(strconv.Itoa(formatDate))
 	}
 
-	if contract.SecType == "BAG" {
-		add("0") // combo legs not supported
+	if contract.SecType == Bag {
+		add(strconv.Itoa(len(contract.ComboLegs)))
+		for _, leg := range contract.ComboLegs {
+			add(strconv.FormatInt(leg.ConId, 10),
+				strconv.Itoa(leg.Ratio),
+				leg.Action,
+				leg.Exchange)
+		}
 	}
 
 	if serverVersion >= minServerVerSyntRealtimeBars {
@@ -339,7 +345,22 @@ func (e *Encoder) PlaceOrder(serverVersion int, reqId int64, contract Contract, 
 		strconv.Itoa(order.DisplaySize), strconv.Itoa(order.TriggerMethod),
 		encBool(order.OutsideRth), encBool(order.Hidden))
 
-	// combo legs (BAG only) — not supported yet; nothing emitted for non-BAG.
+	// combo legs (BAG only)
+	if contract.SecType == Bag {
+		add(strconv.Itoa(len(contract.ComboLegs)))
+		for _, leg := range contract.ComboLegs {
+			add(strconv.FormatInt(leg.ConId, 10),
+				strconv.Itoa(leg.Ratio),
+				leg.Action,
+				leg.Exchange,
+				"0",  // openClose (0 = Same)
+				"0",  // shortSaleSlot
+				"",   // designatedLocation
+				"-1") // exemptCode
+		}
+		add("0") // orderComboLegs count
+		add("0") // smartComboRoutingParams count
+	}
 
 	// deprecated sharesAllocation, then discretionaryAmt
 	add("", "0.0")

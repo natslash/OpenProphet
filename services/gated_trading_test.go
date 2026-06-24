@@ -24,6 +24,10 @@ func (f *fakeTrading) PlaceOptionsOrder(ctx context.Context, o *interfaces.Optio
 	f.optPlaced++
 	return &interfaces.OrderResult{OrderID: "Y"}, nil
 }
+func (f *fakeTrading) PlaceComboOrder(ctx context.Context, o *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
+	f.optPlaced++
+	return &interfaces.OrderResult{OrderID: "Z"}, nil
+}
 func (f *fakeTrading) GetOrder(ctx context.Context, id string) (*interfaces.Order, error) {
 	f.reads++
 	return &interfaces.Order{ID: id}, nil

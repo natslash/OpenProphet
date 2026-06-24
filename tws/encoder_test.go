@@ -3,6 +3,8 @@ package tws
 import (
 	"reflect"
 	"testing"
+
+	"github.com/shopspring/decimal"
 )
 
 type mockFieldWriter struct {
@@ -110,6 +112,91 @@ func TestEncoder_ReqHistoricalData(t *testing.T) {
 	
 	if !reflect.DeepEqual(mockWriter.fields, expected) {
 		t.Errorf("Encoder sent \n%q, want \n%q", mockWriter.fields, expected)
+	}
+}
+
+func TestEncoder_PlaceOrder_BAG_ComboLegs(t *testing.T) {
+	mockWriter := &mockFieldWriter{}
+	encoder := NewEncoder(mockWriter)
+
+	contract := Contract{
+		Symbol:   "ESTX50",
+		SecType:  Bag,
+		Exchange: "EUREX",
+		Currency: "EUR",
+		ComboLegs: []ComboLeg{
+			{ConId: 111, Ratio: 1, Action: "SELL", Exchange: "EUREX"},
+			{ConId: 222, Ratio: 1, Action: "BUY", Exchange: "EUREX"},
+		},
+	}
+	order := Order{
+		Action:        "BUY",
+		TotalQuantity: decimal.NewFromInt(1),
+		OrderType:     "LMT",
+		LmtPrice:      2.0,
+		AuxPrice:      UnsetFloat,
+		Tif:           "DAY",
+		Transmit:      true,
+	}
+
+	err := encoder.PlaceOrder(187, 42, contract, order)
+	if err != nil {
+		t.Fatalf("PlaceOrder BAG failed: %v", err)
+	}
+
+	fields := mockWriter.fields
+
+	// Find the combo leg count in the output.
+	comboIdx := -1
+	for i, f := range fields {
+		if f == "2" && i > 10 { // "2" = combo legs count, skip early fields
+			// Verify the next fields are the two legs
+			if i+8 < len(fields) &&
+				fields[i+1] == "111" && fields[i+2] == "1" && fields[i+3] == "SELL" && fields[i+4] == "EUREX" &&
+				fields[i+9] == "222" && fields[i+10] == "1" && fields[i+11] == "BUY" && fields[i+12] == "EUREX" {
+				comboIdx = i
+				break
+			}
+		}
+	}
+	if comboIdx < 0 {
+		t.Fatalf("combo legs not found in PlaceOrder output: %v", fields)
+	}
+}
+
+func TestEncoder_ReqHistoricalData_BAG_ComboLegs(t *testing.T) {
+	mockWriter := &mockFieldWriter{}
+	encoder := NewEncoder(mockWriter)
+
+	contract := Contract{
+		Symbol:   "ESTX50",
+		SecType:  Bag,
+		Exchange: "EUREX",
+		Currency: "EUR",
+		ComboLegs: []ComboLeg{
+			{ConId: 111, Ratio: 1, Action: "SELL", Exchange: "EUREX"},
+			{ConId: 222, Ratio: 1, Action: "BUY", Exchange: "EUREX"},
+		},
+	}
+
+	err := encoder.ReqHistoricalData(187, 42, contract, "20260601 00:00:00", "1 D", "1 day", "TRADES", 1, 1, false)
+	if err != nil {
+		t.Fatalf("ReqHistoricalData BAG failed: %v", err)
+	}
+
+	fields := mockWriter.fields
+	// Verify combo legs are encoded: count "2", then each leg's conId/ratio/action/exchange
+	found := false
+	for i, f := range fields {
+		if f == "2" && i > 5 && i+8 < len(fields) &&
+			fields[i+1] == "111" && fields[i+2] == "1" && fields[i+3] == "SELL" && fields[i+4] == "EUREX" &&
+			fields[i+5] == "222" && fields[i+6] == "1" && fields[i+7] == "BUY" && fields[i+8] == "EUREX" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("combo legs not found in ReqHistoricalData output: %v", fields)
 	}
 }
 

@@ -65,6 +65,9 @@ func (m *MockTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 func (m *MockTradingService) PlaceOptionsOrder(ctx context.Context, order *interfaces.OptionsOrder) (*interfaces.OrderResult, error) {
 	return nil, nil
 }
+func (m *MockTradingService) PlaceComboOrder(ctx context.Context, order *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
+	return nil, nil
+}
 func (m *MockTradingService) GetOptionsChain(ctx context.Context, underlying string, expiration time.Time) ([]*interfaces.OptionContract, error) {
 	return nil, nil
 }

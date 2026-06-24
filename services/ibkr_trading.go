@@ -605,6 +605,118 @@ func (s *IBKRTradingService) PlaceOptionsOrder(ctx context.Context, order *inter
 	return s.PlaceOrder(ctx, regularOrder)
 }
 
+func (s *IBKRTradingService) PlaceComboOrder(ctx context.Context, order *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
+	if len(order.Legs) < 2 {
+		return nil, fmt.Errorf("PlaceComboOrder: need at least 2 legs, got %d", len(order.Legs))
+	}
+
+	var comboLegs []tws.ComboLeg
+	var underlying string
+	for _, leg := range order.Legs {
+		contract, err := s.resolver.Resolve(ctx, leg.Symbol)
+		if err != nil {
+			return nil, fmt.Errorf("PlaceComboOrder: resolve leg %q: %w", leg.Symbol, err)
+		}
+		if contract.ConId == 0 {
+			details, err := s.client.ReqContractDetails(ctx, contract)
+			if err != nil {
+				return nil, fmt.Errorf("PlaceComboOrder: ReqContractDetails for %q: %w", leg.Symbol, err)
+			}
+			if len(details) != 1 {
+				return nil, fmt.Errorf("PlaceComboOrder: expected 1 match for %q, got %d", leg.Symbol, len(details))
+			}
+			contract = details[0].Contract
+		}
+		if underlying == "" {
+			underlying = contract.Symbol
+		}
+		ratio := leg.Ratio
+		if ratio <= 0 {
+			ratio = 1
+		}
+		comboLegs = append(comboLegs, tws.ComboLeg{
+			ConId:    contract.ConId,
+			Ratio:    ratio,
+			Action:   strings.ToUpper(leg.Action),
+			Exchange: contract.Exchange,
+		})
+	}
+
+	bagContract := tws.Contract{
+		Symbol:   underlying,
+		SecType:  tws.Bag,
+		Exchange: comboLegs[0].Exchange,
+		Currency: "EUR",
+		ComboLegs: comboLegs,
+	}
+
+	orderType, err := normalizeOrderType(order.OrderType)
+	if err != nil {
+		return nil, fmt.Errorf("PlaceComboOrder: %w", err)
+	}
+
+	orderId := s.client.NextOrderId()
+	twsOrder := tws.Order{
+		Action:        strings.ToUpper(order.Action),
+		TotalQuantity: decimal.NewFromFloat(order.Qty),
+		OrderType:     orderType,
+		Tif:           order.TimeInForce,
+		LmtPrice:      tws.UnsetFloat,
+		AuxPrice:      tws.UnsetFloat,
+		Transmit:      true,
+	}
+	if order.LimitPrice != nil {
+		twsOrder.LmtPrice = *order.LimitPrice
+	}
+	if twsOrder.Tif == "" {
+		twsOrder.Tif = "DAY"
+	}
+
+	legSummary := make([]string, len(comboLegs))
+	for i, leg := range comboLegs {
+		legSummary[i] = fmt.Sprintf("{conId=%d ratio=%d action=%s}", leg.ConId, leg.Ratio, leg.Action)
+	}
+	log.Printf("[IBKR][COMBO] PlaceOrder orderId=%d action=%s qty=%s type=%s lmt=%s legs=%v",
+		orderId, twsOrder.Action, twsOrder.TotalQuantity.String(), twsOrder.OrderType,
+		encFloatMax(twsOrder.LmtPrice), legSummary)
+
+	ch := s.client.Register(orderId)
+	defer s.client.Complete(orderId)
+
+	if err := s.client.Encoder().PlaceOrder(s.client.ServerVersion(), orderId, bagContract, twsOrder); err != nil {
+		return nil, fmt.Errorf("PlaceComboOrder encode/send: %w", err)
+	}
+
+	confirmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		select {
+		case msg := <-ch:
+			switch t := msg.(type) {
+			case tws.OrderStatusMsg:
+				return &interfaces.OrderResult{
+					OrderID: strconv.FormatInt(orderId, 10),
+					Status:  t.Status,
+				}, nil
+			case error:
+				return nil, fmt.Errorf("PlaceComboOrder rejected: %w", t)
+			}
+		case <-confirmCtx.Done():
+			return &interfaces.OrderResult{
+				OrderID: strconv.FormatInt(orderId, 10),
+				Status:  "PendingSubmit",
+			}, nil
+		}
+	}
+}
+
+func encFloatMax(f float64) string {
+	if f == tws.UnsetFloat {
+		return "unset"
+	}
+	return fmt.Sprintf("%.4f", f)
+}
+
 func (s *IBKRTradingService) GetOptionsChain(ctx context.Context, underlying string, expiration time.Time) ([]*interfaces.OptionContract, error) {
 	underContract, err := s.resolver.Resolve(ctx, underlying)
 	if err != nil {

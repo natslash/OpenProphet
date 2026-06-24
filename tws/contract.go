@@ -3,10 +3,11 @@ package tws
 type InstrumentType string
 
 const (
-	Stock       InstrumentType = "STK"
-	Option      InstrumentType = "OPT"
-	Future      InstrumentType = "FUT"
-	Index       InstrumentType = "IND"
+	Stock  InstrumentType = "STK"
+	Option InstrumentType = "OPT"
+	Future InstrumentType = "FUT"
+	Index  InstrumentType = "IND"
+	Bag    InstrumentType = "BAG"
 )
 
 type Contract struct {
@@ -22,6 +23,14 @@ type Contract struct {
 	Currency     string
 	LocalSymbol  string
 	TradingClass string
+	ComboLegs    []ComboLeg
+}
+
+type ComboLeg struct {
+	ConId    int64
+	Ratio    int
+	Action   string // "BUY" or "SELL"
+	Exchange string
 }
 
 type ContractDetails struct {

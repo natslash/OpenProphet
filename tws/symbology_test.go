@@ -60,7 +60,11 @@ func TestParseSymbol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSymbol(%q): unexpected error: %v", tc.in, err)
 			}
-			if got != tc.want {
+			if got.ConId != tc.want.ConId || got.Symbol != tc.want.Symbol || got.SecType != tc.want.SecType ||
+				got.Exchange != tc.want.Exchange || got.Currency != tc.want.Currency ||
+				got.LastTradeDateOrContractMonth != tc.want.LastTradeDateOrContractMonth ||
+				got.Strike != tc.want.Strike || got.Right != tc.want.Right ||
+				got.Multiplier != tc.want.Multiplier || got.TradingClass != tc.want.TradingClass {
 				t.Fatalf("ParseSymbol(%q)\n got: %+v\nwant: %+v", tc.in, got, tc.want)
 			}
 		})

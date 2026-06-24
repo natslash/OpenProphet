@@ -132,28 +132,67 @@ func (ic *IntentController) HandleAuthorizeIntent(c *gin.Context) {
 			_, execErr = ic.pm.PlaceManagedPosition(c.Request.Context(), &req)
 		}
 	} else if intent.Type == services.IntentTypeOptionsOrder {
-		var req struct {
-			Symbol    string  `json:"symbol"`
-			Action    string  `json:"action"`
-			Qty       float64 `json:"qty"`
-			OrderType string  `json:"order_type"`
-			LmtPrice  float64 `json:"lmt_price"`
+		var probe struct {
+			Legs json.RawMessage `json:"legs"`
 		}
-		if err := json.Unmarshal(intent.Payload, &req); err != nil {
-			execErr = err
+		json.Unmarshal(intent.Payload, &probe)
+
+		if len(probe.Legs) > 2 {
+			var req struct {
+				Legs []struct {
+					Symbol string `json:"symbol"`
+					Action string `json:"action"`
+					Ratio  int    `json:"ratio"`
+				} `json:"legs"`
+				Action    string  `json:"action"`
+				Qty       float64 `json:"qty"`
+				OrderType string  `json:"order_type"`
+				LmtPrice  float64 `json:"lmt_price"`
+			}
+			if err := json.Unmarshal(intent.Payload, &req); err != nil {
+				execErr = err
+			} else {
+				legs := make([]interfaces.ComboLeg, len(req.Legs))
+				for i, l := range req.Legs {
+					ratio := l.Ratio
+					if ratio <= 0 {
+						ratio = 1
+					}
+					legs[i] = interfaces.ComboLeg{Symbol: l.Symbol, Action: l.Action, Ratio: ratio}
+				}
+				var lmtPricePtr *float64
+				if req.OrderType == "LMT" {
+					lmtPricePtr = &req.LmtPrice
+				}
+				_, execErr = ic.trading.PlaceComboOrder(c.Request.Context(), &interfaces.ComboOrder{
+					Legs: legs, Action: req.Action, Qty: req.Qty,
+					OrderType: req.OrderType, LimitPrice: lmtPricePtr,
+				})
+			}
 		} else {
-			var lmtPricePtr *float64
-			if req.OrderType == "LMT" {
-				lmtPricePtr = &req.LmtPrice
+			var req struct {
+				Symbol    string  `json:"symbol"`
+				Action    string  `json:"action"`
+				Qty       float64 `json:"qty"`
+				OrderType string  `json:"order_type"`
+				LmtPrice  float64 `json:"lmt_price"`
 			}
-			order := &interfaces.OptionsOrder{
-				Symbol:     req.Symbol,
-				Qty:        req.Qty,
-				Side:       req.Action,
-				Type:       req.OrderType,
-				LimitPrice: lmtPricePtr,
+			if err := json.Unmarshal(intent.Payload, &req); err != nil {
+				execErr = err
+			} else {
+				var lmtPricePtr *float64
+				if req.OrderType == "LMT" {
+					lmtPricePtr = &req.LmtPrice
+				}
+				order := &interfaces.OptionsOrder{
+					Symbol:     req.Symbol,
+					Qty:        req.Qty,
+					Side:       req.Action,
+					Type:       req.OrderType,
+					LimitPrice: lmtPricePtr,
+				}
+				_, execErr = ic.trading.PlaceOptionsOrder(c.Request.Context(), order)
 			}
-			_, execErr = ic.trading.PlaceOptionsOrder(c.Request.Context(), order)
 		}
 	}
 

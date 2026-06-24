@@ -16,6 +16,7 @@ type TradingService interface {
 
 	// Options trading methods
 	PlaceOptionsOrder(ctx context.Context, order *OptionsOrder) (*OrderResult, error)
+	PlaceComboOrder(ctx context.Context, order *ComboOrder) (*OrderResult, error)
 	GetOptionsChain(ctx context.Context, underlying string, expiration time.Time) ([]*OptionContract, error)
 	GetOptionsQuote(ctx context.Context, symbol string) (*OptionsQuote, error)
 	GetOptionsPosition(ctx context.Context, symbol string) (*OptionsPosition, error)
@@ -146,6 +147,21 @@ type MarketData struct {
 	LatestQuote  *Quote
 	LatestTrade  *Trade
 	Indicators   map[string]float64 // For calculated indicators
+}
+
+type ComboOrder struct {
+	Legs        []ComboLeg
+	Action      string   // "BUY" or "SELL" (net action)
+	Qty         float64
+	OrderType   string   // "LMT", "MKT"
+	LimitPrice  *float64 // net debit (positive) or credit (negative)
+	TimeInForce string
+}
+
+type ComboLeg struct {
+	Symbol string // e.g. "ESTX50:20260821:P:5450"
+	Action string // "BUY" or "SELL"
+	Ratio  int
 }
 
 // Options trading structures

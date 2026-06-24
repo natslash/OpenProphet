@@ -79,6 +79,13 @@ func (g *GatedTradingService) PlaceOptionsOrder(ctx context.Context, order *inte
 	return g.inner.PlaceOptionsOrder(ctx, order)
 }
 
+func (g *GatedTradingService) PlaceComboOrder(ctx context.Context, order *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
+	if !g.enabled.Load() {
+		return nil, g.blocked("PlaceComboOrder")
+	}
+	return g.inner.PlaceComboOrder(ctx, order)
+}
+
 // --- read-only pass-throughs ---
 
 func (g *GatedTradingService) GetOrder(ctx context.Context, orderID string) (*interfaces.Order, error) {

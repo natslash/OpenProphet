@@ -35,6 +35,10 @@ func (f *fakeTrading) PlaceOptionsOrder(ctx context.Context, o *interfaces.Optio
 	atomic.AddInt32(&f.optPlaced, 1)
 	return &interfaces.OrderResult{OrderID: "OPT-1", Status: "submitted"}, nil
 }
+func (f *fakeTrading) PlaceComboOrder(ctx context.Context, o *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
+	atomic.AddInt32(&f.optPlaced, 1)
+	return &interfaces.OrderResult{OrderID: "COMBO-1", Status: "submitted"}, nil
+}
 func (f *fakeTrading) GetOrder(ctx context.Context, id string) (*interfaces.Order, error) {
 	return &interfaces.Order{ID: id}, nil
 }
