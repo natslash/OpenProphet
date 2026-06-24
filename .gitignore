@@ -1,23 +1,17 @@
-# Secrets (use .env.example as template)
+# Secrets
 .env
 .env.backend
 .mcp.json
 .claude/settings.local.json
-opencode.jsonc
 
-# Runtime config (contains account secrets - use dashboard to configure)
-data/agent-config.json
+# Runtime data (secrets, databases, chat history)
+data/
+data_backup/
+activity_logs/
 
 # Logs
 *.log
 *.pid
-
-# Scratch / reverse-engineering artifacts (not part of the build)
-.scratch/
-
-# Cartogopher cache
-bakes/
-fast.yaml
 
 # Build artifacts
 prophet_bot
@@ -25,9 +19,14 @@ prophet-trader-bot
 prophet-trader
 prophet-bot
 main
+mktdata_probe
+mktdata_test
+tws_smoke_test
+openprophet-bot
 
-# Archives
+# Archives & backups
 .archive_*
+*.bak
 
 # OS
 .DS_Store
@@ -36,34 +35,21 @@ main
 .vscode/
 .idea/
 
-# Data (contains account secrets, databases, chat history)
-data/
-
-# Node
+# Node (MCP server removed)
 node_modules/
+package-lock.json
 
-# News summary cache
-news_summaries/*.json
+# Scratch
+.scratch/
+count_tokens.go
+bakes/
+fast.yaml
 quickstart.sh
-
-# Manual harness scratch DB (cmd/test_pm)
-test_pm_db.json
-openprophet-bot
-
-# Backup files
-*.bak
-
-# Data backups (historical, not source)
-data_backup/
-
-# Activity logs (runtime)
-activity_logs/
 
 # Test artifacts
 services/test_integration_pm_db.json
 test-results/
-/mktdata_test
+test_pm_db.json
 
-# Scratch utilities
-count_tokens.go
-mktdata_probe
+# News summary cache
+news_summaries/*.json

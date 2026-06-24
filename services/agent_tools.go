@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
+	"prophet-trader/configstore"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 )
@@ -481,29 +481,11 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return "", err
 		}
 
-		configData, err := os.ReadFile("data/agent-config.json")
-		if err != nil {
-			return "", fmt.Errorf("failed to read agent config: %v", err)
-		}
-		var cfg struct {
-			Agents []struct {
-				ID                 string `json:"id"`
-				CustomSystemPrompt string `json:"customSystemPrompt"`
-			} `json:"agents"`
-		}
-		if err := json.Unmarshal(configData, &cfg); err != nil {
-			return "", fmt.Errorf("failed to parse agent config: %v", err)
-		}
-		var sysPrompt string
-		for _, a := range cfg.Agents {
-			if a.ID == req.TargetAgentID {
-				sysPrompt = a.CustomSystemPrompt
-				break
-			}
-		}
-		if sysPrompt == "" {
+		agent := configstore.GetAgentByID(req.TargetAgentID)
+		if agent == nil || agent.CustomSystemPrompt == "" {
 			return "", fmt.Errorf("agent %s not found in config", req.TargetAgentID)
 		}
+		sysPrompt := agent.CustomSystemPrompt
 
 		if tc.LLM == nil {
 			return "", fmt.Errorf("llm provider not initialized for jim_rogers tool")

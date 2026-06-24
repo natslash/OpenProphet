@@ -1,13 +1,7 @@
 package controllers
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"strings"
-	"time"
 
 	"prophet-trader/services"
 
@@ -79,46 +73,30 @@ func (bc *BeatController) HandleMessage(c *gin.Context) {
 }
 
 func (bc *BeatController) HandleStreamLogs(c *gin.Context) {
+	if services.Hub == nil {
+		c.JSON(500, gin.H{"error": "SSE hub not initialized"})
+		return
+	}
+
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Flush()
 
-	file, err := os.Open("bot.log")
-	if err != nil {
-		c.SSEvent("error", fmt.Sprintf("failed to open log file: %v", err))
-		return
-	}
-	defer file.Close()
+	ch := services.Hub.Subscribe()
+	defer services.Hub.Unsubscribe(ch)
 
-	// Seek to end of file to tail
-	file.Seek(0, io.SeekEnd)
-
-	reader := bufio.NewReader(file)
 	ctx := c.Request.Context()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err == io.EOF {
-					time.Sleep(500 * time.Millisecond)
-					continue
-				}
+		case evt, ok := <-ch:
+			if !ok {
 				return
 			}
-			line = strings.TrimSpace(line)
-			if line != "" {
-				eventType := "log"
-				var parsed struct{ Event string `json:"event"` }
-				if json.Unmarshal([]byte(line), &parsed) == nil && parsed.Event != "" {
-					eventType = parsed.Event
-				}
-				c.SSEvent(eventType, line)
-				c.Writer.Flush()
-			}
+			c.Writer.WriteString(fmt.Sprintf("event: %s\ndata: %s\n\n", evt.Event, string(evt.Data)))
+			c.Writer.Flush()
 		}
 	}
 }

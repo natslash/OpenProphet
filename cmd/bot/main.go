@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"prophet-trader/config"
+	"prophet-trader/configstore"
 	"prophet-trader/controllers"
 	"prophet-trader/database"
 	"prophet-trader/interfaces"
@@ -37,6 +39,12 @@ func main() {
 		level, _ := logrus.ParseLevel(cfg.LogLevel)
 		logger.SetLevel(level)
 	}
+
+	if err := configstore.Load("data/agent-config.json"); err != nil {
+		log.Printf("Warning: failed to load agent config: %v (using defaults)", err)
+	}
+
+	services.Hub = services.NewSSEHub()
 
 	logger.Info("Starting Prophet Trader Bot...")
 
@@ -200,12 +208,19 @@ func main() {
 		logger.Info("Activity logging session started")
 	}
 
+	// Dashboard controllers (Step 3: replace Node.js proxy layer)
+	configController := controllers.NewConfigController()
+	dashboardController := controllers.NewDashboardController(autonomousBeat, orderController, intentController)
+
 	// Setup HTTP server
 	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController, intentController)
 
+	// Dashboard-facing API routes (no /v1/ prefix — matches what the HTML fetches)
+	registerDashboardRoutes(router, configController, dashboardController, beatController, orderController, intentController)
+
 	// Manual reconnect endpoint — triggers the same cleanup/reconnect/enable
 	// flow as the automatic loop, but on-demand from the dashboard.
-	router.POST("/api/v1/broker/reconnect", func(c *gin.Context) {
+	brokerReconnectHandler := func(c *gin.Context) {
 		logger.Info("Manual reconnect requested via API")
 		gated.Disable("manual reconnect requested")
 		ibkrData.OnDisconnect()
@@ -223,10 +238,12 @@ func main() {
 		gated.Enable("manual reconnect succeeded")
 		logger.Info("Manual reconnect succeeded")
 		c.JSON(200, gin.H{"status": "reconnected"})
-	})
+	}
+	router.POST("/api/v1/broker/reconnect", brokerReconnectHandler)
+	router.POST("/api/broker/reconnect", brokerReconnectHandler)
 
 	// Broker status endpoint — reports whether the TWS connection is alive.
-	router.GET("/api/v1/broker/status", func(c *gin.Context) {
+	brokerStatusHandler := func(c *gin.Context) {
 		connected := client.IsConnected()
 		tradingEnabled := gated.Enabled()
 		c.JSON(200, gin.H{
@@ -234,7 +251,9 @@ func main() {
 			"trading_enabled": tradingEnabled,
 			"trading_mode":    string(cfg.TradingMode),
 		})
-	})
+	}
+	router.GET("/api/v1/broker/status", brokerStatusHandler)
+	router.GET("/api/broker/status", brokerStatusHandler)
 
 	// Start the supervised beat only when explicitly enabled.
 	if cfg.BeatEnabled {
@@ -369,10 +388,99 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 		api.POST("/activity/log", activityController.HandleLogActivity)
 	}
 
-	// Serve dashboard
-	router.Static("/dashboard", "./web")
+	// Serve dashboard static files from agent/public/
+	router.Static("/img", "./agent/public/img")
+
+	// SPA fallback: non-API GET requests serve index.html
+	router.NoRoute(func(c *gin.Context) {
+		if c.Request.Method == "GET" && !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.File("./agent/public/index.html")
+			return
+		}
+		c.JSON(404, gin.H{"error": "not found"})
+	})
 
 	return router
+}
+
+func registerDashboardRoutes(router *gin.Engine, cc *controllers.ConfigController, dc *controllers.DashboardController, bc *controllers.BeatController, oc *controllers.OrderController, ic *controllers.IntentController) {
+	// SSE endpoint for dashboard
+	router.GET("/api/events", dc.HandleSSEEvents)
+
+	// Agent lifecycle
+	router.POST("/api/agent/start", bc.HandleStart)
+	router.POST("/api/agent/stop", bc.HandleStop)
+	router.GET("/api/agent/status", bc.HandleStatus)
+	router.POST("/api/agent/heartbeat", dc.HandleHeartbeat)
+	router.POST("/api/agent/message", dc.HandleMessage)
+	router.GET("/api/agent/prompt-preview", dc.HandlePromptPreview)
+
+	// Config
+	router.GET("/api/config", cc.HandleGetConfig)
+
+	// Agents
+	router.GET("/api/agents", cc.HandleGetAgents)
+	router.POST("/api/agents", cc.HandleCreateAgent)
+	router.PUT("/api/agents/:id", cc.HandleUpdateAgent)
+	router.DELETE("/api/agents/:id", cc.HandleDeleteAgent)
+	router.POST("/api/agents/:id/activate", cc.HandleActivateAgent)
+
+	// Strategies
+	router.GET("/api/strategies", cc.HandleGetStrategies)
+	router.POST("/api/strategies", cc.HandleCreateStrategy)
+	router.PUT("/api/strategies/:id", cc.HandleUpdateStrategy)
+	router.DELETE("/api/strategies/:id", cc.HandleDeleteStrategy)
+
+	// Models
+	router.GET("/api/models", cc.HandleGetModels)
+	router.POST("/api/models/activate", cc.HandleActivateModel)
+	router.POST("/api/models/refresh", cc.HandleRefreshModels)
+
+	// Heartbeat config
+	router.GET("/api/heartbeat", cc.HandleGetHeartbeat)
+	router.PUT("/api/heartbeat", cc.HandleUpdateHeartbeat)
+	router.GET("/api/heartbeat/profiles", cc.HandleGetHeartbeatProfiles)
+	router.POST("/api/heartbeat/apply-profile", cc.HandleApplyHeartbeatProfile)
+	router.GET("/api/heartbeat/phases", cc.HandleGetPhases)
+	router.PUT("/api/heartbeat/phases", cc.HandleUpdatePhases)
+
+	// Permissions
+	router.GET("/api/permissions", cc.HandleGetPermissions)
+	router.PUT("/api/permissions", cc.HandleUpdatePermissions)
+
+	// Plugins
+	router.GET("/api/plugins", cc.HandleGetPlugins)
+	router.GET("/api/plugins/:name", cc.HandleGetPlugin)
+	router.PUT("/api/plugins/:name", cc.HandleUpdatePlugin)
+	router.POST("/api/plugins/slack/test", cc.HandleTestSlack)
+
+	// Portfolio (aliases for /api/v1/*)
+	router.GET("/api/portfolio/account", oc.HandleGetAccount)
+	router.GET("/api/portfolio/positions", oc.HandleGetPositions)
+	router.GET("/api/portfolio/orders", oc.HandleGetOrders)
+
+	// Intents
+	router.GET("/api/intents", ic.HandleGetIntents)
+	router.GET("/api/intents/history", ic.HandleGetHistory)
+	router.POST("/api/intents/authorize/:id", ic.HandleAuthorizeIntent)
+	router.POST("/api/intents/reject/:id", ic.HandleRejectIntent)
+
+	// Env
+	router.GET("/api/env", dc.HandleGetEnv)
+	router.POST("/api/env", dc.HandlePostEnv)
+
+	// Health
+	router.GET("/api/health", dc.HandleHealth)
+
+	// Auth stubs
+	router.GET("/api/auth/status", dc.HandleAuthStatus)
+	router.POST("/api/auth/login", dc.HandleAuthLogin)
+	router.POST("/api/auth/logout", dc.HandleAuthLogout)
+
+	// Backend restart stub
+	router.POST("/api/backend/restart", dc.HandleBackendRestart)
 }
 
 // Background task to clean up old data

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"prophet-trader/configstore"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 
@@ -295,8 +296,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
-	agentCfg := readAgentConfig()
-	activeAgent := agentCfg.activeAgentName()
+	activeAgent := configstore.ActiveAgentName()
 
 	var systemPrompt string
 	if b.cachedRules != "" {
@@ -441,7 +441,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				if toolCall.Name == "jim_rogers" {
 					var jr struct{ TargetAgentID string `json:"target_agent_id"` }
 					json.Unmarshal(toolCall.Arguments, &jr)
-					subName := agentCfg.agentName(jr.TargetAgentID)
+					subName := configstore.AgentName(jr.TargetAgentID)
 					appendJSONToBotLogAgent("agent_text", resStr, subName)
 				}
 			}
@@ -490,50 +490,6 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 // later turn, so leaving them unbounded compounds token cost across the loop.
 const maxToolResultChars = 6000
 
-type agentConfigFile struct {
-	ActiveAgentID string `json:"activeAgentId"`
-	Agents        []struct {
-		ID                 string `json:"id"`
-		Name               string `json:"name"`
-		CustomSystemPrompt string `json:"customSystemPrompt"`
-	} `json:"agents"`
-}
-
-func readAgentConfig() *agentConfigFile {
-	data, err := os.ReadFile("data/agent-config.json")
-	if err != nil {
-		return nil
-	}
-	var cfg agentConfigFile
-	if json.Unmarshal(data, &cfg) != nil {
-		return nil
-	}
-	return &cfg
-}
-
-func (c *agentConfigFile) activeAgentName() string {
-	if c == nil {
-		return ""
-	}
-	for _, a := range c.Agents {
-		if a.ID == c.ActiveAgentID {
-			return a.Name
-		}
-	}
-	return ""
-}
-
-func (c *agentConfigFile) agentName(id string) string {
-	if c == nil {
-		return id
-	}
-	for _, a := range c.Agents {
-		if a.ID == id {
-			return a.Name
-		}
-	}
-	return id
-}
 
 // maxJimRogersPerCycle caps sub-agent (jim_rogers) consultations per beat. Each
 // one is a full nested LLM call whose output is appended to the transcript, so
@@ -574,59 +530,66 @@ func appendJSONToBotLog(event string, text string) {
 }
 
 func appendJSONToBotLogAgent(event string, text string, agent string) {
-	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		defer f.Close()
-		data := map[string]interface{}{
-			"event": event,
-			"data": map[string]interface{}{
-				"text":   text,
-				"beatId": currentBeatId,
-			},
-		}
-		if agent != "" {
-			data["data"].(map[string]interface{})["agent"] = agent
-		}
-		b, _ := json.Marshal(data)
+	payload := map[string]interface{}{
+		"text":   text,
+		"beatId": currentBeatId,
+	}
+	if agent != "" {
+		payload["agent"] = agent
+	}
+
+	wrapper := map[string]interface{}{"event": event, "data": payload}
+	b, _ := json.Marshal(wrapper)
+
+	if f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		f.WriteString(string(b) + "\n")
+		f.Close()
+	}
+
+	if Hub != nil {
+		Hub.Broadcast(event, payload)
 	}
 }
 
 func appendBeatEvent(event string, beatNum int64, startTime time.Time, toolCalls, errors int) {
-	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		defer f.Close()
-		data := map[string]interface{}{
-			"event": event,
-			"data": map[string]interface{}{
-				"beat":      beatNum,
-				"beatId":    beatNum,
-				"timestamp": startTime.Format(time.RFC3339),
-				"toolCalls": toolCalls,
-				"errors":    errors,
-			},
-		}
-		b, _ := json.Marshal(data)
+	payload := map[string]interface{}{
+		"beat":      beatNum,
+		"beatId":    beatNum,
+		"timestamp": startTime.Format(time.RFC3339),
+		"toolCalls": toolCalls,
+		"errors":    errors,
+	}
+	wrapper := map[string]interface{}{"event": event, "data": payload}
+	b, _ := json.Marshal(wrapper)
+
+	if f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		f.WriteString(string(b) + "\n")
+		f.Close()
+	}
+
+	if Hub != nil {
+		Hub.Broadcast(event, payload)
 	}
 }
 
 func appendToolToBotLog(toolName string, args []byte) {
-	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		defer f.Close()
-		var argsMap map[string]interface{}
-		json.Unmarshal(args, &argsMap)
+	var argsMap map[string]interface{}
+	json.Unmarshal(args, &argsMap)
 
-		data := map[string]interface{}{
-			"event": "agent_tool",
-			"data": map[string]interface{}{
-				"tool":   toolName,
-				"args":   argsMap,
-				"beatId": currentBeatId,
-			},
-		}
-		b, _ := json.Marshal(data)
+	payload := map[string]interface{}{
+		"tool":   toolName,
+		"args":   argsMap,
+		"beatId": currentBeatId,
+	}
+	wrapper := map[string]interface{}{"event": "agent_tool", "data": payload}
+	b, _ := json.Marshal(wrapper)
+
+	if f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		f.WriteString(string(b) + "\n")
+		f.Close()
+	}
+
+	if Hub != nil {
+		Hub.Broadcast("agent_tool", payload)
 	}
 }
