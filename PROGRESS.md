@@ -149,7 +149,7 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 14 | **Rename Settings → Agent Settings** | P2 — UX | ✅ Done | Renamed "Backend Engine Settings" to "Agent Settings" with clearer description. |
 | 15 | **Wire Accounts tab** | P3 — UX | ✅ Done | Account overview with masked ID, portfolio/cash/BP/day-trades + positions table with totals. |
 | 16 | **Agent Identity UI** | P3 | ✅ Done | Chat bubbles color-coded by agent role (CEO gold, Daedalus red, Stratagem purple, Prophet green). Sub-agent responses via jim_rogers shown as separate tagged bubbles. Log terminal shows [AgentName]. |
-| 17 | **Multi-Leg Option Combos** | P3 | ⬜ | BAG routing for net credit/debit limit orders on option spreads. |
+| 17 | **Multi-Leg Option Combos** | P3 | ✅ Done | BAG SecType + ComboLeg in TWS protocol. PlaceComboOrder resolves leg ConIds, builds BAG contract. Agent tool `place_combo_order` with intent authorization. Encoder tests for PlaceOrder + ReqHistoricalData combo legs. |
 | 18 | Dashboard UI Overhaul | P4 | ⬜ | General UX/UI improvements. |
 | 19 | **Authorization history** | P2 — UX | ✅ Done | IntentManager keeps a 100-entry ring buffer. History endpoint + Approval Hub shows resolved intents with status badges. |
 | 20 | **Live account/position refresh** | P2 — UX | ✅ Done | `refreshPortfolio()` triggered on `trade` SSE, `intent_resolved` (COMPLETED), and `beat_end` events. |
