@@ -793,7 +793,7 @@ app.post('/api/plugins/slack/test', async (req, res) => {
 app.get('/api/portfolio/account', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const { data } = await client.get('/api/v1/account');
     res.json(data);
   } catch(e) { console.error('Portfolio account proxy error:', e.message); res.status(502).json({ error: 'Trading bot unavailable' }); }
@@ -802,7 +802,7 @@ app.get('/api/portfolio/account', async (req, res) => {
 app.get('/api/portfolio/positions', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const { data } = await client.get('/api/v1/positions');
     res.json(data);
   } catch(e) { console.error('Portfolio positions proxy error:', e.message); res.status(502).json({ error: 'Trading bot unavailable' }); }
@@ -811,7 +811,7 @@ app.get('/api/portfolio/positions', async (req, res) => {
 app.get('/api/portfolio/orders', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const { data } = await client.get('/api/v1/orders');
     res.json(data);
   } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
@@ -821,7 +821,7 @@ app.get('/api/portfolio/orders', async (req, res) => {
 app.get('/api/intents', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const { data } = await client.get('/api/v1/beat/intents');
     res.json(data);
   } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
@@ -839,7 +839,7 @@ app.get('/api/intents/history', async (req, res) => {
 app.post('/api/intents/authorize/:id', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const authHeader = req.headers.authorization || '';
     const { data } = await client.post(`/api/v1/beat/authorize/${req.params.id}`, {}, {
       headers: { 'Authorization': authHeader }
@@ -853,7 +853,7 @@ app.post('/api/intents/authorize/:id', async (req, res) => {
 app.post('/api/intents/reject/:id', async (req, res) => {
   try {
     const client = getGoClient();
-    if (!client) return res.status(404).json({ error: 'Sandbox trading backend unavailable' });
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
     const authHeader = req.headers.authorization || '';
     const { data } = await client.post(`/api/v1/beat/reject/${req.params.id}`, {}, {
       headers: { 'Authorization': authHeader }
