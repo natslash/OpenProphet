@@ -270,8 +270,12 @@ app.get('/api/events', async (req, res) => {
   
   try {
     const goPort = TRADING_BOT_PORT;
-    const response = await fetch(`http://localhost:${goPort}/api/v1/agent/status`);
-    const stateData = await response.json().catch(() => ({ running: false }));
+    const [agentRes, brokerRes] = await Promise.all([
+      fetch(`http://localhost:${goPort}/api/v1/agent/status`),
+      fetch(`http://localhost:${goPort}/api/v1/broker/status`).catch(() => null),
+    ]);
+    const stateData = await agentRes.json().catch(() => ({ running: false }));
+    const brokerData = brokerRes ? await brokerRes.json().catch(() => ({})) : {};
     const activeAgent = getResolvedAgent(getActiveAgent());
     res.write(`event: state\ndata: ${JSON.stringify({
       running: stateData.running,
@@ -280,6 +284,7 @@ app.get('/api/events', async (req, res) => {
       beatCount: stateData.beatCount || 0,
       stats: stateData.stats || { totalBeats: 0, toolCalls: 0, errors: 0 },
       activeModel: activeAgent?.model || getConfig().activeModel || '--',
+      tradingMode: brokerData.trading_mode || 'off',
     })}\n\n`);
     res.write(`event: status\ndata: ${JSON.stringify({ status: stateData.running ? 'active' : 'stopped' })}\n\n`);
   } catch(e) {
@@ -484,13 +489,20 @@ function safeConfig() {
 // ── Env & Config CRUD ────────────────────────────────────────────────────
 app.get('/api/env', async (req, res) => {
   const env = await readEnv();
+  // Derive TRADING_MODE from legacy flags if not set
+  let tradingMode = env.TRADING_MODE;
+  if (!tradingMode) {
+    const enabled = env.TRADING_ENABLED === 'true';
+    const confirm = env.REQUIRE_DOUBLE_CONFIRM !== 'false'; // default true
+    tradingMode = !enabled ? 'off' : (confirm ? 'supervised' : 'autonomous');
+  }
   res.json({
     LLM_POLLING_ENABLED: env.LLM_POLLING_ENABLED === 'true',
     LLM_POLLING_INTERVAL_SECS: parseInt(env.LLM_POLLING_INTERVAL_SECS || '3600', 10),
     LLM_PROVIDER: env.LLM_PROVIDER || 'anthropic',
     LLM_MODEL: env.LLM_MODEL || '',
     BEAT_ENABLED: env.BEAT_ENABLED === 'true',
-    TRADING_ENABLED: env.TRADING_ENABLED === 'true'
+    TRADING_MODE: tradingMode,
   });
 });
 
@@ -502,8 +514,8 @@ app.post('/api/env', async (req, res) => {
   if (updates.LLM_PROVIDER !== undefined) envUpdates.LLM_PROVIDER = updates.LLM_PROVIDER;
   if (updates.LLM_MODEL !== undefined) envUpdates.LLM_MODEL = updates.LLM_MODEL;
   if (updates.BEAT_ENABLED !== undefined) envUpdates.BEAT_ENABLED = updates.BEAT_ENABLED ? 'true' : 'false';
-  if (updates.TRADING_ENABLED !== undefined) envUpdates.TRADING_ENABLED = updates.TRADING_ENABLED ? 'true' : 'false';
-  
+  if (updates.TRADING_MODE !== undefined) envUpdates.TRADING_MODE = updates.TRADING_MODE;
+
   await writeEnv(envUpdates);
   for (const [k, v] of Object.entries(envUpdates)) {
     process.env[k] = v;
@@ -1028,7 +1040,10 @@ app.listen(PORT, '0.0.0.0', () => {
 setInterval(async () => {
   if (sseClients.size === 0 || !goReady) return;
   try {
-    const r = await goAxios.get('/api/v1/agent/status', { timeout: 2000 });
+    const [r, br] = await Promise.all([
+      goAxios.get('/api/v1/agent/status', { timeout: 2000 }),
+      goAxios.get('/api/v1/broker/status', { timeout: 2000 }).catch(() => ({ data: {} })),
+    ]);
     const s = r.data;
     const activeAgent = getResolvedAgent(getActiveAgent());
     broadcast('state', {
@@ -1038,6 +1053,7 @@ setInterval(async () => {
       beatCount: s.beatCount || 0,
       stats: s.stats || { totalBeats: 0, toolCalls: 0, errors: 0 },
       activeModel: activeAgent?.model || getConfig().activeModel || '--',
+      tradingMode: br.data?.trading_mode || 'off',
     });
   } catch {}
 }, 5000);

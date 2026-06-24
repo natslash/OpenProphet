@@ -8,6 +8,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+type TradingMode string
+
+const (
+	TradingModeOff        TradingMode = "off"
+	TradingModeSupervised TradingMode = "supervised"
+	TradingModeAutonomous TradingMode = "autonomous"
+)
+
 type Config struct {
 	GeminiAPIKey      string
 	DatabasePath      string
@@ -21,10 +29,14 @@ type Config struct {
 	IBKRPort     int // paper = 4002 (the only permitted target until Phase 6)
 	IBKRClientID int
 
-	// TradingEnabled is the master order kill-switch. When false (the default),
-	// the trading service runs in dry-run mode: order intent is logged but no
-	// order is placed/cancelled. Must be explicitly set true (Phase 4.3e).
-	TradingEnabled bool
+	// TradingMode controls order placement: "off" (dry-run, default),
+	// "supervised" (intent-gated, human authorization required),
+	// "autonomous" (orders go through without human approval).
+	TradingMode TradingMode
+
+	// Derived from TradingMode for backward compat — do not set directly.
+	TradingEnabled       bool
+	RequireDoubleConfirm bool
 
 	// AdminToken authorises autonomous-beat trade intents. The /authorize
 	// endpoint requires "Authorization: Bearer <AdminToken>"; the Node agent
@@ -38,16 +50,15 @@ type Config struct {
 	BeatIntervalSecs       int
 	BeatMaxDailyExecutions int
 	BeatForceSignal        bool // testing aid: force a buy signal every tick
-	
+
 	// Review Portfolio Polling
 	LLMPollingEnabled      bool
 	LLMPollingIntervalSecs int
-	
+
 	LLMProvider string
 	LLMModel    string
 
 	// Intent Guard
-	RequireDoubleConfirm    bool
 	AllowLivePort           bool
 	IntentTTLSeconds        int
 	MaxPriceSlippagePercent float64
@@ -59,6 +70,25 @@ func Load() error {
 	// Load .env and .env.backend files if they exist (don't override existing env vars)
 	_ = godotenv.Load(".env", ".env.backend")
 
+	// Resolve TradingMode: new TRADING_MODE env takes precedence, then
+	// fall back to legacy TRADING_ENABLED + REQUIRE_DOUBLE_CONFIRM.
+	tradingMode := TradingMode(getEnvOrDefault("TRADING_MODE", ""))
+	if tradingMode == "" {
+		enabled := getEnvOrDefault("TRADING_ENABLED", "false") == "true"
+		doubleConfirm := getEnvOrDefault("REQUIRE_DOUBLE_CONFIRM", "true") == "true"
+		switch {
+		case !enabled:
+			tradingMode = TradingModeOff
+		case doubleConfirm:
+			tradingMode = TradingModeSupervised
+		default:
+			tradingMode = TradingModeAutonomous
+		}
+	}
+	if tradingMode != TradingModeOff && tradingMode != TradingModeSupervised && tradingMode != TradingModeAutonomous {
+		tradingMode = TradingModeOff
+	}
+
 	AppConfig = &Config{
 		GeminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
 		DatabasePath:      getEnvOrDefault("DATABASE_PATH", "./data/prophet_trader.db"),
@@ -67,10 +97,13 @@ func Load() error {
 		LogLevel:          getEnvOrDefault("LOG_LEVEL", "info"),
 		DataRetentionDays: 90,
 
-		IBKRHost:       getEnvOrDefault("IBKR_HOST", "127.0.0.1"),
-		IBKRPort:       getEnvAsInt("IBKR_PORT", 4002),
-		IBKRClientID:   getEnvAsInt("IBKR_CLIENT_ID", 1),
-		TradingEnabled: getEnvOrDefault("TRADING_ENABLED", "false") == "true",
+		IBKRHost:     getEnvOrDefault("IBKR_HOST", "127.0.0.1"),
+		IBKRPort:     getEnvAsInt("IBKR_PORT", 4002),
+		IBKRClientID: getEnvAsInt("IBKR_CLIENT_ID", 1),
+
+		TradingMode:          tradingMode,
+		TradingEnabled:       tradingMode != TradingModeOff,
+		RequireDoubleConfirm: tradingMode == TradingModeSupervised,
 
 		AdminToken:             os.Getenv("ADMIN_TOKEN"),
 		BeatEnabled:            getEnvOrDefault("BEAT_ENABLED", "false") == "true",
@@ -78,20 +111,19 @@ func Load() error {
 		BeatIntervalSecs:       getEnvAsInt("BEAT_INTERVAL_SECS", 300),
 		BeatMaxDailyExecutions: getEnvAsInt("BEAT_MAX_DAILY_EXECUTIONS", 3),
 		BeatForceSignal:        getEnvOrDefault("BEAT_FORCE_SIGNAL", "false") == "true",
-		
+
 		LLMPollingEnabled:      getEnvOrDefault("LLM_POLLING_ENABLED", "false") == "true",
 		LLMPollingIntervalSecs: getEnvAsInt("LLM_POLLING_INTERVAL_SECS", 3600),
-		
-		LLMProvider:            getEnvOrDefault("LLM_PROVIDER", "anthropic"),
-		LLMModel:               getEnvOrDefault("LLM_MODEL", ""),
 
-		RequireDoubleConfirm:    getEnvOrDefault("REQUIRE_DOUBLE_CONFIRM", "true") == "true",
+		LLMProvider: getEnvOrDefault("LLM_PROVIDER", "anthropic"),
+		LLMModel:    getEnvOrDefault("LLM_MODEL", ""),
+
 		AllowLivePort:           getEnvOrDefault("ALLOW_LIVE_PORT", "false") == "true",
 		IntentTTLSeconds:        getEnvAsInt("INTENT_TTL_SECS", 300),
 		MaxPriceSlippagePercent: getEnvAsFloat("MAX_PRICE_SLIPPAGE_PERCENT", 0.5),
 	}
 
-	log.Printf("[CONFIG] AdminToken configured: %v\n", AppConfig.AdminToken != "")
+	log.Printf("[CONFIG] TradingMode=%s AdminToken=%v\n", AppConfig.TradingMode, AppConfig.AdminToken != "")
 
 	return nil
 }

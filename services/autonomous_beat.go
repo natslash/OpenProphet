@@ -246,13 +246,22 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.beatCounter++
 	b.totalBeats++
 	currentBeatId = b.beatCounter
+	beatNum := b.beatCounter
 	var pending []beatMessage
 	if len(b.messageQueue) > 0 {
 		pending = b.messageQueue
 		b.messageQueue = nil
 	}
 	b.mu.Unlock()
+
+	beatToolCalls := 0
+	beatErrors := 0
+	beatStartTime := time.Now()
+
+	appendBeatEvent("beat_start", beatNum, beatStartTime, 0, 0)
+
 	defer func() {
+		appendBeatEvent("beat_end", beatNum, beatStartTime, beatToolCalls, beatErrors)
 		b.mu.Lock()
 		b.inTick = false
 		b.mu.Unlock()
@@ -399,6 +408,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			b.mu.Lock()
 			b.toolCalls++
 			b.mu.Unlock()
+			beatToolCalls++
 			b.logger.WithField("tool", toolCall.Name).Info("[BEAT] AI executing tool")
 
 			// Emit tool use to the UI
@@ -423,6 +433,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				b.mu.Lock()
 				b.errors++
 				b.mu.Unlock()
+				beatErrors++
 				b.logger.WithError(toolErr).WithField("tool", toolCall.Name).Warn("[BEAT] Tool failed")
 			} else {
 				resultMsg = resStr
@@ -516,6 +527,25 @@ func appendJSONToBotLog(event string, sandboxId string, text string) {
 				"sandboxId": sandboxId,
 				"text":      text,
 				"beatId":    currentBeatId,
+			},
+		}
+		b, _ := json.Marshal(data)
+		f.WriteString(string(b) + "\n")
+	}
+}
+
+func appendBeatEvent(event string, beatNum int64, startTime time.Time, toolCalls, errors int) {
+	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		defer f.Close()
+		data := map[string]interface{}{
+			"event": event,
+			"data": map[string]interface{}{
+				"beat":      beatNum,
+				"beatId":    beatNum,
+				"timestamp": startTime.Format(time.RFC3339),
+				"toolCalls": toolCalls,
+				"errors":    errors,
 			},
 		}
 		b, _ := json.Marshal(data)

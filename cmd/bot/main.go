@@ -232,6 +232,7 @@ func main() {
 		c.JSON(200, gin.H{
 			"connected":       connected,
 			"trading_enabled": tradingEnabled,
+			"trading_mode":    string(cfg.TradingMode),
 		})
 	})
 

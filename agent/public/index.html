@@ -274,6 +274,16 @@
     .log-entry.search-hidden { display: none; }
     .log-entry.search-highlight { background: rgba(61,90,128,0.08); }
 
+    .beat-card { border: 1px solid var(--rule-light); border-radius: 4px; margin: 6px 0; background: var(--bg-panel); }
+    .beat-card[open] { border-color: var(--rule); }
+    .beat-card summary { cursor: pointer; padding: 6px 10px; font-size: 11.5px; font-family: 'IBM Plex Mono', monospace; color: var(--accent); font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+    .beat-card summary::-webkit-details-marker { display: none; }
+    .beat-card summary::before { content: '\25B6'; font-size: 8px; transition: transform 0.15s; }
+    .beat-card[open] summary::before { transform: rotate(90deg); }
+    .beat-card .beat-body { padding: 2px 10px 6px; }
+    .beat-stat { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--code-bg); color: var(--ink-muted); }
+    .beat-stat.has-errors { background: var(--error-bg); color: var(--error); }
+
     /* ── Chat Input ────────────────────── */
     .chat-input-bar {
       display: flex; gap: 8px; padding: 8px 12px;
@@ -701,8 +711,8 @@
         </div>
 
         <div class="section" style="margin-top:24px">
-          <div class="section-title">Backend Engine Settings</div>
-          <p style="font-size:13px;color:var(--ink-muted);margin-bottom:12px">Configure LLM polling on managed positions</p>
+          <div class="section-title">Agent Settings</div>
+          <p style="font-size:13px;color:var(--ink-muted);margin-bottom:12px">Configure the autonomous agent's LLM, trading mode, and polling</p>
           <div class="config-card">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
               <div class="form-group">
@@ -727,8 +737,12 @@
                 <input type="number" id="env-polling-interval" min="60" max="86400" onchange="saveEnvConfig()">
               </div>
               <div class="form-group">
-                <label>Enable Trading</label>
-                <input type="checkbox" id="env-trading-enabled" onchange="saveEnvConfig()" style="margin-top: 8px;">
+                <label>Trading Mode</label>
+                <select id="env-trading-mode" onchange="saveEnvConfig()">
+                  <option value="off">Off (dry-run)</option>
+                  <option value="supervised">Supervised (intent-gated)</option>
+                  <option value="autonomous">Autonomous</option>
+                </select>
               </div>
             </div>
             <div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between;">
@@ -748,7 +762,6 @@
               <label style="text-transform:none;font-weight:400;font-size:13px"><input type="checkbox" id="perm-options" onchange="savePermissions()"> Allow Options</label>
               <label style="text-transform:none;font-weight:400;font-size:13px"><input type="checkbox" id="perm-stocks" onchange="savePermissions()"> Allow Stocks</label>
               <label style="text-transform:none;font-weight:400;font-size:13px"><input type="checkbox" id="perm-0dte" onchange="savePermissions()"> Allow 0DTE</label>
-              <label style="text-transform:none;font-weight:400;font-size:13px"><input type="checkbox" id="perm-confirm" onchange="savePermissions()"> Require Confirmation</label>
             </div>
             <div class="section-title" style="font-size:12px;margin-bottom:12px">Risk Limits</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -921,6 +934,7 @@
     <div class="footer-left">
       <span>SSE: <span id="sse-status" style="color:var(--success)">connecting</span></span>
       <span>Bot: <span id="bot-status">--</span></span>
+      <span>Trade: <span id="trading-mode-pill">--</span></span>
       <span>Model: <span id="footer-model">--</span></span>
     </div>
     <div class="footer-right">
@@ -1155,9 +1169,8 @@ function connectSSE() {
     const d = JSON.parse(e.data);
 
     const html = `<div class="log-entry ${d.level||'info'}"><span class="time">${fmtTime()}</span>${esc(d.message)}</div>`;
-    logToTerminal(html);
+    logToTerminal(html, false);
     log(d.message, d.level || 'info');
-    console.log(`%c[Backend Log] %c${d.message}`, 'color: #3d5a80; font-weight: bold;', d.level === 'error' ? 'color: red;' : 'color: inherit;');
   });
   es.addEventListener('agent_text', e => {
     const d = JSON.parse(e.data);
@@ -1169,7 +1182,6 @@ function connectSSE() {
         chatToTerminal(`<div class="chat-bubble chat-bubble-ai">${esc(l)}<span class="chat-time">${fmtTime()}</span></div>`);
         logToTerminal(`<div class="log-entry info"><span class="time">${fmtTime()}</span>[Agent] ${esc(l)}</div>`);
         log(l, 'text');
-        console.log(`%c[Agent Output] %c${l}`, 'color: #5a7a9e; font-weight: bold;', 'color: inherit;');
       }
     });
   });
@@ -1197,27 +1209,20 @@ function connectSSE() {
     const args = d.args ? ' ' + JSON.stringify(d.args).substring(0, 120) : '';
     logToTerminal(`<div class="log-entry system"><span class="time">${fmtTime()}</span>Tool: ${d.tool}${args}</div>`);
     log('Tool: ' + d.tool + args, 'system');
-    console.groupCollapsed(`%c[Tool Call] %c${d.tool}`, 'color: #4a9a5a; font-weight: bold;', 'font-weight: normal;');
-    console.log('Arguments:', d.args);
-    console.groupEnd();
   });
   es.addEventListener('beat_start', e => {
     const d = JSON.parse(e.data);
-
-    logToTerminal(`<div class="log-entry beat"><span class="time">${fmtTime()}</span>Heartbeat #${d.beat} | ${d.phase}</div>`);
-    log('Heartbeat #' + d.beat + ' | ' + d.phase, 'beat');
-    console.group(`%c[Heartbeat Start] %cBeat #${d.beat} | ${d.phase}`, 'color: #8a6d3b; font-weight: bold;', 'font-weight: normal;');
+    openBeatGroup(d.beat, d.timestamp);
+    log('Heartbeat #' + d.beat, 'beat');
     const countEl = document.querySelector('[data-stat="main-hb-count"]');
     if (countEl) countEl.textContent = d.beat;
-    if (true) _set('hb-count', d.beat);
+    _set('hb-count', d.beat);
   });
   es.addEventListener('beat_end', e => {
     const d = JSON.parse(e.data);
-
-    logToTerminal(`<div class="log-entry info"><span class="time">${fmtTime()}</span>Beat #${d.beat} complete</div>`);
+    closeBeatGroup(d.beat, d.toolCalls, d.errors);
     log('Beat #' + d.beat + ' complete', 'info');
-    console.groupEnd();
-    if (true) refreshPortfolio();
+    refreshPortfolio();
   });
   es.addEventListener('tool_call', e => {
     const d = JSON.parse(e.data);
@@ -1318,6 +1323,11 @@ function updateState(s) {
   updatePhase(s.phase);
   updateButtons(s.running ? (s.paused ? 'paused' : 'started') : 'stopped');
   _set('bot-status', s.running ? (s.paused ? 'Paused' : 'Running') : 'Stopped');
+  const modeLabels = { off: 'Off', supervised: 'Supervised', autonomous: 'Autonomous' };
+  const modeColors = { off: 'var(--ink-faint)', supervised: 'var(--warning)', autonomous: 'var(--success)' };
+  const tm = s.tradingMode || 'off';
+  const pill = document.getElementById('trading-mode-pill');
+  if (pill) { pill.textContent = modeLabels[tm] || tm; pill.style.color = modeColors[tm] || ''; }
   if (s.recentTrades) s.recentTrades.forEach(t => addTradeCard(t));
 }
 
@@ -1845,11 +1855,42 @@ function toggleHeartbeats(checkbox) {
   }
 }
 
-function logToTerminal(html) {
+let _currentBeatGroup = null;
+
+function logToTerminal(html, grouped) {
   const t = mainTerminal;
   if (!t || !t.termEl) return;
-  t.termEl.insertAdjacentHTML('beforeend', html);
+  const target = (grouped !== false && _currentBeatGroup) ? _currentBeatGroup.querySelector('.beat-body') : t.termEl;
+  target.insertAdjacentHTML('beforeend', html);
   t.termEl.scrollTop = t.termEl.scrollHeight;
+}
+
+function openBeatGroup(beatNum, timestamp) {
+  const t = mainTerminal;
+  if (!t || !t.termEl) return;
+  const details = document.createElement('details');
+  details.className = 'beat-card';
+  details.setAttribute('open', '');
+  details.dataset.beat = beatNum;
+  const ts = timestamp ? new Date(timestamp).toLocaleTimeString('en-US', { hour12: false }) : fmtTime();
+  details.innerHTML = `<summary><span>Beat #${beatNum}</span><span class="beat-stat" data-beat-time>${ts}</span><span class="beat-stat" data-beat-tools>0 tools</span><span class="beat-stat" data-beat-errors style="display:none">0 errors</span></summary><div class="beat-body"></div>`;
+  t.termEl.appendChild(details);
+  _currentBeatGroup = details;
+  t.termEl.scrollTop = t.termEl.scrollHeight;
+}
+
+function closeBeatGroup(beatNum, toolCalls, errors) {
+  if (!_currentBeatGroup) return;
+  const toolsEl = _currentBeatGroup.querySelector('[data-beat-tools]');
+  const errorsEl = _currentBeatGroup.querySelector('[data-beat-errors]');
+  if (toolsEl) toolsEl.textContent = `${toolCalls || 0} tools`;
+  if (errorsEl && errors > 0) {
+    errorsEl.textContent = `${errors} errors`;
+    errorsEl.style.display = '';
+    errorsEl.classList.add('has-errors');
+  }
+  _currentBeatGroup.removeAttribute('open');
+  _currentBeatGroup = null;
 }
 
 function filterTerminalFor() {
@@ -2469,7 +2510,6 @@ function renderPermissions() {
   document.getElementById('perm-options').checked = p.allowOptions !== false;
   document.getElementById('perm-stocks').checked = p.allowStocks !== false;
   document.getElementById('perm-0dte').checked = !!p.allow0DTE;
-  document.getElementById('perm-confirm').checked = !!p.requireConfirmation;
   document.getElementById('perm-maxpos').value = p.maxPositionPct || 15;
   document.getElementById('perm-maxdeploy').value = p.maxDeployedPct || 80;
   document.getElementById('perm-maxloss').value = p.maxDailyLoss || 5;
@@ -2489,7 +2529,6 @@ function savePermissions() {
       allowOptions: document.getElementById('perm-options').checked,
       allowStocks: document.getElementById('perm-stocks').checked,
       allow0DTE: document.getElementById('perm-0dte').checked,
-      requireConfirmation: document.getElementById('perm-confirm').checked,
       maxPositionPct: parseInt(document.getElementById('perm-maxpos').value) || 15,
       maxDeployedPct: parseInt(document.getElementById('perm-maxdeploy').value) || 80,
       maxDailyLoss: parseInt(document.getElementById('perm-maxloss').value) || 5,
@@ -2640,7 +2679,7 @@ async function loadEnvConfig() {
     updateEnvModelOptions(d.LLM_MODEL);
     document.getElementById('env-polling-enabled').checked = !!d.LLM_POLLING_ENABLED;
     document.getElementById('env-polling-interval').value = d.LLM_POLLING_INTERVAL_SECS || 3600;
-    document.getElementById('env-trading-enabled').checked = !!d.TRADING_ENABLED;
+    document.getElementById('env-trading-mode').value = d.TRADING_MODE || 'off';
   } catch (e) {
     console.warn("Failed to load env config", e);
   }
@@ -2653,14 +2692,14 @@ async function saveEnvConfig() {
       LLM_MODEL: document.getElementById('env-model').value,
       LLM_POLLING_ENABLED: document.getElementById('env-polling-enabled').checked,
       LLM_POLLING_INTERVAL_SECS: parseInt(document.getElementById('env-polling-interval').value || '3600', 10),
-      TRADING_ENABLED: document.getElementById('env-trading-enabled').checked
+      TRADING_MODE: document.getElementById('env-trading-mode').value,
     };
     await fetch('/api/env', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    showToast('Backend Engine settings saved. Remember to click "Restart Backend" if you changed the provider or model.', 'success');
+    showToast('Agent settings saved. Restart backend if you changed the provider or model.', 'success');
   } catch (e) {
     showToast('Failed to save settings: ' + e.message, 'error');
   }
