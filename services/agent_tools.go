@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"prophet-trader/config"
 	"prophet-trader/configstore"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
 )
 
-func BuildAgentTools() []interfaces.LLMTool {
-	return []interfaces.LLMTool{
+func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
+	isSuggestMode := mode == config.TradingModeSuggest
+
+	tools := []interfaces.LLMTool{
 		{
 			Name:        "get_account",
 			Description: "Get the current account status including BuyingPower, Cash, and NetLiquidation",
@@ -160,6 +163,45 @@ func BuildAgentTools() []interfaces.LLMTool {
 			},
 		},
 	}
+
+	if isSuggestMode {
+		// Remove order-placement tools, add create_suggestion
+		orderTools := map[string]bool{
+			"place_managed_position": true,
+			"place_options_order":    true,
+			"place_combo_order":      true,
+		}
+		filtered := tools[:0]
+		for _, t := range tools {
+			if !orderTools[t.Name] {
+				filtered = append(filtered, t)
+			}
+		}
+		tools = append(filtered, interfaces.LLMTool{
+			Name:        "create_suggestion",
+			Description: "Propose a trade suggestion for human review. Include your analysis rationale, confidence level (0-1), and timeframe. The suggestion is persisted and tracked for outcome accuracy.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"symbol":       map[string]interface{}{"type": "string", "description": "e.g. ESTX50:20260619:C:6325 or AAPL"},
+					"side":         map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}},
+					"action_type":  map[string]interface{}{"type": "string", "enum": []string{"ENTRY", "EXIT", "ADJUST", "HEDGE"}, "description": "What kind of trade action"},
+					"quantity":     map[string]interface{}{"type": "number"},
+					"order_type":   map[string]interface{}{"type": "string", "enum": []string{"MKT", "LMT", "MIDPRICE"}},
+					"limit_price":  map[string]interface{}{"type": "number"},
+					"target_price": map[string]interface{}{"type": "number", "description": "Expected target price"},
+					"stop_price":   map[string]interface{}{"type": "number", "description": "Suggested stop-loss price"},
+					"rationale":    map[string]interface{}{"type": "string", "description": "Your analysis and reasoning for this suggestion"},
+					"confidence":   map[string]interface{}{"type": "number", "description": "Confidence level 0.0 to 1.0"},
+					"timeframe":    map[string]interface{}{"type": "string", "description": "Expected holding period, e.g. '1d', '3d', '1w'"},
+					"legs":         map[string]interface{}{"type": "string", "description": "JSON description of spread legs if multi-leg"},
+				},
+				"required": []string{"symbol", "side", "action_type", "quantity", "order_type", "rationale", "confidence", "timeframe"},
+			},
+		})
+	}
+
+	return tools
 }
 
 type ToolContext struct {
@@ -171,6 +213,8 @@ type ToolContext struct {
 	Beat                 *AutonomousBeat
 	Resolver             *tws.ContractResolver
 	RequireDoubleConfirm bool
+	Suggestion           *SuggestionManager
+	TradingMode          config.TradingMode
 }
 
 func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, tc *ToolContext) (string, error) {
@@ -502,6 +546,21 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 		}
 
 		return resp.Content, nil
+
+	case "create_suggestion":
+		var req CreateSuggestionRequest
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if tc.Suggestion == nil {
+			return "", fmt.Errorf("suggestion manager not available")
+		}
+		beatID := currentBeatId
+		id, err := tc.Suggestion.CreateSuggestion(req, beatID, "")
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"suggestion_id": "%s", "status": "PENDING", "message": "Trade suggestion created and visible on the dashboard for human review."}`, id), nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)

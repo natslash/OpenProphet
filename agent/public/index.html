@@ -557,6 +557,7 @@
     <button class="tab active" data-tab="terminal" onclick="switchTab('terminal')"><span class="tab-full">Terminal</span><span class="tab-short">Term</span></button>
     <button class="tab" data-tab="trades" onclick="switchTab('trades')">Trades</button>
     <button class="tab" data-tab="intents" onclick="switchTab('intents')"><span class="tab-full">Intents<span id="intent-badge" style="display:none;background:var(--error);color:#fff;padding:2px 6px;border-radius:10px;font-size:10px;margin-left:6px">0</span></span><span class="tab-short">Ints</span></button>
+    <button class="tab" data-tab="suggestions" onclick="switchTab('suggestions')"><span class="tab-full">Suggestions<span id="suggestion-badge" style="display:none;background:var(--accent);color:#fff;padding:2px 6px;border-radius:10px;font-size:10px;margin-left:6px">0</span></span><span class="tab-short">Sug</span></button>
 
     <button class="tab tab-portfolio-mobile" data-tab="portfolio" onclick="switchTab('portfolio')"><span class="tab-full">Portfolio</span><span class="tab-short">Port</span></button>
     <button class="tab" data-tab="agents" onclick="switchTab('agents')">Agents</button>
@@ -596,6 +597,22 @@
         </div>
         <h3 style="margin-top:24px;font-size:14px;color:var(--ink-muted);border-top:1px solid var(--rule);padding-top:16px">History</h3>
         <div id="intents-history">
+          <div class="no-data">No history yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Suggestions Panel -->
+    <div class="panel" id="panel-suggestions">
+      <div class="settings-content">
+        <h2>Trade Suggestions</h2>
+        <p class="subtitle">AI-proposed trades for human review &mdash; tracked for accuracy</p>
+        <div id="suggestion-track-record" style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap"></div>
+        <div id="suggestions-feed">
+          <div class="no-data">No pending suggestions. Agent will propose trades when running in suggest mode.</div>
+        </div>
+        <h3 style="margin-top:24px;font-size:14px;color:var(--ink-muted);border-top:1px solid var(--rule);padding-top:16px">History</h3>
+        <div id="suggestions-history">
           <div class="no-data">No history yet.</div>
         </div>
       </div>
@@ -763,6 +780,7 @@
                 <label>Trading Mode</label>
                 <select id="env-trading-mode" onchange="saveEnvConfig()">
                   <option value="off">Off (dry-run)</option>
+                  <option value="suggest">Suggest (advisory-only)</option>
                   <option value="supervised">Supervised (intent-gated)</option>
                   <option value="autonomous">Autonomous</option>
                 </select>
@@ -1238,6 +1256,16 @@ function connectSSE() {
       }
     } catch(err) { /* best-effort toast */ }
   });
+  es.addEventListener('suggestion_created', e => {
+    refreshSuggestions();
+    refreshTrackRecord();
+    showToast('New trade suggestion!', 'info');
+  });
+  es.addEventListener('suggestion_resolved', e => {
+    refreshSuggestions();
+    refreshSuggestionHistory();
+    refreshTrackRecord();
+  });
   es.addEventListener('agent_tool', e => {
     const d = JSON.parse(e.data);
 
@@ -1362,8 +1390,8 @@ function updateState(s) {
   updatePhase(s.phase);
   updateButtons(s.running ? (s.paused ? 'paused' : 'started') : 'stopped');
   _set('bot-status', s.running ? (s.paused ? 'Paused' : 'Running') : 'Stopped');
-  const modeLabels = { off: 'Off', supervised: 'Supervised', autonomous: 'Autonomous' };
-  const modeColors = { off: 'var(--ink-faint)', supervised: 'var(--warning)', autonomous: 'var(--success)' };
+  const modeLabels = { off: 'Off', suggest: 'Suggest', supervised: 'Supervised', autonomous: 'Autonomous' };
+  const modeColors = { off: 'var(--ink-faint)', suggest: 'var(--accent)', supervised: 'var(--warning)', autonomous: 'var(--success)' };
   const tm = s.tradingMode || 'off';
   const pill = document.getElementById('trading-mode-pill');
   if (pill) { pill.textContent = modeLabels[tm] || tm; pill.style.color = modeColors[tm] || ''; }
@@ -1687,6 +1715,156 @@ function renderIntentHistory() {
       <div class="trade-time">${time}</div>
     </div>`;
   }).join('');
+}
+
+// ── Suggestions ──────────────────────────────
+let currentSuggestionsList = [];
+let suggestionHistory = [];
+
+async function refreshSuggestions() {
+  try {
+    const res = await fetch('/api/suggestions?status=PENDING');
+    if (!res.ok) return;
+    currentSuggestionsList = (await res.json()) || [];
+    renderSuggestionsFeed();
+    updateSuggestionBadge();
+  } catch (e) {}
+}
+
+function updateSuggestionBadge() {
+  const badge = document.getElementById('suggestion-badge');
+  if (!badge) return;
+  const count = currentSuggestionsList.length;
+  badge.style.display = count > 0 ? 'inline' : 'none';
+  badge.textContent = count;
+}
+
+function renderSuggestionsFeed() {
+  const feed = document.getElementById('suggestions-feed');
+  if (!feed) return;
+  if (currentSuggestionsList.length === 0) {
+    feed.innerHTML = '<div class="no-data">No pending suggestions. Agent will propose trades when running in suggest mode.</div>';
+    return;
+  }
+  feed.innerHTML = currentSuggestionsList.map(s => {
+    const conf = Math.round((s.Confidence || 0) * 100);
+    const confColor = conf >= 70 ? 'var(--success)' : conf >= 40 ? 'var(--warning)' : 'var(--error)';
+    const price = s.PriceAtCreation > 0 ? '€' + s.PriceAtCreation.toFixed(2) : 'N/A';
+    const target = s.TargetPrice ? '€' + s.TargetPrice.toFixed(2) : '--';
+    const stop = s.StopPrice ? '€' + s.StopPrice.toFixed(2) : '--';
+    const exp = new Date(s.ExpiresAt).toLocaleString('en-GB', { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `<div class="trade-card" style="border-left: 4px solid var(--accent);">
+      <div class="trade-header">
+        <span class="trade-symbol">${esc(s.Symbol || '??')}</span>
+        <span style="font-size:11px;font-weight:600;color:${s.Side === 'BUY' ? 'var(--success)' : 'var(--error)'}">${esc(s.Side || '')} ${esc(s.ActionType || '')}</span>
+      </div>
+      <div class="trade-details">Qty: ${s.Quantity || 0} · ${esc(s.OrderType || '')} · Price: ${price}</div>
+      <div class="trade-details">Target: ${target} · Stop: ${stop} · Timeframe: ${esc(s.Timeframe || '--')}</div>
+      <div style="margin:6px 0;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--ink-muted)">Confidence:</span>
+        <div style="flex:1;height:6px;background:var(--rule);border-radius:3px;overflow:hidden"><div style="height:100%;width:${conf}%;background:${confColor};border-radius:3px"></div></div>
+        <span style="font-size:11px;font-weight:600;color:${confColor}">${conf}%</span>
+      </div>
+      <div style="font-size:12px;color:var(--ink);margin:4px 0;line-height:1.4">${esc(s.Rationale || '')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <span class="trade-time">Expires: ${exp}</span>
+        <div style="display:flex;gap:8px">
+          <button onclick="acceptSuggestion('${s.SuggestionID}')" style="padding:4px 12px;background:var(--success);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">Accept</button>
+          <button onclick="dismissSuggestion('${s.SuggestionID}')" style="padding:4px 12px;background:var(--rule);color:var(--ink);border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">Dismiss</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function acceptSuggestion(id) {
+  try {
+    const res = await fetch('/api/suggestions/accept/' + id, { method: 'POST' });
+    if (res.ok) {
+      showToast('Suggestion accepted', 'success');
+      refreshSuggestions();
+      refreshSuggestionHistory();
+    } else {
+      const err = await res.json();
+      alert('Failed: ' + (err.error || 'unknown'));
+    }
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+async function dismissSuggestion(id) {
+  try {
+    const res = await fetch('/api/suggestions/dismiss/' + id, { method: 'POST' });
+    if (res.ok) {
+      showToast('Suggestion dismissed', 'info');
+      refreshSuggestions();
+      refreshSuggestionHistory();
+    } else {
+      const err = await res.json();
+      alert('Failed: ' + (err.error || 'unknown'));
+    }
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+async function refreshSuggestionHistory() {
+  try {
+    const res = await fetch('/api/suggestions/history');
+    if (!res.ok) return;
+    suggestionHistory = (await res.json()) || [];
+    renderSuggestionHistory();
+  } catch (e) {}
+}
+
+function renderSuggestionHistory() {
+  const el = document.getElementById('suggestions-history');
+  if (!el) return;
+  if (suggestionHistory.length === 0) {
+    el.innerHTML = '<div class="no-data">No history yet.</div>';
+    return;
+  }
+  el.innerHTML = suggestionHistory.map(s => {
+    const statusColors = { ACCEPTED: 'var(--success)', DISMISSED: 'var(--ink-faint)', EXPIRED: 'var(--warning)' };
+    const color = statusColors[s.Status] || 'var(--ink-muted)';
+    const time = s.ResolvedAt ? new Date(s.ResolvedAt).toLocaleString('en-GB', { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--';
+    const pnl = s.OutcomePnL != null ? (s.OutcomePnL >= 0 ? '+' : '') + s.OutcomePnL.toFixed(2) + '%' : '--';
+    const pnlColor = s.OutcomePnL != null ? (s.OutcomePnL >= 0 ? 'var(--success)' : 'var(--error)') : 'var(--ink-muted)';
+    return `<div class="trade-card" style="border-left: 4px solid ${color}; opacity: 0.85;">
+      <div class="trade-header">
+        <span class="trade-symbol">${esc(s.Symbol || '??')}</span>
+        <span style="font-size:11px;font-weight:600;color:${color}">${s.Status}</span>
+      </div>
+      <div class="trade-details">${esc(s.Side || '')} ${s.Quantity || ''} · ${esc(s.ActionType || '')} · P&L: <span style="color:${pnlColor};font-weight:600">${pnl}</span></div>
+      <div class="trade-time">${time}</div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshTrackRecord() {
+  try {
+    const res = await fetch('/api/suggestions/track-record');
+    if (!res.ok) return;
+    const tr = await res.json();
+    const el = document.getElementById('suggestion-track-record');
+    if (!el) return;
+    const winColor = tr.win_rate >= 50 ? 'var(--success)' : 'var(--error)';
+    const pnlColor = tr.average_pnl_percent >= 0 ? 'var(--success)' : 'var(--error)';
+    el.innerHTML = `
+      <div style="padding:8px 14px;background:var(--card);border:1px solid var(--rule);border-radius:8px;flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--ink-muted)">Total</div>
+        <div style="font-size:18px;font-weight:700">${tr.total_suggestions}</div>
+      </div>
+      <div style="padding:8px 14px;background:var(--card);border:1px solid var(--rule);border-radius:8px;flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--ink-muted)">Win Rate</div>
+        <div style="font-size:18px;font-weight:700;color:${winColor}">${tr.win_rate.toFixed(1)}%</div>
+      </div>
+      <div style="padding:8px 14px;background:var(--card);border:1px solid var(--rule);border-radius:8px;flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--ink-muted)">Avg P&L</div>
+        <div style="font-size:18px;font-weight:700;color:${pnlColor}">${tr.average_pnl_percent >= 0 ? '+' : ''}${tr.average_pnl_percent.toFixed(2)}%</div>
+      </div>
+      <div style="padding:8px 14px;background:var(--card);border:1px solid var(--rule);border-radius:8px;flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--ink-muted)">Pending</div>
+        <div style="font-size:18px;font-weight:700">${tr.pending_outcome}</div>
+      </div>`;
+  } catch (e) {}
 }
 
 // ── Portfolio ──────────────────────────────
@@ -2869,9 +3047,11 @@ function startPolling() {
     setInterval(checkHealth, 15000),
     setInterval(checkAuth, 30000),
     setInterval(checkBrokerStatus, 10000),
+    setInterval(refreshSuggestions, 5000),
+    setInterval(refreshSuggestionHistory, 30000),
   ];
   // Run immediately on start
-  updateClock(); refreshPortfolio(); refreshIntents(); refreshIntentHistory(); checkHealth(); checkAuth(); checkBrokerStatus(); loadEnvConfig();
+  updateClock(); refreshPortfolio(); refreshIntents(); refreshIntentHistory(); refreshSuggestions(); refreshSuggestionHistory(); refreshTrackRecord(); checkHealth(); checkAuth(); checkBrokerStatus(); loadEnvConfig();
 }
 function stopPolling() {
   _pollIntervals.forEach(id => clearInterval(id));

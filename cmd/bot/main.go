@@ -177,12 +177,15 @@ func main() {
 	intentManager := services.NewIntentManager(cfg.IntentTTLSeconds, logger)
 	go intentManager.StartSweeper(ctx)
 	
+	suggestionManager := services.NewSuggestionManager(storageService, dataService, logger)
+	go suggestionManager.StartExpirationSweeper(ctx)
+
 	autonomousBeat := services.NewAutonomousBeat(dataService, positionManager, tradingService, logger, services.AutonomousBeatConfig{
 		Interval:           time.Duration(cfg.BeatIntervalSecs) * time.Second,
 		MaxDailyExecutions: cfg.BeatMaxDailyExecutions,
 		LLMPollingEnabled:  cfg.LLMPollingEnabled,
 		LLMPollingInterval: time.Duration(cfg.LLMPollingIntervalSecs) * time.Second,
-	}, intentManager, cfg.RequireDoubleConfirm)
+	}, intentManager, cfg.RequireDoubleConfirm, suggestionManager, cfg.TradingMode)
 	autonomousBeat.SetResolver(resolver)
 
 	intentManager.SetFeedbackCallback(func(intent *services.Intent, reason string) {
@@ -201,6 +204,7 @@ func main() {
 	activityController := controllers.NewActivityController(activityLogger)
 
 	intentController := controllers.NewIntentController(intentManager, positionManager, tradingService, dataService, activityLogger)
+	suggestionController := controllers.NewSuggestionController(suggestionManager)
 
 	// Start trading session automatically
 	if account, err := orderController.GetAccount(); err == nil {
@@ -216,7 +220,7 @@ func main() {
 	router := setupRouter(orderController, newsController, intelligenceController, positionController, activityController, economicFeedsController, beatController, intentController)
 
 	// Dashboard-facing API routes (no /v1/ prefix — matches what the HTML fetches)
-	registerDashboardRoutes(router, configController, dashboardController, beatController, orderController, intentController)
+	registerDashboardRoutes(router, configController, dashboardController, beatController, orderController, intentController, suggestionController)
 
 	// Manual reconnect endpoint — triggers the same cleanup/reconnect/enable
 	// flow as the automatic loop, but on-demand from the dashboard.
@@ -405,7 +409,7 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 	return router
 }
 
-func registerDashboardRoutes(router *gin.Engine, cc *controllers.ConfigController, dc *controllers.DashboardController, bc *controllers.BeatController, oc *controllers.OrderController, ic *controllers.IntentController) {
+func registerDashboardRoutes(router *gin.Engine, cc *controllers.ConfigController, dc *controllers.DashboardController, bc *controllers.BeatController, oc *controllers.OrderController, ic *controllers.IntentController, sc *controllers.SuggestionController) {
 	// SSE endpoint for dashboard
 	router.GET("/api/events", dc.HandleSSEEvents)
 
@@ -466,6 +470,13 @@ func registerDashboardRoutes(router *gin.Engine, cc *controllers.ConfigControlle
 	router.GET("/api/intents/history", ic.HandleGetHistory)
 	router.POST("/api/intents/authorize/:id", ic.HandleAuthorizeIntent)
 	router.POST("/api/intents/reject/:id", ic.HandleRejectIntent)
+
+	// Suggestions
+	router.GET("/api/suggestions", sc.HandleListSuggestions)
+	router.GET("/api/suggestions/history", sc.HandleGetHistory)
+	router.POST("/api/suggestions/accept/:id", sc.HandleAcceptSuggestion)
+	router.POST("/api/suggestions/dismiss/:id", sc.HandleDismissSuggestion)
+	router.GET("/api/suggestions/track-record", sc.HandleGetTrackRecord)
 
 	// Env
 	router.GET("/api/env", dc.HandleGetEnv)

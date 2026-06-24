@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"prophet-trader/config"
 	"prophet-trader/configstore"
 	"prophet-trader/interfaces"
 	"prophet-trader/tws"
@@ -33,6 +34,8 @@ type AutonomousBeat struct {
 	intentManager        *IntentManager
 	requireDoubleConfirm bool
 	resolver             *tws.ContractResolver
+	suggestionManager    *SuggestionManager
+	tradingMode          config.TradingMode
 
 	mu           sync.Mutex
 	isRunning    bool
@@ -59,7 +62,7 @@ type beatMessage struct {
 	IsDirect bool
 }
 
-func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig, intentManager *IntentManager, requireDoubleConfirm bool) *AutonomousBeat {
+func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading interfaces.TradingService, logger *logrus.Logger, cfg AutonomousBeatConfig, intentManager *IntentManager, requireDoubleConfirm bool, suggestionManager *SuggestionManager, tradingMode config.TradingMode) *AutonomousBeat {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Minute
 	}
@@ -90,8 +93,10 @@ func NewAutonomousBeat(data interfaces.DataService, pm *PositionManager, trading
 		logger:  logger,
 		cfg:     cfg,
 		llm:     llm,
-		intentManager: intentManager,
+		intentManager:        intentManager,
 		requireDoubleConfirm: requireDoubleConfirm,
+		suggestionManager:    suggestionManager,
+		tradingMode:          tradingMode,
 	}
 }
 
@@ -328,7 +333,11 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		{Role: "user", Content: userText},
 	}
 
-	tools := BuildAgentTools()
+	if b.tradingMode == config.TradingModeSuggest {
+		systemPrompt += "\n\nYOU ARE IN SUGGEST MODE. You CANNOT place orders. Instead, analyze the portfolio and market conditions, then use the create_suggestion tool to propose trades for human review. Include detailed rationale and a confidence level. Your suggestions are tracked for accuracy."
+	}
+
+	tools := BuildAgentTools(b.tradingMode)
 
 	// 2. Loop until AI stops calling tools. concluded tracks whether the model
 	// finished on its own (a turn with no tool calls). If it instead burns the
@@ -425,6 +434,8 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				Beat:                 b,
 				Resolver:             b.resolver,
 				RequireDoubleConfirm: b.requireDoubleConfirm,
+				Suggestion:           b.suggestionManager,
+				TradingMode:          b.tradingMode,
 			})
 			toolCancel()
 

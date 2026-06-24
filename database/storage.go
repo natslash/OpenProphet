@@ -45,6 +45,7 @@ func NewLocalStorage(dbPath string) (*LocalStorage, error) {
 		&models.DBAccountSnapshot{},
 		&models.DBSignal{},
 		&models.DBManagedPosition{},
+		&models.DBSuggestion{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
@@ -233,6 +234,11 @@ func (s *LocalStorage) CleanupOldData(before time.Time) error {
 		return fmt.Errorf("failed to delete old signals: %w", err)
 	}
 
+	// Delete old resolved suggestions (keep pending ones regardless of age)
+	if err := s.db.Where("status != 'PENDING' AND created_at < ?", before).Delete(&models.DBSuggestion{}).Error; err != nil {
+		return fmt.Errorf("failed to delete old suggestions: %w", err)
+	}
+
 	s.logger.Info("Old data cleaned up successfully")
 	return nil
 }
@@ -351,6 +357,73 @@ func (s *LocalStorage) DeleteManagedPosition(positionID string) error {
 	result := s.db.Where("position_id = ?", positionID).Delete(&models.DBManagedPosition{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete managed position: %w", result.Error)
+	}
+	return nil
+}
+
+// ── Suggestions ──────────────────────────────
+
+func (s *LocalStorage) SaveSuggestion(suggestion *models.DBSuggestion) error {
+	result := s.db.Save(suggestion)
+	if result.Error != nil {
+		return fmt.Errorf("failed to save suggestion: %w", result.Error)
+	}
+	return nil
+}
+
+func (s *LocalStorage) GetSuggestion(suggestionID string) (*models.DBSuggestion, error) {
+	var suggestion models.DBSuggestion
+	result := s.db.Where("suggestion_id = ?", suggestionID).First(&suggestion)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get suggestion: %w", result.Error)
+	}
+	return &suggestion, nil
+}
+
+func (s *LocalStorage) GetSuggestions(status string) ([]*models.DBSuggestion, error) {
+	var suggestions []*models.DBSuggestion
+	query := s.db.Model(&models.DBSuggestion{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	result := query.Order("created_at DESC").Find(&suggestions)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get suggestions: %w", result.Error)
+	}
+	return suggestions, nil
+}
+
+func (s *LocalStorage) UpdateSuggestionStatus(suggestionID, status string, resolvedAt *time.Time) error {
+	result := s.db.Model(&models.DBSuggestion{}).Where("suggestion_id = ?", suggestionID).
+		Updates(map[string]interface{}{"status": status, "resolved_at": resolvedAt})
+	if result.Error != nil {
+		return fmt.Errorf("failed to update suggestion status: %w", result.Error)
+	}
+	return nil
+}
+
+func (s *LocalStorage) GetSuggestionsForOutcomeCheck() ([]*models.DBSuggestion, error) {
+	var suggestions []*models.DBSuggestion
+	result := s.db.Where("status IN ? AND outcome_checked_at IS NULL AND created_at > ?",
+		[]string{"ACCEPTED", "DISMISSED", "EXPIRED"},
+		time.Now().AddDate(0, 0, -7)).
+		Find(&suggestions)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get suggestions for outcome check: %w", result.Error)
+	}
+	return suggestions, nil
+}
+
+func (s *LocalStorage) UpdateSuggestionOutcome(suggestionID string, outcomePrice, outcomePnL float64) error {
+	now := time.Now()
+	result := s.db.Model(&models.DBSuggestion{}).Where("suggestion_id = ?", suggestionID).
+		Updates(map[string]interface{}{
+			"outcome_price":      outcomePrice,
+			"outcome_pn_l":       outcomePnL,
+			"outcome_checked_at": &now,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("failed to update suggestion outcome: %w", result.Error)
 	}
 	return nil
 }

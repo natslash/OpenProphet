@@ -12,6 +12,7 @@ type TradingMode string
 
 const (
 	TradingModeOff        TradingMode = "off"
+	TradingModeSuggest    TradingMode = "suggest"
 	TradingModeSupervised TradingMode = "supervised"
 	TradingModeAutonomous TradingMode = "autonomous"
 )
@@ -85,7 +86,7 @@ func Load() error {
 			tradingMode = TradingModeAutonomous
 		}
 	}
-	if tradingMode != TradingModeOff && tradingMode != TradingModeSupervised && tradingMode != TradingModeAutonomous {
+	if tradingMode != TradingModeOff && tradingMode != TradingModeSuggest && tradingMode != TradingModeSupervised && tradingMode != TradingModeAutonomous {
 		tradingMode = TradingModeOff
 	}
 
@@ -102,7 +103,7 @@ func Load() error {
 		IBKRClientID: getEnvAsInt("IBKR_CLIENT_ID", 1),
 
 		TradingMode:          tradingMode,
-		TradingEnabled:       tradingMode != TradingModeOff,
+		TradingEnabled:       tradingMode != TradingModeOff && tradingMode != TradingModeSuggest,
 		RequireDoubleConfirm: tradingMode == TradingModeSupervised,
 
 		AdminToken:             os.Getenv("ADMIN_TOKEN"),
