@@ -827,6 +827,15 @@ app.get('/api/intents', async (req, res) => {
   } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
 });
 
+app.get('/api/intents/history', async (req, res) => {
+  try {
+    const client = getGoClient();
+    if (!client) return res.status(404).json({ error: 'Trading backend unavailable' });
+    const { data } = await client.get('/api/v1/beat/intents/history');
+    res.json(data);
+  } catch { res.status(502).json({ error: 'Trading bot unavailable' }); }
+});
+
 app.post('/api/intents/authorize/:id', async (req, res) => {
   try {
     const client = getGoClient();

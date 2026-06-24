@@ -141,9 +141,9 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 6 | **Bot status shows "--"** | P1 — UX | ✅ Done | Added stats tracking (beats/tools/errors) to Go backend, state polling in agent server, wired `bot-status` element. |
 | 7 | **Trading Safety Checks** | P1 — Foundation | ✅ Done | Replaced `TradingEnabled`+`RequireDoubleConfirm` with `TradingMode` (off/supervised/autonomous). Dashboard selector, footer pill, SSE state. |
 | 8 | **Dashboard beat grouping** | P1 — Foundation | ✅ Done | Go backend emits `beat_start`/`beat_end` events. Logs panel groups entries into collapsible cards with tool/error counts. |
-| 9 | **Keyboard shortcuts for dashboard** | P1 — UX | ⬜ | Enter to send messages and authorize intents. Escape to close modals. Currently mouse-only. |
-| 10 | **Live Trades tab empty** | P1 — UX | ⬜ | Trades tab blank despite authorized/executed orders. Activity log records them but dashboard doesn't display. |
-| 11 | **Beat activity indicator** | P2 — UX | ⬜ | No visual feedback while agent is processing. Show thinking spinner/pulse during active beats. Builds on #8. |
+| 9 | **Keyboard shortcuts for dashboard** | P1 — UX | ✅ Done | Escape closes modals/token dialog. Enter submits token. Chat Enter already wired. |
+| 10 | **Live Trades tab empty** | P1 — UX | ✅ Done | IntentManager emits `trade` SSE event on MarkCompleted. Dashboard parses nested trade data and renders cards. |
+| 11 | **Beat activity indicator** | P2 — UX | ✅ Done | Status dot + agent tab dot pulse blue with "Thinking..." during active beats. Stable across health check re-renders. |
 | 12 | **Isolate backend logs from browser console** | P2 — UX | ✅ Done | Removed console.log/group calls for agent_log, agent_text, agent_tool, beat_start/end SSE events. Only errors remain. |
 | 13 | **Position detail view** | P2 — UX | ⬜ | Positions not clickable. Add detail view with avg entry price, CMP, and unrealized P&L. |
 | 14 | **Rename Settings → Agent Settings** | P2 — UX | ✅ Done | Renamed "Backend Engine Settings" to "Agent Settings" with clearer description. |
@@ -151,8 +151,8 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 16 | **Agent Identity UI** | P3 | ⬜ | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. Builds on #8. |
 | 17 | **Multi-Leg Option Combos** | P3 | ⬜ | BAG routing for net credit/debit limit orders on option spreads. |
 | 18 | Dashboard UI Overhaul | P4 | ⬜ | General UX/UI improvements. |
-| 19 | **Authorization history** | P2 — UX | ⬜ | Intents tab should show full history (authorized + rejected), not just pending. Needed for audit trail. |
-| 20 | **Live account/position refresh** | P2 — UX | ⬜ | Account panel may not reflect position opens/closes in real time. Verify and wire reactive updates on trade events. |
+| 19 | **Authorization history** | P2 — UX | ✅ Done | IntentManager keeps a 100-entry ring buffer. History endpoint + Approval Hub shows resolved intents with status badges. |
+| 20 | **Live account/position refresh** | P2 — UX | ✅ Done | `refreshPortfolio()` triggered on `trade` SSE, `intent_resolved` (COMPLETED), and `beat_end` events. |
 
 ---
 

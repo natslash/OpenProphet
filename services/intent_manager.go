@@ -34,6 +34,7 @@ type Intent struct {
 	Payload      []byte       `json:"Payload"`
 	CreatedAt    time.Time    `json:"CreatedAt"`
 	ExpiresAt    time.Time    `json:"ExpiresAt"`
+	ResolvedAt   time.Time    `json:"ResolvedAt,omitempty"`
 	CurrentPrice float64      `json:"CurrentPrice"`
 	Status       IntentStatus `json:"Status"`
 	Symbol       string       `json:"Symbol"`
@@ -41,8 +42,11 @@ type Intent struct {
 	Quantity     float64      `json:"Quantity"`
 }
 
+const maxHistorySize = 100
+
 type IntentManager struct {
 	intents    map[string]*Intent
+	history    []*Intent
 	mu         sync.RWMutex
 	logger     *logrus.Logger
 	ttlSeconds int
@@ -53,6 +57,7 @@ type IntentManager struct {
 func NewIntentManager(ttlSeconds int, logger *logrus.Logger) *IntentManager {
 	im := &IntentManager{
 		intents:    make(map[string]*Intent),
+		history:    make([]*Intent, 0, maxHistorySize),
 		logger:     logger,
 		ttlSeconds: ttlSeconds,
 	}
@@ -91,12 +96,12 @@ func (im *IntentManager) sweep() {
 			if now.Sub(intent.CreatedAt).Seconds() > float64(im.ttlSeconds) {
 				im.logger.WithField("intent_id", id).Warn("Intent expired due to TTL")
 				intent.Status = IntentStatusExpired
-				
+				im.pushHistory(intent)
+
 				if im.onIntentExpiredOrRejected != nil {
-					// Don't block the sweeper
 					go im.onIntentExpiredOrRejected(intent, "expired due to TTL")
 				}
-				
+
 				im.emitIntentEvent("intent_resolved", intent)
 
 				delete(im.intents, id)
@@ -172,6 +177,25 @@ func (im *IntentManager) ListIntents() []*Intent {
 	return list
 }
 
+func (im *IntentManager) ListHistory() []*Intent {
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+
+	out := make([]*Intent, len(im.history))
+	copy(out, im.history)
+	return out
+}
+
+// pushHistory appends a resolved intent to the history ring. Caller must hold im.mu.
+func (im *IntentManager) pushHistory(intent *Intent) {
+	snapshot := *intent
+	snapshot.ResolvedAt = time.Now()
+	if len(im.history) >= maxHistorySize {
+		im.history = im.history[1:]
+	}
+	im.history = append(im.history, &snapshot)
+}
+
 // ClaimForExecution atomically transitions a Pending intent to Executing.
 func (im *IntentManager) ClaimForExecution(id string) (*Intent, error) {
 	im.mu.Lock()
@@ -196,7 +220,18 @@ func (im *IntentManager) MarkCompleted(id string) {
 
 	if intent, exists := im.intents[id]; exists {
 		intent.Status = IntentStatusCompleted
+		im.pushHistory(intent)
 		im.emitIntentEvent("intent_resolved", intent)
+
+		tradeData, _ := json.Marshal(map[string]interface{}{
+			"symbol":    intent.Symbol,
+			"side":      intent.Side,
+			"quantity":  intent.Quantity,
+			"price":     intent.CurrentPrice,
+			"timestamp": time.Now().Format(time.RFC3339),
+			"tool":      string(intent.Type),
+		})
+		go appendJSONToBotLog("trade", "", string(tradeData))
 
 		confirmation := fmt.Sprintf("Order executed: %s %.0f %s", intent.Side, intent.Quantity, intent.Symbol)
 		go appendJSONToBotLog("agent_text", "", confirmation)
@@ -223,7 +258,8 @@ func (im *IntentManager) RejectIntent(id string, reason string) error {
 	}
 
 	intent.Status = IntentStatusRejected
-	
+	im.pushHistory(intent)
+
 	if im.onIntentExpiredOrRejected != nil {
 		go im.onIntentExpiredOrRejected(intent, reason)
 	}
