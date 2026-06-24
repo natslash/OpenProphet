@@ -45,6 +45,7 @@ type AutonomousBeat struct {
 	overrideInterval time.Duration
 	overrideOnce     bool
 	beatCounter      int64
+	cachedRules      string
 }
 
 type beatMessage struct {
@@ -107,6 +108,13 @@ func (b *AutonomousBeat) Start() error {
 	}
 	if b.llm == nil {
 		return fmt.Errorf("LLM provider not initialized")
+	}
+
+	if rulesData, err := os.ReadFile("TRADING_RULES.md"); err == nil {
+		b.cachedRules = string(rulesData)
+	} else {
+		b.logger.WithError(err).Warn("Could not read TRADING_RULES.md at startup")
+		b.cachedRules = ""
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -248,13 +256,10 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
-	// 1. Build System Prompt from TRADING_RULES.md
-	rulesData, err := os.ReadFile("TRADING_RULES.md")
 	var systemPrompt string
-	if err == nil {
-		systemPrompt = string(rulesData)
+	if b.cachedRules != "" {
+		systemPrompt = b.cachedRules
 	} else {
-		b.logger.WithError(err).Warn("Could not read TRADING_RULES.md, using default prompt")
 		systemPrompt = "You are OpenProphet, an autonomous trading agent."
 	}
 
