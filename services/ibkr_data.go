@@ -331,6 +331,7 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 	}
 
 	var hasBid, hasAsk, hasLast bool
+	deadline := time.After(15 * time.Second)
 
 	for {
 		if isIndex && hasLast {
@@ -363,6 +364,12 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 						quote.AskPrice = t.Price
 						hasLast = true
 					}
+				case tws.TickClose, tws.TickDelayedClose:
+					if isIndex && !hasLast && t.Price > 0 {
+						quote.BidPrice = t.Price
+						quote.AskPrice = t.Price
+						hasLast = true
+					}
 				}
 			case tws.TickSizeMsg:
 				switch t.TickType {
@@ -374,6 +381,11 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}
+		case <-deadline:
+			if quote.BidPrice > 0 || quote.AskPrice > 0 {
+				return quote, nil
+			}
+			return nil, fmt.Errorf("quote timeout: no ticks received within 15s for %s", symbol)
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
