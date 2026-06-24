@@ -139,18 +139,20 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 4 | **Index quote timeout + fallback** | P0 — Reliability | ✅ Done | 15s deadline, close/delayed tick fallback for indices. |
 | 5 | **Cache TRADING_RULES.md at startup** | P1 — Perf | ✅ Done | Load once in `Start()`, no per-beat disk I/O. |
 | 6 | **Bot status shows "--"** | P1 — UX | ✅ Done | Added stats tracking (beats/tools/errors) to Go backend, state polling in agent server, wired `bot-status` element. |
-| 7 | **Keyboard shortcuts for dashboard** | P1 — UX | ⬜ | Enter to send messages and authorize intents. Escape to close modals. Currently mouse-only. |
-| 8 | **Live Trades tab empty** | P1 — UX | ⬜ | Trades tab blank despite authorized/executed orders. Activity log records them but dashboard doesn't display. |
-| 9 | **Beat activity indicator** | P2 — UX | ⬜ | No visual feedback while agent is processing. Show thinking spinner/pulse during active beats. |
-| 10 | **Position detail view** | P2 — UX | ⬜ | Positions not clickable. Add detail view with avg entry price, CMP, and unrealized P&L. |
-| 11 | **Isolate backend logs from browser console** | P2 — UX | ⬜ | Backend logs flood browser dev console. Show only in Logs panel, not `console.log`. |
-| 12 | **Dashboard beat grouping** | P2 — UX | ⬜ | Group log events by `beatId` into collapsible cards. Backend tagging already done. |
-| 13 | **Rename Settings → Agent Settings** | P3 — UX | ⬜ | "Backend Engine Settings" is misleading — these are agent-level config (model, heartbeat, permissions). |
-| 14 | **Wire Accounts tab** | P3 — UX | ⬜ | Backend returns account data but tab doesn't display it. Wire up or merge into portfolio view. |
-| 15 | **Trading Safety Checks** | P3 | ⬜ | Tidy "Enable Trading" logic; make live vs dry-run mode explicitly clear. |
-| 16 | **Agent Identity UI** | P3 | ⬜ | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. |
+| 7 | **Trading Safety Checks** | P1 — Foundation | ✅ Done | Replaced `TradingEnabled`+`RequireDoubleConfirm` with `TradingMode` (off/supervised/autonomous). Dashboard selector, footer pill, SSE state. |
+| 8 | **Dashboard beat grouping** | P1 — Foundation | ✅ Done | Go backend emits `beat_start`/`beat_end` events. Logs panel groups entries into collapsible cards with tool/error counts. |
+| 9 | **Keyboard shortcuts for dashboard** | P1 — UX | ⬜ | Enter to send messages and authorize intents. Escape to close modals. Currently mouse-only. |
+| 10 | **Live Trades tab empty** | P1 — UX | ⬜ | Trades tab blank despite authorized/executed orders. Activity log records them but dashboard doesn't display. |
+| 11 | **Beat activity indicator** | P2 — UX | ⬜ | No visual feedback while agent is processing. Show thinking spinner/pulse during active beats. Builds on #8. |
+| 12 | **Isolate backend logs from browser console** | P2 — UX | ✅ Done | Removed console.log/group calls for agent_log, agent_text, agent_tool, beat_start/end SSE events. Only errors remain. |
+| 13 | **Position detail view** | P2 — UX | ⬜ | Positions not clickable. Add detail view with avg entry price, CMP, and unrealized P&L. |
+| 14 | **Rename Settings → Agent Settings** | P2 — UX | ✅ Done | Renamed "Backend Engine Settings" to "Agent Settings" with clearer description. |
+| 15 | **Wire Accounts tab** | P3 — UX | ⬜ | Backend returns account data but tab doesn't display it. Wire up or merge into portfolio view. |
+| 16 | **Agent Identity UI** | P3 | ⬜ | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. Builds on #8. |
 | 17 | **Multi-Leg Option Combos** | P3 | ⬜ | BAG routing for net credit/debit limit orders on option spreads. |
 | 18 | Dashboard UI Overhaul | P4 | ⬜ | General UX/UI improvements. |
+| 19 | **Authorization history** | P2 — UX | ⬜ | Intents tab should show full history (authorized + rejected), not just pending. Needed for audit trail. |
+| 20 | **Live account/position refresh** | P2 — UX | ⬜ | Account panel may not reflect position opens/closes in real time. Verify and wire reactive updates on trade events. |
 
 ---
 
