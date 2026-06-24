@@ -622,7 +622,11 @@ app.get('/api/models', (req, res) => {
 
 app.post('/api/models/activate', async (req, res) => {
   try {
-    await setActiveModel(req.body.model);
+    const modelId = req.body.model;
+    await setActiveModel(modelId);
+    const [provider] = modelId.split('/');
+    process.env.LLM_PROVIDER = provider === 'google' ? 'gemini' : 'anthropic';
+    process.env.LLM_MODEL = modelId.replace(/^[^/]+\//, '');
     await startGoBackend();
     broadcast('config', safeConfig());
     res.json({ ok: true });
@@ -996,6 +1000,14 @@ app.use((req, res, next) => {
 });
 
 // ── Start Server ───────────────────────────────────────────────────
+
+// Sync LLM provider env from active model in config before first start
+const activeModel = getConfig().activeModel;
+if (activeModel) {
+  const [prov] = activeModel.split('/');
+  if (!process.env.LLM_PROVIDER) process.env.LLM_PROVIDER = prov === 'google' ? 'gemini' : 'anthropic';
+  if (!process.env.LLM_MODEL) process.env.LLM_MODEL = activeModel.replace(/^[^/]+\//, '');
+}
 
 // Start Go backend
 await startGoBackend();
