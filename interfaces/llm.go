@@ -4,10 +4,11 @@ import "context"
 
 // LLMMessage represents a message in a conversation
 type LLMMessage struct {
-	Role         string // "user", "assistant", "system"
-	Content      string
-	ToolResultID string // If set, this message is a tool result
-	ToolCalls    []LLMToolCall // If set, this message includes tool calls made by the assistant
+	Role           string // "user", "assistant", "system"
+	Content        string
+	ToolResultID   string        // If set, this message is a tool result
+	ToolResultName string        // Function name for the tool result (needed by Gemini)
+	ToolCalls      []LLMToolCall // If set, this message includes tool calls made by the assistant
 }
 
 // LLMTool represents a callable tool/function for the LLM

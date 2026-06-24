@@ -351,9 +351,10 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				if jimRogersCalls > maxJimRogersPerCycle {
 					b.logger.Warn("[BEAT] jim_rogers consultation limit reached for this cycle")
 					messages = append(messages, interfaces.LLMMessage{
-						Role:         "user",
-						Content:      "You have reached the limit for consulting other agents (jim_rogers) this cycle. Do not call it again; proceed with your own analysis and give your recommendation.",
-						ToolResultID: toolCall.ID,
+						Role:           "user",
+						Content:        "You have reached the limit for consulting other agents (jim_rogers) this cycle. Do not call it again; proceed with your own analysis and give your recommendation.",
+						ToolResultID:   toolCall.ID,
+						ToolResultName: toolCall.Name,
 					})
 					continue
 				}
@@ -390,9 +391,10 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			// transcript: the full history is re-sent on every subsequent turn,
 			// so an unbounded tool dump compounds into O(n²) token usage.
 			messages = append(messages, interfaces.LLMMessage{
-				Role:         "user",
-				Content:      truncateForHistory(resultMsg),
-				ToolResultID: toolCall.ID,
+				Role:           "user",
+				Content:        truncateForHistory(resultMsg),
+				ToolResultID:   toolCall.ID,
+				ToolResultName: toolCall.Name,
 			})
 		}
 	}

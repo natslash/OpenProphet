@@ -32,7 +32,7 @@ func NewGeminiClient() (*GeminiClient, error) {
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" {
-		model = "gemini-1.5-pro"
+		model = "gemini-2.5-flash"
 	}
 
 	return &GeminiClient{
@@ -42,28 +42,48 @@ func NewGeminiClient() (*GeminiClient, error) {
 }
 
 func (gc *GeminiClient) GetName() string {
-	return "Google Gemini 1.5 Pro"
+	return "Google Gemini (" + gc.model + ")"
 }
 
 func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfaces.LLMMessage, tools []interfaces.LLMTool) (*interfaces.LLMResponse, error) {
 	model := gc.client.GenerativeModel(gc.model)
 
 	var history []*genai.Content
-	var systemInstruction *genai.Content
+
+	// Batch consecutive tool results into a single "user" Content with
+	// multiple FunctionResponse parts — Gemini requires this.
+	var pendingFuncResults []genai.Part
+
+	flushFuncResults := func() {
+		if len(pendingFuncResults) > 0 {
+			history = append(history, &genai.Content{
+				Role:  "function",
+				Parts: pendingFuncResults,
+			})
+			pendingFuncResults = nil
+		}
+	}
 
 	for _, msg := range messages {
 		if msg.Role == "system" {
-			systemInstruction = &genai.Content{
-				Role:  "user", // Gemini uses user role for instructions sometimes, but newer versions support SystemInstruction
+			model.SystemInstruction = &genai.Content{
 				Parts: []genai.Part{genai.Text(msg.Content)},
 			}
-			model.SystemInstruction = systemInstruction
 		} else if msg.ToolResultID != "" {
-			history = append(history, &genai.Content{
-				Role: "user",
-				Parts: []genai.Part{genai.Text(fmt.Sprintf("Tool Result for '%s':\n%s", msg.ToolResultID, msg.Content))},
+			funcName := msg.ToolResultName
+			if funcName == "" {
+				funcName = msg.ToolResultID
+			}
+			var resultMap map[string]any
+			if err := json.Unmarshal([]byte(msg.Content), &resultMap); err != nil {
+				resultMap = map[string]any{"result": msg.Content}
+			}
+			pendingFuncResults = append(pendingFuncResults, genai.FunctionResponse{
+				Name:     funcName,
+				Response: resultMap,
 			})
 		} else {
+			flushFuncResults()
 			role := "user"
 			var parts []genai.Part
 			if msg.Role == "assistant" {
@@ -72,13 +92,18 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 					parts = append(parts, genai.Text(msg.Content))
 				}
 				for _, tc := range msg.ToolCalls {
-					parts = append(parts, genai.Text(fmt.Sprintf("[Executed Tool: %s]\nArguments: %s", tc.Name, string(tc.Arguments))))
+					var args map[string]any
+					if err := json.Unmarshal(tc.Arguments, &args); err != nil {
+						args = map[string]any{}
+					}
+					parts = append(parts, genai.FunctionCall{
+						Name: tc.Name,
+						Args: args,
+					})
 				}
 			} else {
 				parts = append(parts, genai.Text(msg.Content))
 			}
-
-			// Do not append empty messages to history
 			if len(parts) > 0 {
 				history = append(history, &genai.Content{
 					Role:  role,
@@ -87,6 +112,7 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 			}
 		}
 	}
+	flushFuncResults()
 
 	// Register tools
 	if len(tools) > 0 {
@@ -148,13 +174,13 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 	var content string
 	var toolCalls []interfaces.LLMToolCall
 
-	for _, part := range resp.Candidates[0].Content.Parts {
+	for i, part := range resp.Candidates[0].Content.Parts {
 		if text, ok := part.(genai.Text); ok {
 			content += string(text)
 		} else if funcCall, ok := part.(genai.FunctionCall); ok {
 			argsBytes, _ := json.Marshal(funcCall.Args)
 			toolCalls = append(toolCalls, interfaces.LLMToolCall{
-				ID:        funcCall.Name, // Gemini doesn't use unique IDs for tool calls in the same way, we use the name as ID
+				ID:        fmt.Sprintf("%s_%d", funcCall.Name, i),
 				Name:      funcCall.Name,
 				Arguments: argsBytes,
 			})
