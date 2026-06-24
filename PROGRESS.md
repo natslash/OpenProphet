@@ -145,9 +145,9 @@ Human-in-the-loop. Not a candidate for autonomous orchestration — this path ca
 | 10 | **Live Trades tab empty** | P1 — UX | ✅ Done | IntentManager emits `trade` SSE event on MarkCompleted. Dashboard parses nested trade data and renders cards. |
 | 11 | **Beat activity indicator** | P2 — UX | ✅ Done | Status dot + agent tab dot pulse blue with "Thinking..." during active beats. Stable across health check re-renders. |
 | 12 | **Isolate backend logs from browser console** | P2 — UX | ✅ Done | Removed console.log/group calls for agent_log, agent_text, agent_tool, beat_start/end SSE events. Only errors remain. |
-| 13 | **Position detail view** | P2 — UX | ⬜ | Positions not clickable. Add detail view with avg entry price, CMP, and unrealized P&L. |
+| 13 | **Position detail view** | P2 — UX | ✅ Done | Expandable `<details>` cards in sidebar with side, qty, avg entry, current price, market value, cost basis, P&L. |
 | 14 | **Rename Settings → Agent Settings** | P2 — UX | ✅ Done | Renamed "Backend Engine Settings" to "Agent Settings" with clearer description. |
-| 15 | **Wire Accounts tab** | P3 — UX | ⬜ | Backend returns account data but tab doesn't display it. Wire up or merge into portfolio view. |
+| 15 | **Wire Accounts tab** | P3 — UX | ✅ Done | Account overview with masked ID, portfolio/cash/BP/day-trades + positions table with totals. |
 | 16 | **Agent Identity UI** | P3 | ⬜ | Show messages by role (CEO, Stratagem, Daedalus) in dashboard. Builds on #8. |
 | 17 | **Multi-Leg Option Combos** | P3 | ⬜ | BAG routing for net credit/debit limit orders on option spreads. |
 | 18 | Dashboard UI Overhaul | P4 | ⬜ | General UX/UI improvements. |
