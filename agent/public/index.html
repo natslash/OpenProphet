@@ -332,6 +332,22 @@
     .card:hover { border-color: var(--ink-muted); }
     .card .symbol { font-weight: 700; color: var(--accent); font-size: 13px; }
     .card .pnl { font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; }
+    details.pos-detail { background: var(--paper); border: 1px solid var(--rule); margin-bottom: 6px; }
+    details.pos-detail summary { padding: 8px 10px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    details.pos-detail summary::-webkit-details-marker { display: none; }
+    details.pos-detail[open] { border-color: var(--accent-light); }
+    details.pos-detail .pos-body { padding: 0 10px 10px; font-size: 11px; color: var(--ink-muted); border-top: 1px solid var(--rule-light); }
+    details.pos-detail .pos-body .pos-row { display: flex; justify-content: space-between; padding: 3px 0; }
+    details.pos-detail .pos-body .pos-val { font-family: 'IBM Plex Mono', monospace; color: var(--ink); }
+    .acct-card { background: var(--paper); border: 1px solid var(--rule); padding: 16px; margin-bottom: 12px; }
+    .acct-card h3 { font-size: 14px; margin-bottom: 12px; color: var(--accent); }
+    .acct-card .acct-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px solid var(--rule-light); }
+    .acct-card .acct-row:last-child { border-bottom: none; }
+    .acct-card .acct-val { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .pos-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+    .pos-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--rule); color: var(--ink-muted); font-weight: 600; }
+    .pos-table td { padding: 5px 8px; border-bottom: 1px solid var(--rule-light); font-family: 'IBM Plex Mono', monospace; }
+    .pos-table tr:hover { background: var(--paper-dark); }
 
     .hb-bar {
       background: var(--paper); border: 1px solid var(--rule); padding: 10px; margin-top: 8px;
@@ -624,14 +640,9 @@
     <!-- Accounts Panel -->
     <div class="panel" id="panel-accounts">
       <div class="settings-content">
-        <h2>Trading Accounts</h2>
-        <p class="subtitle">Manage independent agent instances per account</p>
-        
-        <div id="accounts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 20px;"></div>
-        
-        <div class="btn-group" style="margin-top: 20px">
-          <button class="btn primary sm" onclick="showModal('account-create')">Add Account</button>
-        </div>
+        <h2>Account Overview</h2>
+        <p class="subtitle">IBKR account summary and position breakdown</p>
+        <div id="accounts-grid" style="margin-top: 16px;"></div>
       </div>
     </div>
 
@@ -975,6 +986,8 @@
 <script>
 // ── State ──────────────────────────────────
 let config = { accounts: [], agents: [], strategies: [], models: [] };
+let _lastPositions = [];
+let _lastAccount = null;
 
 
 const authToken = new URLSearchParams(window.location.search).get('token') || '';
@@ -1686,6 +1699,7 @@ async function refreshPortfolio() {
     const [a, p] = await Promise.all([fetch('/api/portfolio/account'), fetch('/api/portfolio/positions')]);
     if(a.ok) {
       const acc = await a.json();
+      _lastAccount = acc;
       const pv = '€' + Number(acc.portfolioValue||acc.PortfolioValue||acc.portfolio_value||0).toLocaleString('de-DE',{minimumFractionDigits:2});
       const cv = '€' + Number(acc.cash||acc.Cash||0).toLocaleString('de-DE',{minimumFractionDigits:2});
       const bv = '€' + Number(acc.buyingPower||acc.BuyingPower||acc.buying_power||0).toLocaleString('de-DE',{minimumFractionDigits:2});
@@ -1699,11 +1713,18 @@ async function refreshPortfolio() {
     if(p.ok) {
       const positions = await p.json() || [];
       const arr = (positions && positions.positions) || (Array.isArray(positions) ? positions : []);
+      _lastPositions = arr;
       const html = arr.length ? arr.map(pos => {
         const sym = pos.symbol||pos.Symbol||'??', pnl = Number(pos.unrealizedPL||pos.UnrealizedPL||0);
-        const pct = (Number(pos.unrealizedPLPercent||pos.UnrealizedPLPercent||0)*100).toFixed(1);
+        const pct = (Number(pos.unrealizedPLPC||pos.unrealizedPLPercent||pos.UnrealizedPLPC||pos.UnrealizedPLPercent||0)*100).toFixed(1);
         const c = pnl>=0? 'var(--success)' : 'var(--error)';
-        return '<div class="card"><div style="display:flex;justify-content:space-between"><span class="symbol">'+sym+'</span><span class="pnl" style="color:'+c+'">'+(pnl>=0?'+':'')+'€'+pnl.toFixed(2)+' ('+pct+'%)</span></div><div style="color:var(--ink-faint);font-size:11px;margin-top:3px">Qty: '+(pos.qty||pos.Qty)+' | Avg: €'+Number(pos.avgEntryPrice||pos.AvgEntryPrice||0).toFixed(2)+'</div></div>';
+        const qty = pos.qty||pos.Qty||0;
+        const avg = Number(pos.avgEntryPrice||pos.AvgEntryPrice||0);
+        const cur = Number(pos.currentPrice||pos.CurrentPrice||0);
+        const mv = Number(pos.marketValue||pos.MarketValue||0);
+        const cb = Number(pos.costBasis||pos.CostBasis||0);
+        const side = pos.side||pos.Side||'--';
+        return `<details class="pos-detail"><summary><span class="symbol">${esc(sym)}</span><span class="pnl" style="color:${c}">${pnl>=0?'+':''}€${pnl.toFixed(2)} (${pct}%)</span></summary><div class="pos-body"><div class="pos-row"><span>Side</span><span class="pos-val">${esc(side)}</span></div><div class="pos-row"><span>Quantity</span><span class="pos-val">${qty}</span></div><div class="pos-row"><span>Avg Entry</span><span class="pos-val">€${avg.toFixed(2)}</span></div>${cur > 0 ? `<div class="pos-row"><span>Current Price</span><span class="pos-val">€${cur.toFixed(2)}</span></div>` : ''}<div class="pos-row"><span>Market Value</span><span class="pos-val">€${mv.toFixed(2)}</span></div><div class="pos-row"><span>Cost Basis</span><span class="pos-val">€${cb.toFixed(2)}</span></div><div class="pos-row"><span>Unrealized P&L</span><span class="pos-val" style="color:${c}">${pnl>=0?'+':''}€${pnl.toFixed(2)}</span></div></div></details>`;
       }).join('') : '<div class="no-data">No open positions</div>';
       ['positions-container','m-positions'].forEach(id => { const e = document.getElementById(id); if(e) e.innerHTML = html; });
       const posEl = document.querySelector('[data-stat="main-positions"]');
@@ -1711,6 +1732,7 @@ async function refreshPortfolio() {
     } else {
       clearPositionsView();
     }
+    renderAccountsTab();
   } catch(e) {
     console.error('[Portfolio] refreshPortfolio error:', e);
     clearPositionsView();
@@ -1742,6 +1764,40 @@ function clearPortfolioView() {
   if (posEl) posEl.innerHTML = '<div class="no-data">No positions</div>';
 }
 
+function renderAccountsTab() {
+  const grid = document.getElementById('accounts-grid');
+  if (!grid) return;
+  const acc = _lastAccount;
+  if (!acc) { grid.innerHTML = '<div class="no-data">No account data</div>'; return; }
+  const eur = v => '€' + Number(v||0).toLocaleString('de-DE', {minimumFractionDigits: 2});
+  const id = acc.id || acc.ID || '--';
+  const masked = id.length > 4 ? id.slice(0, 2) + '***' + id.slice(-4) : id;
+  let html = `<div class="acct-card"><h3>Account ${esc(masked)}</h3>
+    <div class="acct-row"><span>Portfolio Value</span><span class="acct-val">${eur(acc.portfolioValue||acc.PortfolioValue)}</span></div>
+    <div class="acct-row"><span>Cash</span><span class="acct-val">${eur(acc.cash||acc.Cash)}</span></div>
+    <div class="acct-row"><span>Buying Power</span><span class="acct-val">${eur(acc.buyingPower||acc.BuyingPower)}</span></div>
+    <div class="acct-row"><span>Day Trade Count</span><span class="acct-val">${acc.dayTradeCount||acc.DayTradeCount||0}</span></div>
+  </div>`;
+  if (_lastPositions.length) {
+    let totalPnl = 0, totalMv = 0;
+    const rows = _lastPositions.map(p => {
+      const sym = p.symbol||p.Symbol||'??';
+      const pnl = Number(p.unrealizedPL||p.UnrealizedPL||0);
+      const mv = Number(p.marketValue||p.MarketValue||0);
+      totalPnl += pnl; totalMv += mv;
+      const c = pnl >= 0 ? 'var(--success)' : 'var(--error)';
+      return `<tr><td>${esc(sym)}</td><td>${p.qty||p.Qty}</td><td>${eur(p.avgEntryPrice||p.AvgEntryPrice)}</td><td>${eur(mv)}</td><td style="color:${c}">${pnl>=0?'+':''}${eur(pnl)}</td></tr>`;
+    }).join('');
+    const tc = totalPnl >= 0 ? 'var(--success)' : 'var(--error)';
+    html += `<div class="acct-card"><h3>Positions (${_lastPositions.length})</h3>
+      <table class="pos-table"><thead><tr><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Mkt Value</th><th>P&L</th></tr></thead>
+      <tbody>${rows}<tr style="border-top:2px solid var(--rule);font-weight:600"><td colspan="3">Total</td><td>${eur(totalMv)}</td><td style="color:${tc}">${totalPnl>=0?'+':''}${eur(totalPnl)}</td></tr></tbody></table></div>`;
+  } else {
+    html += '<div class="no-data" style="margin-top:12px">No open positions</div>';
+  }
+  grid.innerHTML = html;
+}
+
 // ── Trade feed ─────────────────────────────
 function addTradeCard(trade) {
   const feed = document.getElementById('trades-feed');
@@ -1749,7 +1805,7 @@ function addTradeCard(trade) {
   const card = document.createElement('div');
   card.className = 'trade-card';
   const t = trade.timestamp ? new Date(trade.timestamp).toLocaleTimeString('en-US',{hour12:false}) : '--';
-  card.innerHTML = '<div class="trade-header"><span class="trade-symbol">' + esc(trade.symbol||'??') + '</span><span class="trade-side ' + (trade.side||'') + '">' + esc(trade.side||'--') + '</span></div><div class="trade-details">' + esc(trade.tool||'') + (trade.quantity?' | Qty: '+trade.quantity:'') + (trade.price?' | $'+trade.price:'') + '</div><div class="trade-time">' + t + '</div>';
+  card.innerHTML = '<div class="trade-header"><span class="trade-symbol">' + esc(trade.symbol||'??') + '</span><span class="trade-side ' + (trade.side||'') + '">' + esc(trade.side||'--') + '</span></div><div class="trade-details">' + esc(trade.tool||'') + (trade.quantity?' | Qty: '+trade.quantity:'') + (trade.price?' | €'+trade.price:'') + '</div><div class="trade-time">' + t + '</div>';
   feed.insertBefore(card, feed.firstChild);
   while(feed.children.length > 50) feed.removeChild(feed.lastChild);
 }
