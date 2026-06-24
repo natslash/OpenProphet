@@ -295,6 +295,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
+	agentCfg := readAgentConfig()
+	activeAgent := agentCfg.activeAgentName()
+
 	var systemPrompt string
 	if b.cachedRules != "" {
 		systemPrompt = b.cachedRules
@@ -361,8 +364,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		if err != nil {
 			b.logger.WithError(err).Error("[BEAT] LLM API error")
 
-			// Emit error to the UI
-			appendJSONToBotLog("agent_text", fmt.Sprintf("Error interacting with LLM: %v", err))
+			appendJSONToBotLogAgent("agent_text", fmt.Sprintf("Error interacting with LLM: %v", err), activeAgent)
 			return
 		}
 
@@ -376,8 +378,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 		if resp.Content != "" {
 			b.logger.WithField("ai_thought", resp.Content).Info("[BEAT] AI Log")
-			// Emit text to the UI
-			appendJSONToBotLog("agent_text", resp.Content)
+			appendJSONToBotLogAgent("agent_text", resp.Content, activeAgent)
 		}
 
 		if len(resp.ToolCalls) == 0 {
@@ -437,6 +438,12 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				b.logger.WithError(toolErr).WithField("tool", toolCall.Name).Warn("[BEAT] Tool failed")
 			} else {
 				resultMsg = resStr
+				if toolCall.Name == "jim_rogers" {
+					var jr struct{ TargetAgentID string `json:"target_agent_id"` }
+					json.Unmarshal(toolCall.Arguments, &jr)
+					subName := agentCfg.agentName(jr.TargetAgentID)
+					appendJSONToBotLogAgent("agent_text", resStr, subName)
+				}
 			}
 
 			// In this generic interface, we'll append the tool result as a user
@@ -466,14 +473,14 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		summaryCancel()
 		if err != nil {
 			b.logger.WithError(err).Error("[BEAT] Forced summary failed")
-			appendJSONToBotLog("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
+			appendJSONToBotLogAgent("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.", activeAgent)
 			return
 		}
 		if resp.Content != "" {
 			b.logger.WithField("ai_thought", resp.Content).Info("[BEAT] AI Log (forced summary)")
-			appendJSONToBotLog("agent_text", resp.Content)
+			appendJSONToBotLogAgent("agent_text", resp.Content, activeAgent)
 		} else {
-			appendJSONToBotLog("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
+			appendJSONToBotLogAgent("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.", activeAgent)
 		}
 	}
 }
@@ -482,6 +489,51 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 // in the conversation history (~1.5k tokens). Tool results are re-sent on every
 // later turn, so leaving them unbounded compounds token cost across the loop.
 const maxToolResultChars = 6000
+
+type agentConfigFile struct {
+	ActiveAgentID string `json:"activeAgentId"`
+	Agents        []struct {
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		CustomSystemPrompt string `json:"customSystemPrompt"`
+	} `json:"agents"`
+}
+
+func readAgentConfig() *agentConfigFile {
+	data, err := os.ReadFile("data/agent-config.json")
+	if err != nil {
+		return nil
+	}
+	var cfg agentConfigFile
+	if json.Unmarshal(data, &cfg) != nil {
+		return nil
+	}
+	return &cfg
+}
+
+func (c *agentConfigFile) activeAgentName() string {
+	if c == nil {
+		return ""
+	}
+	for _, a := range c.Agents {
+		if a.ID == c.ActiveAgentID {
+			return a.Name
+		}
+	}
+	return ""
+}
+
+func (c *agentConfigFile) agentName(id string) string {
+	if c == nil {
+		return id
+	}
+	for _, a := range c.Agents {
+		if a.ID == id {
+			return a.Name
+		}
+	}
+	return id
+}
 
 // maxJimRogersPerCycle caps sub-agent (jim_rogers) consultations per beat. Each
 // one is a full nested LLM call whose output is appended to the transcript, so
@@ -518,6 +570,10 @@ func truncateForHistory(s string) string {
 var currentBeatId int64
 
 func appendJSONToBotLog(event string, text string) {
+	appendJSONToBotLogAgent(event, text, "")
+}
+
+func appendJSONToBotLogAgent(event string, text string, agent string) {
 	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		defer f.Close()
@@ -527,6 +583,9 @@ func appendJSONToBotLog(event string, text string) {
 				"text":   text,
 				"beatId": currentBeatId,
 			},
+		}
+		if agent != "" {
+			data["data"].(map[string]interface{})["agent"] = agent
 		}
 		b, _ := json.Marshal(data)
 		f.WriteString(string(b) + "\n")
