@@ -956,11 +956,7 @@
       <span>Trade: <span id="trading-mode-pill">--</span></span>
       <span>Model: <span id="footer-model">--</span></span>
     </div>
-    <div class="footer-right">
-      <span>Override:</span>
-      <input type="number" id="hb-override" placeholder="sec" min="30" max="3600">
-      <button class="btn sm" onclick="overrideHeartbeat()">Set</button>
-    </div>
+    <div class="footer-right"></div>
   </div>
 </div>
 
@@ -1439,7 +1435,6 @@ async function stopAgent() {
   try {
     await fetch('/api/agent/stop', {method:'POST'});
     log('Agent stopped', 'info');
-    document.getElementById('hb-override').value = '';
   } catch (e) {
     log('Stop error: ' + e.message, 'error');
   }
@@ -1505,22 +1500,6 @@ function refreshButtons() {
   } else {
     updateButtons('stopped');
   }
-}
-async function overrideHeartbeat() {
-  const v = parseInt(document.getElementById('hb-override').value);
-  if(!v||v<30||v>3600) return;
-  const body = { seconds: v };
-  await fetch('/api/agent/heartbeat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  try {
-    const r = await fetch('/api/agent/start', { method: 'POST' });
-    const d = await r.json();
-    if (!d.ok && d.error) logToTerminal('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start failed: ' + esc(d.error) + '</div>');
-  } catch (e) {
-    logToTerminal('<div class="log-entry error"><span class="time">' + fmtTime() + '</span>Start error: ' + esc(e.message) + '</div>');
-  }
-  await checkHealth();
-  renderAgentTab();
-  refreshButtons();
 }
 
 

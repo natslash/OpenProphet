@@ -200,7 +200,7 @@ func (b *AutonomousBeat) Run(ctx context.Context) {
 				t.Reset(b.overrideInterval)
 				b.overrideOnce = false
 				b.logger.WithField("interval", b.overrideInterval).Info("[BEAT] Interval overridden for next tick")
-				appendJSONToBotLog("agent_text", "", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
+				appendJSONToBotLog("agent_text", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
 			}
 		case <-b.triggerCh:
 			b.tick(ctx)
@@ -208,7 +208,7 @@ func (b *AutonomousBeat) Run(ctx context.Context) {
 				t.Reset(b.overrideInterval)
 				b.overrideOnce = false
 				b.logger.WithField("interval", b.overrideInterval).Info("[BEAT] Interval overridden for next tick")
-				appendJSONToBotLog("agent_text", "", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
+				appendJSONToBotLog("agent_text", fmt.Sprintf("Heartbeat interval changed to %s", b.overrideInterval))
 			}
 		}
 	}
@@ -362,7 +362,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			b.logger.WithError(err).Error("[BEAT] LLM API error")
 
 			// Emit error to the UI
-			appendJSONToBotLog("agent_text", "", fmt.Sprintf("Error interacting with LLM: %v", err))
+			appendJSONToBotLog("agent_text", fmt.Sprintf("Error interacting with LLM: %v", err))
 			return
 		}
 
@@ -377,7 +377,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		if resp.Content != "" {
 			b.logger.WithField("ai_thought", resp.Content).Info("[BEAT] AI Log")
 			// Emit text to the UI
-			appendJSONToBotLog("agent_text", "", resp.Content)
+			appendJSONToBotLog("agent_text", resp.Content)
 		}
 
 		if len(resp.ToolCalls) == 0 {
@@ -412,7 +412,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 			b.logger.WithField("tool", toolCall.Name).Info("[BEAT] AI executing tool")
 
 			// Emit tool use to the UI
-			appendToolToBotLog("", toolCall.Name, toolCall.Arguments)
+			appendToolToBotLog( toolCall.Name, toolCall.Arguments)
 
 			toolCtx, toolCancel := context.WithTimeout(ctx, 90*time.Second)
 			resStr, toolErr := HandleToolCall(toolCtx, toolCall.Name, toolCall.Arguments, &ToolContext{
@@ -466,14 +466,14 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		summaryCancel()
 		if err != nil {
 			b.logger.WithError(err).Error("[BEAT] Forced summary failed")
-			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
+			appendJSONToBotLog("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
 			return
 		}
 		if resp.Content != "" {
 			b.logger.WithField("ai_thought", resp.Content).Info("[BEAT] AI Log (forced summary)")
-			appendJSONToBotLog("agent_text", "", resp.Content)
+			appendJSONToBotLog("agent_text", resp.Content)
 		} else {
-			appendJSONToBotLog("agent_text", "", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
+			appendJSONToBotLog("agent_text", "I gathered the market data but reached my analysis-step limit before finishing. Please narrow the request or ask again.")
 		}
 	}
 }
@@ -517,16 +517,15 @@ func truncateForHistory(s string) string {
 
 var currentBeatId int64
 
-func appendJSONToBotLog(event string, sandboxId string, text string) {
+func appendJSONToBotLog(event string, text string) {
 	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		defer f.Close()
 		data := map[string]interface{}{
 			"event": event,
 			"data": map[string]interface{}{
-				"sandboxId": sandboxId,
-				"text":      text,
-				"beatId":    currentBeatId,
+				"text":   text,
+				"beatId": currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)
@@ -553,7 +552,7 @@ func appendBeatEvent(event string, beatNum int64, startTime time.Time, toolCalls
 	}
 }
 
-func appendToolToBotLog(sandboxId string, toolName string, args []byte) {
+func appendToolToBotLog(toolName string, args []byte) {
 	f, err := os.OpenFile("bot.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		defer f.Close()
@@ -563,10 +562,9 @@ func appendToolToBotLog(sandboxId string, toolName string, args []byte) {
 		data := map[string]interface{}{
 			"event": "agent_tool",
 			"data": map[string]interface{}{
-				"sandboxId": sandboxId,
-				"tool":      toolName,
-				"args":      argsMap,
-				"beatId":    currentBeatId,
+				"tool":   toolName,
+				"args":   argsMap,
+				"beatId": currentBeatId,
 			},
 		}
 		b, _ := json.Marshal(data)

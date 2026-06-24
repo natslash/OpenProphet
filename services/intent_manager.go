@@ -152,7 +152,7 @@ func (im *IntentManager) CreateIntent(intentType IntentType, payload []byte, sym
 // concurrent Status mutations (e.g. ClaimForExecution) on the shared *Intent.
 func (im *IntentManager) emitIntentEvent(event string, intent *Intent) {
 	b, _ := json.Marshal(intent)
-	go appendJSONToBotLog(event, "", string(b))
+	go appendJSONToBotLog(event, string(b))
 }
 
 func (im *IntentManager) GetIntent(id string) (*Intent, error) {
@@ -231,10 +231,10 @@ func (im *IntentManager) MarkCompleted(id string) {
 			"timestamp": time.Now().Format(time.RFC3339),
 			"tool":      string(intent.Type),
 		})
-		go appendJSONToBotLog("trade", "", string(tradeData))
+		go appendJSONToBotLog("trade", string(tradeData))
 
 		confirmation := fmt.Sprintf("Order executed: %s %.0f %s", intent.Side, intent.Quantity, intent.Symbol)
-		go appendJSONToBotLog("agent_text", "", confirmation)
+		go appendJSONToBotLog("agent_text", confirmation)
 
 		delete(im.intents, id)
 	}
