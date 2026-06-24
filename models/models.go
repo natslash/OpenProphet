@@ -174,3 +174,38 @@ func (DBSignal) TableName() string {
 func (DBManagedPosition) TableName() string {
 	return "managed_positions"
 }
+
+type DBSuggestion struct {
+	gorm.Model
+	SuggestionID string  `gorm:"uniqueIndex"`
+	BeatID       int64   `gorm:"index"`
+	AgentName    string
+
+	Symbol       string  `gorm:"index"`
+	Side         string
+	ActionType   string
+	Quantity     float64
+	OrderType    string
+	LimitPrice   *float64
+	TargetPrice  *float64
+	StopPrice    *float64
+
+	Rationale    string
+	Confidence   float64
+	Timeframe    string
+	Legs         string
+
+	PriceAtCreation float64
+
+	Status       string     `gorm:"index"`
+	ExpiresAt    time.Time  `gorm:"index"`
+	ResolvedAt   *time.Time
+
+	OutcomePrice     *float64
+	OutcomePnL       *float64
+	OutcomeCheckedAt *time.Time
+}
+
+func (DBSuggestion) TableName() string {
+	return "suggestions"
+}
