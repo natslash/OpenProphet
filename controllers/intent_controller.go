@@ -58,6 +58,11 @@ func (ic *IntentController) HandleGetIntents(c *gin.Context) {
 	c.JSON(200, intents)
 }
 
+func (ic *IntentController) HandleGetHistory(c *gin.Context) {
+	history := ic.intentManager.ListHistory()
+	c.JSON(200, history)
+}
+
 func (ic *IntentController) HandleAuthorizeIntent(c *gin.Context) {
 	if !ic.requireAdminToken(c) {
 		return

@@ -342,6 +342,7 @@ func setupRouter(orderController *controllers.OrderController, newsController *c
 
 		// Intent authorization endpoints (Phase 6.1)
 		api.GET("/beat/intents", intentController.HandleGetIntents)
+		api.GET("/beat/intents/history", intentController.HandleGetHistory)
 		api.POST("/beat/authorize/:id", intentController.HandleAuthorizeIntent)
 		api.POST("/beat/reject/:id", intentController.HandleRejectIntent)
 
