@@ -9,6 +9,7 @@ type LLMMessage struct {
 	ToolResultID   string        // If set, this message is a tool result
 	ToolResultName string        // Function name for the tool result (needed by Gemini)
 	ToolCalls      []LLMToolCall // If set, this message includes tool calls made by the assistant
+	RawContent     interface{}   // Provider-specific original content (preserves thought signatures etc.)
 }
 
 // LLMTool represents a callable tool/function for the LLM
@@ -37,6 +38,7 @@ type LLMResponse struct {
 	Content    string
 	ToolCalls  []LLMToolCall
 	UsageToken int
+	RawContent interface{} // Provider-specific original content (e.g. *genai.Content)
 }
 
 // LLMProvider defines the interface for any AI backend (Anthropic, OpenAI, Local, etc.)

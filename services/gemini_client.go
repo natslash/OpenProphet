@@ -84,30 +84,33 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 			})
 		} else {
 			flushFuncResults()
-			role := "user"
-			var parts []genai.Part
 			if msg.Role == "assistant" {
-				role = "model"
-				if msg.Content != "" {
-					parts = append(parts, genai.Text(msg.Content))
-				}
-				for _, tc := range msg.ToolCalls {
-					var args map[string]any
-					if err := json.Unmarshal(tc.Arguments, &args); err != nil {
-						args = map[string]any{}
+				// Prefer raw content to preserve thought signatures from Gemini 2.5+
+				if raw, ok := msg.RawContent.(*genai.Content); ok && raw != nil {
+					history = append(history, raw)
+				} else {
+					var parts []genai.Part
+					if msg.Content != "" {
+						parts = append(parts, genai.Text(msg.Content))
 					}
-					parts = append(parts, genai.FunctionCall{
-						Name: tc.Name,
-						Args: args,
-					})
+					for _, tc := range msg.ToolCalls {
+						var args map[string]any
+						if err := json.Unmarshal(tc.Arguments, &args); err != nil {
+							args = map[string]any{}
+						}
+						parts = append(parts, genai.FunctionCall{
+							Name: tc.Name,
+							Args: args,
+						})
+					}
+					if len(parts) > 0 {
+						history = append(history, &genai.Content{Role: "model", Parts: parts})
+					}
 				}
 			} else {
-				parts = append(parts, genai.Text(msg.Content))
-			}
-			if len(parts) > 0 {
 				history = append(history, &genai.Content{
-					Role:  role,
-					Parts: parts,
+					Role:  "user",
+					Parts: []genai.Part{genai.Text(msg.Content)},
 				})
 			}
 		}
@@ -202,6 +205,7 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 		Content:    content,
 		ToolCalls:  toolCalls,
 		UsageToken: usage,
+		RawContent: resp.Candidates[0].Content,
 	}, nil
 }
 
