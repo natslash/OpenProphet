@@ -65,6 +65,7 @@ func (cc *ConfigController) HandleUpdateAgent(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	configstore.SyncRuntimeEnv()
 	cc.broadcastConfig()
 	c.JSON(200, gin.H{"ok": true, "agent": agent})
 }
@@ -83,6 +84,7 @@ func (cc *ConfigController) HandleActivateAgent(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	configstore.SyncRuntimeEnv()
 	cc.broadcastConfig()
 	c.JSON(200, gin.H{"ok": true})
 }
@@ -178,20 +180,13 @@ func (cc *ConfigController) HandleActivateModel(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "model is required"})
 		return
 	}
-	if err := configstore.SetActiveModel(req.Model); err != nil {
+	// Route through the active agent so it stays the single source of truth,
+	// then sync the runtime env (LLM_PROVIDER/LLM_MODEL) from it.
+	if err := configstore.SetActiveAgentModel(req.Model); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	parts := strings.SplitN(req.Model, "/", 2)
-	if len(parts) == 2 {
-		provider := parts[0]
-		if provider == "google" {
-			os.Setenv("LLM_PROVIDER", "gemini")
-		} else {
-			os.Setenv("LLM_PROVIDER", "anthropic")
-		}
-		os.Setenv("LLM_MODEL", parts[1])
-	}
+	configstore.SyncRuntimeEnv()
 	cc.broadcastConfig()
 	c.JSON(200, gin.H{"ok": true})
 }

@@ -43,6 +43,10 @@ func main() {
 	if err := configstore.Load("data/agent-config.json"); err != nil {
 		log.Printf("Warning: failed to load agent config: %v (using defaults)", err)
 	}
+	// The active agent's model is the single source of truth for which model
+	// runs. Push it into LLM_PROVIDER/LLM_MODEL so the LLM clients, the
+	// dashboard footer, and the Settings panel all agree from the first beat.
+	configstore.SyncRuntimeEnv()
 
 	services.Hub = services.NewSSEHub()
 

@@ -294,11 +294,15 @@ func (dc *DashboardController) HandleGetEnv(c *gin.Context) {
 			tradingMode = "autonomous"
 		}
 	}
+	// The active agent's model is the source of truth for which model runs,
+	// so report it here rather than the raw .env value — keeps the Settings
+	// panel in agreement with the dashboard footer.
+	provider, model := configstore.ActiveModelEnv()
 	c.JSON(200, gin.H{
 		"LLM_POLLING_ENABLED":      env["LLM_POLLING_ENABLED"] == "true",
 		"LLM_POLLING_INTERVAL_SECS": atoi(env["LLM_POLLING_INTERVAL_SECS"], 3600),
-		"LLM_PROVIDER":              orDefault(env["LLM_PROVIDER"], "anthropic"),
-		"LLM_MODEL":                 env["LLM_MODEL"],
+		"LLM_PROVIDER":              orDefault(provider, orDefault(env["LLM_PROVIDER"], "anthropic")),
+		"LLM_MODEL":                 orDefault(model, env["LLM_MODEL"]),
 		"BEAT_ENABLED":              env["BEAT_ENABLED"] == "true",
 		"TRADING_MODE":              tradingMode,
 	})
@@ -333,6 +337,24 @@ func (dc *DashboardController) HandlePostEnv(c *gin.Context) {
 			}
 		}
 	}
+
+	// A model change from the Settings panel routes through the active agent
+	// (the single source of truth); the runtime env is then derived from it.
+	// The other env keys (polling, trading mode, …) persist to .env as before.
+	if m, ok := envUpdates["LLM_MODEL"]; ok && m != "" {
+		prov := envUpdates["LLM_PROVIDER"]
+		if prov == "" {
+			prov = os.Getenv("LLM_PROVIDER")
+		}
+		prefix := "anthropic/"
+		if prov == "gemini" || prov == "google" {
+			prefix = "google/"
+		}
+		_ = configstore.SetActiveAgentModel(prefix + m)
+		configstore.SyncRuntimeEnv()
+	}
+	delete(envUpdates, "LLM_MODEL")
+	delete(envUpdates, "LLM_PROVIDER")
 
 	writeEnvFile(envUpdates)
 	for k, v := range envUpdates {
