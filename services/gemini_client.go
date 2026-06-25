@@ -156,6 +156,16 @@ func (gc *GeminiClient) GenerateResponse(ctx context.Context, messages []interfa
 		return nil, fmt.Errorf("no response generated")
 	}
 
+	// Gemini can return a candidate with NO content (Content nil or no Parts) —
+	// e.g. finishReason MAX_TOKENS / SAFETY / RECITATION. Dereferencing
+	// Content.Parts in that case panics, which previously crashed the whole
+	// autonomous loop. Recover gracefully: return a benign empty response so the
+	// beat concludes this turn and the next beat retries.
+	if resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
+		fmt.Printf("[GEMINI] empty content (finishReason=%v) — returning empty response\n", resp.Candidates[0].FinishReason)
+		return &interfaces.LLMResponse{Content: "", ToolCalls: nil}, nil
+	}
+
 	var content string
 	var toolCalls []interfaces.LLMToolCall
 
