@@ -63,12 +63,18 @@ func NewGeminiService(apiKey string) *GeminiService {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 
+	// gemini-2.0-flash was retired; default to a current flash model, overridable
+	// via NEWS_CLEAN_MODEL.
+	model := os.Getenv("NEWS_CLEAN_MODEL")
+	if model == "" {
+		model = "gemini-2.5-flash"
+	}
 	return &GeminiService{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		model: "gemini-2.0-flash",
+		model: model,
 	}
 }
 

@@ -89,7 +89,24 @@ func (b *AutonomousBeat) buildVerifiedSnapshot(ctx context.Context) string {
 
 	sb.WriteString("Rule: For any price, strike, IV, or Greek not shown above, call get_quote / get_options_chain — never guess. For P&L/credit/cost, use the EUR figures above — never recompute the multiplier.\n")
 	sb.WriteString("=== END VERIFIED LIVE DATA ===")
+
+	// Append cached, untrusted news context (qualitative only) after the
+	// verified-data block, clearly delimited.
+	if b.newsCache != nil {
+		if nb := b.newsCache.Block(); nb != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(nb)
+		}
+	}
 	return sb.String()
+}
+
+// SetNewsCache wires a background news cache whose cleaned summary is injected
+// into each beat's context as untrusted qualitative input.
+func (b *AutonomousBeat) SetNewsCache(c *NewsCache) {
+	b.mu.Lock()
+	b.newsCache = c
+	b.mu.Unlock()
 }
 
 // CurrentSnapshot returns this beat's verified-data block so sub-agents

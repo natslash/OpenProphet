@@ -54,6 +54,9 @@ type AutonomousBeat struct {
 	// account, positions) so sub-agents consulted via jim_rogers reason on the
 	// same authoritative IBKR data the orchestrator was given.
 	currentSnapshot string
+	// newsCache supplies cached, Gemini-cleaned market news as untrusted
+	// qualitative context (optional; nil = no news injected).
+	newsCache *NewsCache
 
 	totalBeats int64
 	toolCalls  int64
