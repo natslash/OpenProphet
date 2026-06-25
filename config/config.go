@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -157,6 +158,31 @@ func (m TradingMode) RequiresDoubleConfirm() bool { return m == TradingModeSuper
 // places them after human approval, autonomous places them directly.
 func (m TradingMode) AllowsExecution() bool {
 	return m == TradingModeSupervised || m == TradingModeAutonomous
+}
+
+// CurrentPollingEnabled / CurrentPollingInterval are read live (re-reading the
+// env that the Settings panel writes) so the automated-review cadence can be
+// tuned without a process restart — same pattern as CurrentTradingMode.
+func CurrentPollingEnabled() bool {
+	if v := os.Getenv("LLM_POLLING_ENABLED"); v != "" {
+		return v == "true"
+	}
+	if AppConfig != nil {
+		return AppConfig.LLMPollingEnabled
+	}
+	return false
+}
+
+func CurrentPollingInterval() time.Duration {
+	if v := os.Getenv("LLM_POLLING_INTERVAL_SECS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	if AppConfig != nil && AppConfig.LLMPollingIntervalSecs > 0 {
+		return time.Duration(AppConfig.LLMPollingIntervalSecs) * time.Second
+	}
+	return time.Hour
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
