@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -533,6 +534,72 @@ func SetActiveModel(modelID string) error {
 	defer store.mu.Unlock()
 	store.config.ActiveModel = modelID
 	return save()
+}
+
+// SetActiveAgentModel changes the model of the currently-active agent (and the
+// fallback ActiveModel). The active agent is the single source of truth for
+// which model runs, so any path that wants to change "the model" — the model
+// picker, the Settings dropdown — routes through here.
+func SetActiveAgentModel(modelID string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.config.ActiveModel = modelID
+	for i := range store.config.Agents {
+		if store.config.Agents[i].ID == store.config.ActiveAgentID {
+			store.config.Agents[i].Model = modelID
+			break
+		}
+	}
+	return save()
+}
+
+// ActiveModelID returns the effective model identifier ("provider/model") that
+// drives the agent: the active agent's model, falling back to ActiveModel.
+// This mirrors what the dashboard footer displays.
+func ActiveModelID() string {
+	if store == nil {
+		return ""
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	model := store.config.ActiveModel
+	for _, a := range store.config.Agents {
+		if a.ID == store.config.ActiveAgentID && a.Model != "" {
+			model = a.Model
+			break
+		}
+	}
+	return model
+}
+
+// ActiveModelEnv splits the active model into the LLM_PROVIDER / LLM_MODEL pair
+// that the LLM clients and dashboard expect (e.g. "google/gemini-2.5-pro" →
+// "gemini", "gemini-2.5-pro"). An empty provider means the id had no prefix.
+func ActiveModelEnv() (provider, model string) {
+	full := ActiveModelID()
+	parts := strings.SplitN(full, "/", 2)
+	if len(parts) != 2 {
+		return "", full
+	}
+	if parts[0] == "google" {
+		return "gemini", parts[1]
+	}
+	return "anthropic", parts[1]
+}
+
+// SyncRuntimeEnv pushes the active model into the LLM_PROVIDER / LLM_MODEL
+// environment variables that the LLM clients read at call time, keeping the
+// running model, the dashboard footer, and the Settings panel in agreement.
+// Call after any change to the active agent or its model, and once at startup.
+func SyncRuntimeEnv() {
+	provider, model := ActiveModelEnv()
+	if model == "" {
+		return
+	}
+	if provider != "" {
+		os.Setenv("LLM_PROVIDER", provider)
+	}
+	os.Setenv("LLM_MODEL", model)
 }
 
 func SetModels(models []Model) error {
