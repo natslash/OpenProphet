@@ -50,6 +50,10 @@ type AutonomousBeat struct {
 	overrideOnce     bool
 	beatCounter      int64
 	cachedRules      string
+	// currentSnapshot holds this beat's VERIFIED LIVE DATA block (spot,
+	// account, positions) so sub-agents consulted via jim_rogers reason on the
+	// same authoritative IBKR data the orchestrator was given.
+	currentSnapshot string
 
 	totalBeats int64
 	toolCalls  int64
@@ -301,6 +305,14 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
+	// Fetch the authoritative IBKR snapshot ONCE for this beat and stash it so
+	// the orchestrator prompt and any jim_rogers sub-agent share one verified
+	// dataset — no hallucinated or stale prices.
+	snapshot := b.buildVerifiedSnapshot(ctx)
+	b.mu.Lock()
+	b.currentSnapshot = snapshot
+	b.mu.Unlock()
+
 	// Read the trading mode live so a Settings/.env change (supervised →
 	// autonomous, suggest, off) applies on this beat without a restart, rather
 	// than using the value frozen at construction.
@@ -319,6 +331,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	// 2. Build User Text with volatile context
 	userText := fmt.Sprintf("Current Time: %s\n\n", time.Now().Format(time.RFC3339))
+	userText += snapshot + "\n\n"
 	hasDirect := false
 	for _, msg := range pending {
 		if msg.IsDirect {

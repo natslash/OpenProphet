@@ -50,6 +50,13 @@ func (d *Decoder) Decode(fields []string) error {
 	case inTickSize:
 		d.handleTickSize(fields)
 
+	case inMarketDataType: // [58, version, reqId, marketDataType]
+		if len(fields) >= 4 {
+			reqId, _ := strconv.ParseInt(fields[2], 10, 64)
+			mdt, _ := strconv.Atoi(fields[3])
+			d.wrapper.MarketDataType(reqId, mdt)
+		}
+
 	case inManagedAccts: // [15, version, accountsCSV]
 		if len(fields) >= 3 {
 			d.wrapper.ManagedAccounts(fields[2])

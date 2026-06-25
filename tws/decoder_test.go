@@ -29,6 +29,9 @@ type mockWrapper struct {
 	tsTick    int
 	tsSize    decimal.Decimal
 
+	mdtReqId int64
+	mdtType  int
+
 	histReqId int64
 	histBars  []HistoricalBar
 	histEndStart string
@@ -124,6 +127,11 @@ func (m *mockWrapper) TickSize(reqId int64, tickType int, size decimal.Decimal) 
 	m.tsReqId = reqId
 	m.tsTick = tickType
 	m.tsSize = size
+}
+
+func (m *mockWrapper) MarketDataType(reqId int64, marketDataType int) {
+	m.mdtReqId = reqId
+	m.mdtType = marketDataType
 }
 
 func (m *mockWrapper) AccountSummary(reqId int64, account, tag, value, currency string) {}
@@ -272,6 +280,15 @@ func TestDecoder_Decode(t *testing.T) {
 				}
 				if m.tsSize.String() != "123.45" {
 					t.Errorf("Expected decimal size 123.45, got %s", m.tsSize.String())
+				}
+			},
+		},
+		{
+			name:   "market data type delayed",
+			fields: []string{"58", "1", "100", "3"},
+			validation: func(t *testing.T, m *mockWrapper) {
+				if m.mdtReqId != 100 || m.mdtType != 3 {
+					t.Errorf("Expected marketDataType 100/3, got %d/%d", m.mdtReqId, m.mdtType)
 				}
 			},
 		},

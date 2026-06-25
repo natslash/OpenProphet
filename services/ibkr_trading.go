@@ -605,6 +605,17 @@ func (s *IBKRTradingService) PlaceOptionsOrder(ctx context.Context, order *inter
 	return s.PlaceOrder(ctx, regularOrder)
 }
 
+// legContractMatches reports whether a resolved contract matches the requested
+// option leg on strike and right. Non-options always match (no strike/right to
+// verify). This is the guard that stops a combo leg binding to the wrong conId
+// (the wrong-strike class of the inversion bug).
+func legContractMatches(want, got tws.Contract) bool {
+	if want.SecType != tws.Option {
+		return true
+	}
+	return got.Strike == want.Strike && strings.EqualFold(got.Right, want.Right)
+}
+
 func (s *IBKRTradingService) PlaceComboOrder(ctx context.Context, order *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
 	if len(order.Legs) < 2 {
 		return nil, fmt.Errorf("PlaceComboOrder: need at least 2 legs, got %d", len(order.Legs))
@@ -613,6 +624,14 @@ func (s *IBKRTradingService) PlaceComboOrder(ctx context.Context, order *interfa
 	var comboLegs []tws.ComboLeg
 	var underlying string
 	for _, leg := range order.Legs {
+		// What the caller asked for — used below to verify the resolver returns
+		// the exact contract, so a leg can never silently bind to the wrong
+		// strike/right (the root cause class behind the 4800/4900 inversion).
+		want, werr := tws.ParseSymbol(leg.Symbol)
+		if werr != nil {
+			return nil, fmt.Errorf("PlaceComboOrder: parse leg %q: %w", leg.Symbol, werr)
+		}
+
 		contract, err := s.resolver.Resolve(ctx, leg.Symbol)
 		if err != nil {
 			return nil, fmt.Errorf("PlaceComboOrder: resolve leg %q: %w", leg.Symbol, err)
@@ -627,6 +646,19 @@ func (s *IBKRTradingService) PlaceComboOrder(ctx context.Context, order *interfa
 			}
 			contract = details[0].Contract
 		}
+
+		// Inversion guard: the resolved contract MUST match the requested strike
+		// and right. If resolution ever returns a different option, refuse to
+		// send rather than place a wrong-strike spread.
+		if !legContractMatches(want, contract) {
+			return nil, fmt.Errorf("PlaceComboOrder: leg %q resolved to the WRONG contract (got strike=%v right=%s conId=%d) — refusing to send",
+				leg.Symbol, contract.Strike, contract.Right, contract.ConId)
+		}
+
+		// Diagnostic: requested vs resolved, per leg.
+		log.Printf("[IBKR][COMBO] leg request=%s %s -> resolved conId=%d strike=%v right=%s",
+			strings.ToUpper(leg.Action), leg.Symbol, contract.ConId, contract.Strike, contract.Right)
+
 		if underlying == "" {
 			underlying = contract.Symbol
 		}
@@ -656,8 +688,14 @@ func (s *IBKRTradingService) PlaceComboOrder(ctx context.Context, order *interfa
 	}
 
 	orderId := s.client.NextOrderId()
+	// IBKR BAG semantics: a SELL on the bag REVERSES every leg's action. The
+	// legs above already carry their literal desired actions (e.g. SELL 4900 /
+	// BUY 4800 for a credit spread), so the bag is always BUY to execute them
+	// as-stated. Credit vs debit is conveyed entirely by the LIMIT PRICE SIGN
+	// (negative = net credit received, positive = net debit paid). Sending the
+	// caller's net action here is what inverted the 4800/4900 spread.
 	twsOrder := tws.Order{
-		Action:        strings.ToUpper(order.Action),
+		Action:        "BUY",
 		TotalQuantity: decimal.NewFromFloat(order.Qty),
 		OrderType:     orderType,
 		Tif:           order.TimeInForce,

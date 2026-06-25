@@ -88,6 +88,18 @@ func (s *IBKRDataService) TickSize(reqId int64, tickType int, size decimal.Decim
 	}
 }
 
+func (s *IBKRDataService) MarketDataType(reqId int64, marketDataType int) {
+	s.mu.RLock()
+	ch, ok := s.streams[reqId]
+	s.mu.RUnlock()
+	if ok {
+		select {
+		case ch <- tws.MarketDataTypeMsg{Type: marketDataType}:
+		default:
+		}
+	}
+}
+
 func (s *IBKRDataService) TickOptionComputation(reqId int64, tickType int, tickAttrib int, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice float64) {
 	s.mu.RLock()
 	ch, ok := s.streams[reqId]
@@ -378,6 +390,10 @@ func (s *IBKRDataService) GetLatestQuote(ctx context.Context, symbol string) (*i
 				case tws.TickAskSize, tws.TickDelayedAskSize:
 					quote.AskSize = t.Size.IntPart()
 				}
+			case tws.MarketDataTypeMsg:
+				// Records the data tier TWS is serving (live/delayed/frozen) so
+				// callers can tell fresh data from stale snapshots.
+				quote.MarketDataType = t.Type
 			case error:
 				return nil, fmt.Errorf("tws error: %w", t)
 			}

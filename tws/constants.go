@@ -48,6 +48,7 @@ const (
 	inAccountSummaryEnd = 64
 	inHistoricalDataUpdate = 90
 	inHistoricalDataEnd    = 108
+	inMarketDataType       = 58
 )
 
 // Server-version gates that affect placeOrder field emission.
