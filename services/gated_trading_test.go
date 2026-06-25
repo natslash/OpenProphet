@@ -89,6 +89,7 @@ func TestGatedTrading_DisabledBlocksOrders(t *testing.T) {
 }
 
 func TestGatedTrading_EnabledPassesThrough(t *testing.T) {
+	t.Setenv("TRADING_MODE", "autonomous") // CanTrade now also requires the live mode to permit execution
 	f := &fakeTrading{}
 	g := NewGatedTradingService(f, true)
 	ctx := context.Background()

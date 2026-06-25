@@ -81,7 +81,11 @@ func main() {
 
 	// Wrap order placement in the kill-switch (default OFF until Phase 4.3e).
 	ibkrTrading := services.NewIBKRTradingService(client, resolver)
-	gated := services.NewGatedTradingService(ibkrTrading, cfg.TradingEnabled)
+	// The gate's flag is the CONNECTION kill-switch (we're connected here, so
+	// start enabled); whether orders actually go through also depends on the
+	// LIVE trading mode (checked in CanTrade), so a live suggest→autonomous
+	// switch takes effect without a restart.
+	gated := services.NewGatedTradingService(ibkrTrading, true)
 	tradingService = gated
 	// Data service sets ReqMarketDataType(4) — live preferred, delayed-frozen fallback.
 	ibkrData := services.NewIBKRDataService(client, resolver)
@@ -253,10 +257,9 @@ func main() {
 	// Broker status endpoint — reports whether the TWS connection is alive.
 	brokerStatusHandler := func(c *gin.Context) {
 		connected := client.IsConnected()
-		tradingEnabled := gated.Enabled()
 		c.JSON(200, gin.H{
 			"connected":       connected,
-			"trading_enabled": tradingEnabled,
+			"trading_enabled": gated.CanTrade(), // connection AND live mode permit execution
 			"trading_mode":    string(config.CurrentTradingMode()),
 		})
 	}
