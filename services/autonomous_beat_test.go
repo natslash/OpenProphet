@@ -24,6 +24,10 @@ func (m *mockTradingService) GetAccount(ctx context.Context) (*interfaces.Accoun
 	}, nil
 }
 
+func (m *mockTradingService) GetPositions(ctx context.Context) ([]*interfaces.Position, error) {
+	return nil, nil
+}
+
 func TestHandleToolCall_GetAccount(t *testing.T) {
 	ctx := context.Background()
 	tc := &ToolContext{Trading: &mockTradingService{}}
@@ -169,6 +173,9 @@ func (heldTradingMock) GetPositions(ctx context.Context) ([]*interfaces.Position
 }
 func (heldTradingMock) ListOptionsPositions(ctx context.Context) ([]*interfaces.OptionsPosition, error) {
 	return nil, nil
+}
+func (heldTradingMock) GetAccount(ctx context.Context) (*interfaces.Account, error) {
+	return &interfaces.Account{ID: "DU123", PortfolioValue: 2000}, nil
 }
 
 func TestAutonomousBeat_SkipsReviewWhenFlat(t *testing.T) {

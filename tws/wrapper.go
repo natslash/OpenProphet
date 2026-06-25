@@ -21,6 +21,12 @@ type TickSizeMsg struct {
 	Size     decimal.Decimal
 }
 
+// MarketDataTypeMsg reports the data tier TWS is serving for a reqId:
+// 1=live, 2=frozen, 3=delayed, 4=delayed-frozen. Sent right after reqMktData.
+type MarketDataTypeMsg struct {
+	Type int
+}
+
 type AccountSummaryMsg struct {
 	ReqId    int64
 	Account  string
@@ -141,7 +147,8 @@ type Wrapper interface {
 	ContractDetailsEnd(reqId int64)
 	TickPrice(reqId int64, tickType int, price float64, size decimal.Decimal, attr TickAttrib)
 	TickSize(reqId int64, tickType int, size decimal.Decimal)
-	
+	MarketDataType(reqId int64, marketDataType int)
+
 	AccountSummary(reqId int64, account, tag, value, currency string)
 	AccountSummaryEnd(reqId int64)
 	Position(account string, contract Contract, position decimal.Decimal, avgCost float64)

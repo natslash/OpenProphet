@@ -549,6 +549,17 @@ func (c *Client) TickSize(reqId int64, tickType int, size decimal.Decimal) {
 	}
 }
 
+func (c *Client) MarketDataType(reqId int64, marketDataType int) {
+	c.dispatcher.Dispatch(reqId, MarketDataTypeMsg{Type: marketDataType})
+	c.mu.RLock()
+	ws := make([]Wrapper, len(c.wrappers))
+	copy(ws, c.wrappers)
+	c.mu.RUnlock()
+	for _, w := range ws {
+		w.MarketDataType(reqId, marketDataType)
+	}
+}
+
 func (c *Client) AccountSummary(reqId int64, account, tag, value, currency string) {
 	c.dispatcher.Dispatch(reqId, AccountSummaryMsg{ReqId: reqId, Account: account, Tag: tag, Value: value, Currency: currency})
 	c.mu.RLock()

@@ -124,6 +124,14 @@ type Bar struct {
 	VWAP      float64
 }
 
+// Market data tiers reported by IBKR's marketDataType message.
+const (
+	MarketDataLive          = 1 // real-time
+	MarketDataFrozen        = 2 // last available (end-of-day) snapshot — stale
+	MarketDataDelayed       = 3 // ~15-min delayed
+	MarketDataDelayedFrozen = 4 // delayed last-available snapshot
+)
+
 type Quote struct {
 	Symbol    string
 	BidPrice  float64
@@ -131,6 +139,46 @@ type Quote struct {
 	AskPrice  float64
 	AskSize   int64
 	Timestamp time.Time
+	// MarketDataType is the IBKR tier serving this quote (0=unknown, 1=live,
+	// 2=frozen, 3=delayed, 4=delayed-frozen). Lets callers reject stale data.
+	MarketDataType int
+}
+
+// Tradeability reports whether a quote is safe to act on given the maximum
+// acceptable age. Frozen (end-of-day) and missing/zero quotes are never
+// tradeable; delayed quotes are allowed within maxAge but flagged with a
+// warning. An empty warning with ok=true means a clean live quote.
+func (q *Quote) Tradeability(now time.Time, maxAge time.Duration) (ok bool, warn string) {
+	if q == nil || (q.BidPrice <= 0 && q.AskPrice <= 0) {
+		return false, "no quote available"
+	}
+	if q.MarketDataType == MarketDataFrozen {
+		return false, "frozen (end-of-day) market data — not tradeable"
+	}
+	if age := now.Sub(q.Timestamp); age > maxAge {
+		return false, "quote is stale (age " + age.Round(time.Second).String() + " exceeds limit)"
+	}
+	if q.MarketDataType == MarketDataDelayed || q.MarketDataType == MarketDataDelayedFrozen {
+		return true, "delayed market data (~15min) — sizing with caution"
+	}
+	return true, ""
+}
+
+// FreshnessLabel renders a compact human/LLM-readable freshness tag, e.g.
+// "LIVE, age 2s" or "DELAYED, age 1s".
+func (q *Quote) FreshnessLabel(now time.Time) string {
+	tier := "UNKNOWN"
+	switch q.MarketDataType {
+	case MarketDataLive:
+		tier = "LIVE"
+	case MarketDataFrozen:
+		tier = "FROZEN"
+	case MarketDataDelayed:
+		tier = "DELAYED"
+	case MarketDataDelayedFrozen:
+		tier = "DELAYED-FROZEN"
+	}
+	return tier + ", age " + now.Sub(q.Timestamp).Round(time.Second).String()
 }
 
 type Trade struct {

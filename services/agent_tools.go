@@ -99,7 +99,7 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 		},
 		{
 			Name:        "place_combo_order",
-			Description: "Place a multi-leg combo (spread) order. Each leg is an option symbol with action and ratio. The order is placed as a BAG contract with a net limit price.",
+			Description: "Place a multi-leg combo (spread) order. Each leg's `action` is the LITERAL action for THAT leg (e.g. for a 4900/4800 put CREDIT spread: SELL the 4900 put, BUY the 4800 put). Credit vs debit is set ONLY by the sign of lmt_price (negative = net credit you receive, positive = net debit you pay) — NOT by a net action. Build legs exactly as you want them to execute.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -116,12 +116,12 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 						},
 						"minItems": 2,
 					},
-					"action":    map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}, "description": "Net combo action"},
+					"action":    map[string]interface{}{"type": "string", "enum": []string{"BUY", "SELL"}, "description": "IGNORED — leg actions are literal; do not rely on this. Credit/debit comes from lmt_price sign."},
 					"qty":       map[string]interface{}{"type": "integer"},
 					"order_type": map[string]interface{}{"type": "string", "enum": []string{"LMT", "MKT"}},
-					"lmt_price": map[string]interface{}{"type": "number", "description": "Net limit price (positive = debit, negative = credit)"},
+					"lmt_price": map[string]interface{}{"type": "number", "description": "Net limit price: NEGATIVE = net credit you receive, POSITIVE = net debit you pay"},
 				},
-				"required": []string{"legs", "action", "qty", "order_type"},
+				"required": []string{"legs", "qty", "order_type"},
 			},
 		},
 		{
@@ -224,6 +224,37 @@ type ToolContext struct {
 	TradingMode          config.TradingMode
 }
 
+// underlyingSymbol maps an instrument symbol (e.g. an OESX option string) to the
+// symbol whose spot should be verified before trading it. For options that is
+// the underlying index; for anything else it is the symbol itself.
+func underlyingSymbol(symbol string) string {
+	if c, err := tws.ParseSymbol(symbol); err == nil && c.Symbol != "" {
+		return c.Symbol
+	}
+	return symbol
+}
+
+// requireFreshSpot is the hard gate that stops an order being sized or sent
+// without a fresh, non-frozen IBKR quote for the underlying — the defence
+// against trading on hallucinated or stale prices. Frozen/missing quotes block;
+// delayed-but-recent quotes are allowed (the caller's mode policy still applies).
+func requireFreshSpot(ctx context.Context, tc *ToolContext, instrumentSymbol string) error {
+	under := underlyingSymbol(instrumentSymbol)
+	if tc.Data == nil {
+		return fmt.Errorf("market data unavailable — refusing to place an order for %s without a verified spot", under)
+	}
+	qctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	q, err := tc.Data.GetLatestQuote(qctx, under)
+	if err != nil {
+		return fmt.Errorf("could not verify %s spot before order: %v — order blocked", under, err)
+	}
+	if ok, warn := q.Tradeability(time.Now(), 30*time.Second); !ok {
+		return fmt.Errorf("refusing to place order: %s spot is not tradeable (%s)", under, warn)
+	}
+	return nil
+}
+
 func ExecuteAgentTool(ctx context.Context, toolName string, args []byte, tc *ToolContext) (string, error) {
 	return HandleToolCall(ctx, toolName, args, tc)
 }
@@ -288,6 +319,9 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return fmt.Sprintf("Order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
 		}
 
+		if err := requireFreshSpot(ctx, tc, req.Symbol); err != nil {
+			return "", err
+		}
 		pos, err := tc.PM.PlaceManagedPosition(ctx, &req)
 		if err != nil {
 			return "", err
@@ -340,6 +374,9 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return fmt.Sprintf("Options order intent created and pending human authorization (Intent ID: %s). Do not retry. The user will review your proposed trade.", id), nil
 		}
 
+		if err := requireFreshSpot(ctx, tc, req.Symbol); err != nil {
+			return "", err
+		}
 		res, err := tc.Trading.PlaceOptionsOrder(ctx, order)
 		if err != nil {
 			return "", err
@@ -408,6 +445,11 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return fmt.Sprintf("Combo order intent created and pending human authorization (Intent ID: %s). Do not retry.", id), nil
 		}
 
+		if len(req.Legs) > 0 {
+			if err := requireFreshSpot(ctx, tc, req.Legs[0].Symbol); err != nil {
+				return "", err
+			}
+		}
 		res, err := tc.Trading.PlaceComboOrder(ctx, comboOrder)
 		if err != nil {
 			return "", err
@@ -542,9 +584,22 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return "", fmt.Errorf("llm provider not initialized for jim_rogers tool")
 		}
 
+		// Sub-agents have no market-data tools, so feed them the orchestrator's
+		// verified IBKR snapshot and forbid inventing numbers — this is what
+		// stops fabricated spot/IV/strike values from entering a trade thesis.
+		userPrompt := req.Prompt
+		if tc.Beat != nil {
+			if snap := tc.Beat.CurrentSnapshot(); snap != "" {
+				userPrompt = snap +
+					"\n\nIMPORTANT: Base your analysis ONLY on the VERIFIED LIVE DATA above and the request below. " +
+					"Do NOT invent or assume any spot price, implied volatility, strike, or Greek. If you need a value that is not shown, state explicitly that it must be fetched — do not guess.\n\n" +
+					req.Prompt
+			}
+		}
+
 		messages := []interfaces.LLMMessage{
 			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: req.Prompt},
+			{Role: "user", Content: userPrompt},
 		}
 
 		resp, err := tc.LLM.GenerateResponse(ctx, messages, nil)
