@@ -301,6 +301,11 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	b.logger.Info("[BEAT] AI Heartbeat executing for user prompt/automated review...")
 
+	// Read the trading mode live so a Settings/.env change (supervised →
+	// autonomous, suggest, off) applies on this beat without a restart, rather
+	// than using the value frozen at construction.
+	mode := config.CurrentTradingMode()
+
 	activeAgent := configstore.ActiveAgentName()
 
 	var systemPrompt string
@@ -333,11 +338,11 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		{Role: "user", Content: userText},
 	}
 
-	if b.tradingMode == config.TradingModeSuggest {
+	if mode == config.TradingModeSuggest {
 		systemPrompt += "\n\nYOU ARE IN SUGGEST MODE. You CANNOT place orders. Instead, analyze the portfolio and market conditions, then use the create_suggestion tool to propose trades for human review. Include detailed rationale and a confidence level. Your suggestions are tracked for accuracy."
 	}
 
-	tools := BuildAgentTools(b.tradingMode)
+	tools := BuildAgentTools(mode)
 
 	// 2. Loop until AI stops calling tools. concluded tracks whether the model
 	// finished on its own (a turn with no tool calls). If it instead burns the
@@ -433,9 +438,9 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 				Intent:               b.intentManager,
 				Beat:                 b,
 				Resolver:             b.resolver,
-				RequireDoubleConfirm: b.requireDoubleConfirm,
+				RequireDoubleConfirm: mode.RequiresDoubleConfirm(),
 				Suggestion:           b.suggestionManager,
-				TradingMode:          b.tradingMode,
+				TradingMode:          mode,
 			})
 			toolCancel()
 

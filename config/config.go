@@ -129,6 +129,36 @@ func Load() error {
 	return nil
 }
 
+// CurrentTradingMode returns the live trading mode, re-reading TRADING_MODE so
+// that a change made at runtime (the Settings panel writes .env *and* calls
+// os.Setenv) takes effect on the next beat without a process restart. Falls
+// back to the startup-resolved AppConfig.TradingMode when the env var is unset
+// or invalid.
+func CurrentTradingMode() TradingMode {
+	switch m := TradingMode(os.Getenv("TRADING_MODE")); m {
+	case TradingModeOff, TradingModeSuggest, TradingModeSupervised, TradingModeAutonomous:
+		return m
+	default:
+		if AppConfig != nil {
+			return AppConfig.TradingMode
+		}
+		// Not yet loaded (e.g. unit tests) — default to the safest mode.
+		return TradingModeOff
+	}
+}
+
+// RequiresDoubleConfirm reports whether orders must be routed to the human
+// approval queue (the Approval Hub) instead of executed directly. Only
+// supervised mode gates on human authorization.
+func (m TradingMode) RequiresDoubleConfirm() bool { return m == TradingModeSupervised }
+
+// AllowsExecution reports whether orders may reach the broker at all. off
+// (dry-run) and suggest (advisory-only) never place real orders; supervised
+// places them after human approval, autonomous places them directly.
+func (m TradingMode) AllowsExecution() bool {
+	return m == TradingModeSupervised || m == TradingModeAutonomous
+}
+
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

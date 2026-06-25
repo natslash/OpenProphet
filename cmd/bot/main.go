@@ -257,7 +257,7 @@ func main() {
 		c.JSON(200, gin.H{
 			"connected":       connected,
 			"trading_enabled": tradingEnabled,
-			"trading_mode":    string(cfg.TradingMode),
+			"trading_mode":    string(config.CurrentTradingMode()),
 		})
 	}
 	router.GET("/api/v1/broker/status", brokerStatusHandler)
