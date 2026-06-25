@@ -279,11 +279,13 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 
 	// Check for automated LLM polling if no pending user messages
 	if len(pending) == 0 {
-		if !b.cfg.LLMPollingEnabled {
+		// Read polling enabled/interval live so the review cadence can be tuned
+		// from Settings/.env without a restart.
+		if !config.CurrentPollingEnabled() {
 			return
 		}
 
-		if time.Since(b.lastPollTime) < b.cfg.LLMPollingInterval {
+		if time.Since(b.lastPollTime) < config.CurrentPollingInterval() {
 			return
 		}
 

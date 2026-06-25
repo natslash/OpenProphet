@@ -179,6 +179,7 @@ func (heldTradingMock) GetAccount(ctx context.Context) (*interfaces.Account, err
 }
 
 func TestAutonomousBeat_SkipsReviewWhenFlat(t *testing.T) {
+	t.Setenv("LLM_POLLING_ENABLED", "true") // polling is read live from env now
 	logger := logrus.New()
 	logger.SetLevel(logrus.PanicLevel)
 	mock := &mockLLMProvider{}
@@ -193,6 +194,7 @@ func TestAutonomousBeat_SkipsReviewWhenFlat(t *testing.T) {
 }
 
 func TestAutonomousBeat_RunsReviewWhenHoldingPositions(t *testing.T) {
+	t.Setenv("LLM_POLLING_ENABLED", "true") // polling is read live from env now
 	logger := logrus.New()
 	logger.SetLevel(logrus.PanicLevel)
 	mock := &mockLLMProvider{}
@@ -207,8 +209,9 @@ func TestAutonomousBeat_RunsReviewWhenHoldingPositions(t *testing.T) {
 }
 
 func TestAutonomousBeat_LLMPolling(t *testing.T) {
+	t.Setenv("LLM_POLLING_ENABLED", "true") // polling is read live from env now
 	mockLLM := &mockLLMProvider{}
-	
+
 	beat := &AutonomousBeat{
 		llm: mockLLM,
 		logger: logrus.New(),
