@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"prophet-trader/config"
 	"prophet-trader/interfaces"
 	"sync/atomic"
 	"time"
@@ -35,8 +36,18 @@ func NewGatedTradingService(inner interfaces.TradingService, enabled bool) *Gate
 	return g
 }
 
-// Enabled reports whether live order placement is currently allowed.
+// Enabled reports the connection kill-switch state (toggled on broker
+// disconnect/reconnect). It does NOT consider the trading mode — use CanTrade
+// for "will an order actually go through".
 func (g *GatedTradingService) Enabled() bool { return g.enabled.Load() }
+
+// CanTrade reports whether a NEW order would actually reach the broker: the
+// connection kill-switch must be on AND the LIVE trading mode must permit
+// execution (autonomous/supervised). Read live so a Settings/.env mode change
+// takes effect without a restart.
+func (g *GatedTradingService) CanTrade() bool {
+	return g.enabled.Load() && config.CurrentTradingMode().AllowsExecution()
+}
 
 // Disable turns off order placement at runtime (e.g. broker disconnect → halt).
 func (g *GatedTradingService) Disable(reason string) {
@@ -59,7 +70,7 @@ func (g *GatedTradingService) blocked(action string) error {
 }
 
 func (g *GatedTradingService) PlaceOrder(ctx context.Context, order *interfaces.Order) (*interfaces.OrderResult, error) {
-	if !g.enabled.Load() {
+	if !g.CanTrade() {
 		return nil, g.blocked(fmt.Sprintf("PlaceOrder %s %s qty=%v type=%s", order.Side, order.Symbol, order.Qty, order.Type))
 	}
 	return g.inner.PlaceOrder(ctx, order)
@@ -73,14 +84,14 @@ func (g *GatedTradingService) CancelOrder(ctx context.Context, orderID string) e
 }
 
 func (g *GatedTradingService) PlaceOptionsOrder(ctx context.Context, order *interfaces.OptionsOrder) (*interfaces.OrderResult, error) {
-	if !g.enabled.Load() {
+	if !g.CanTrade() {
 		return nil, g.blocked("PlaceOptionsOrder")
 	}
 	return g.inner.PlaceOptionsOrder(ctx, order)
 }
 
 func (g *GatedTradingService) PlaceComboOrder(ctx context.Context, order *interfaces.ComboOrder) (*interfaces.OrderResult, error) {
-	if !g.enabled.Load() {
+	if !g.CanTrade() {
 		return nil, g.blocked("PlaceComboOrder")
 	}
 	return g.inner.PlaceComboOrder(ctx, order)
