@@ -196,6 +196,13 @@ func main() {
 	}, intentManager, cfg.RequireDoubleConfirm, suggestionManager, cfg.TradingMode)
 	autonomousBeat.SetResolver(resolver)
 
+	// Background news cache: fetch + Gemini-clean European market news every
+	// 15m and inject it into each beat as untrusted qualitative context.
+	newsCache := services.NewNewsCache()
+	newsCache.Start(ctx, 15*time.Minute)
+	autonomousBeat.SetNewsCache(newsCache)
+	logger.Info("News cache started (15m refresh, injected as untrusted context)")
+
 	intentManager.SetFeedbackCallback(func(intent *services.Intent, reason string) {
 		msg := fmt.Sprintf("System feedback: Your trade intent (ID: %s, Symbol: %s, Side: %s) was %s.", intent.ID, intent.Symbol, intent.Side, reason)
 		autonomousBeat.InjectMessage(msg)
