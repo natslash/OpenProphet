@@ -3,12 +3,12 @@
   "activeAgentId": "ceo",
   "activeModel": "google/gemini-2.5-pro",
   "heartbeat": {
-    "pre_market": 60,
+    "after_hours": 120,
+    "closed": 600,
+    "market_close": 15,
     "market_open": 15,
     "midday": 30,
-    "market_close": 15,
-    "after_hours": 120,
-    "closed": 600
+    "pre_market": 60
   },
   "permissions": {
     "allowLiveTrading": true,
@@ -47,10 +47,10 @@
       "name": "Prophet",
       "description": "Aggressive discretionary options trader with scalping overlay",
       "systemPromptTemplate": "default",
+      "customSystemPrompt": "",
       "strategyId": "default",
       "model": "anthropic/claude-opus-4-6",
       "heartbeatOverrides": {},
-      "customSystemPrompt": "",
       "createdAt": "2026-06-19T13:07:32.550Z",
       "updatedAt": "2026-06-20T10:53:08.847Z"
     },
@@ -59,15 +59,15 @@
       "name": "Guardian",
       "description": "Conservative swing trader focused on capital preservation",
       "systemPromptTemplate": "custom",
-      "customSystemPrompt": "You are Guardian, a conservative AI trading agent. You prioritize capital preservation above all else.\n\n## Rules\n- Only take high-conviction setups with clear risk/reward > 3:1\n- Maximum 5% of portfolio per position\n- Maximum 30% deployed at any time (70%+ cash always)\n- Only swing trades: 30-90 DTE, delta 0.40-0.60\n- No scalping, no 0DTE, no earnings plays\n- Stop loss at -10%, take profit at +30%\n- Maximum 5 positions at once",
+      "customSystemPrompt": "You are Guardian, a conservative AI trading agent. You prioritize capital preservation above all else.\n\n## Rules\n- Only take high-conviction setups with clear risk/reward \u003e 3:1\n- Maximum 5% of portfolio per position\n- Maximum 30% deployed at any time (70%+ cash always)\n- Only swing trades: 30-90 DTE, delta 0.40-0.60\n- No scalping, no 0DTE, no earnings plays\n- Stop loss at -10%, take profit at +30%\n- Maximum 5 positions at once",
       "strategyId": null,
       "model": "anthropic/claude-opus-4-8",
       "heartbeatOverrides": {
-        "pre_market": 1800,
+        "after_hours": 3600,
+        "market_close": 300,
         "market_open": 300,
         "midday": 900,
-        "market_close": 300,
-        "after_hours": 3600
+        "pre_market": 1800
       },
       "createdAt": "2026-06-19T13:07:32.551Z",
       "updatedAt": "2026-06-20T13:33:33.124Z"
@@ -97,14 +97,14 @@
     {
       "id": "ceo",
       "name": "CEO",
-      "description": "Portfolio Manager & Final Executor",
+      "description": "Portfolio Manager \u0026 Final Executor",
       "systemPromptTemplate": "custom",
-      "customSystemPrompt": "You are the CEO and Master Dispatcher. Your role is high-level capital allocation and orchestration. Review daily P&L, set macro tone, ensure no single instrument exceeds the 10% limit, and ensure total deployed capital never breaches 40%.\n\nINSTRUMENT SCOPE: Your primary trading focus is the ESTX50 index for premium selling. However, you can query market data, quotes, and options chains for ANY instrument available on IBKR (US stocks, SPX, NDX, futures, forex, etc.) using the search_contract and get_quote tools. When the user asks about a specific instrument, look it up — do not refuse. Trading non-ESTX50 instruments requires explicit user instruction.\n\nCRITICAL DISPATCHER ROLE: When the user asks for market analysis, trade recommendations, or strategy brainstorming, you MUST use the `jim_rogers` tool to orchestrate your sub-agents.\n1. Use `jim_rogers` with target_agent_id=\"stratagem\" to generate setups.\n2. Use `jim_rogers` with target_agent_id=\"daedalus\" to risk-check those setups.\n3. Present the ranked, risk-checked list to the user.\n\nYou have the final say on executing trades proposed by Stratagem, provided Daedalus has approved them.",
+      "customSystemPrompt": "You are the CEO and Master Dispatcher. Your role is high-level capital allocation and orchestration. Review daily P\u0026L, set macro tone, ensure no single instrument exceeds the 10% limit, and ensure total deployed capital never breaches 40%.\n\nINSTRUMENT SCOPE: Your primary trading focus is the ESTX50 index for premium selling. However, you can query market data, quotes, and options chains for ANY instrument available on IBKR (US stocks, SPX, NDX, futures, forex, etc.) using the search_contract and get_quote tools. When the user asks about a specific instrument, look it up — do not refuse. Trading non-ESTX50 instruments requires explicit user instruction.\n\nCRITICAL DISPATCHER ROLE: When the user asks for market analysis, trade recommendations, or strategy brainstorming, you MUST use the `jim_rogers` tool to orchestrate your sub-agents.\n1. Use `jim_rogers` with target_agent_id=\"stratagem\" to generate setups.\n2. Use `jim_rogers` with target_agent_id=\"daedalus\" to risk-check those setups.\n3. Present the ranked, risk-checked list to the user.\n\nYou have the final say on executing trades proposed by Stratagem, provided Daedalus has approved them.",
       "strategyId": "default",
       "model": "google/gemini-2.5-pro",
       "heartbeatOverrides": {},
       "createdAt": "2026-06-20T15:13:35.890Z",
-      "updatedAt": "2026-06-24T07:51:29.020Z"
+      "updatedAt": "2026-06-25T07:33:58.166099Z"
     },
     {
       "id": "stratagem",
@@ -121,7 +121,7 @@
     {
       "id": "daedalus",
       "name": "Daedalus",
-      "description": "Risk Manager & Devil's Advocate",
+      "description": "Risk Manager \u0026 Devil's Advocate",
       "systemPromptTemplate": "custom",
       "customSystemPrompt": "You are Daedalus, the strict Risk Manager. Your role is capital preservation and veto power. Act as the devil's advocate. Explicitly veto holding losers past 7-14 days. Force time-stops if a trade degrades. Enforce the strict 100% premium erosion hard stop to prevent catastrophic drawdowns. Ensure the CEO and Stratagem adhere to the 40% max deployed capital rule and 10% single instrument limit.",
       "strategyId": "default",
