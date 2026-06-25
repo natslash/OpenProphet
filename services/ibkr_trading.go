@@ -90,6 +90,18 @@ func (s *IBKRTradingService) SubscribePositions() {
 func (s *IBKRTradingService) UpdatePortfolio(contract tws.Contract, position decimal.Decimal, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL float64, accountName string) {
 	qty := position.InexactFloat64()
 	if qty == 0 {
+		// Position closed: drop it from the cache so it stops showing as open.
+		// (Previously this returned early without removing it, leaving a closed
+		// position lingering in the portfolio view.)
+		sym := s.resolver.Format(contract)
+		s.posMu.Lock()
+		for i, existing := range s.posCache {
+			if existing.Symbol == sym {
+				s.posCache = append(s.posCache[:i], s.posCache[i+1:]...)
+				break
+			}
+		}
+		s.posMu.Unlock()
 		return
 	}
 
@@ -429,6 +441,8 @@ func (s *IBKRTradingService) OrderStatus(orderId int64, status string, filled, r
 		avg := avgFillPrice
 		o.FilledAvgPrice = &avg
 	}
+	fmt.Printf("[IBKRTradingService] OrderStatus: %d status=%s filled=%s remaining=%s avgFill=%.4f\n",
+		orderId, status, filled.String(), remaining.String(), avgFillPrice)
 }
 
 func (s *IBKRTradingService) GetOrder(ctx context.Context, orderID string) (*interfaces.Order, error) {
