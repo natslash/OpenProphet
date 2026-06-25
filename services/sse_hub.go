@@ -35,9 +35,9 @@ func (h *SSEHub) Unsubscribe(ch chan SSEEvent) {
 	h.mu.Lock()
 	delete(h.clients, ch)
 	h.mu.Unlock()
-	// Drain remaining events so senders don't block.
-	for range ch {
-	}
+	// No drain needed: Broadcast sends non-blocking (drops on a full buffer),
+	// so no sender is ever parked on ch. The previous `for range ch {}` blocked
+	// forever (ch is never closed), leaking a goroutine on every disconnect.
 }
 
 func (h *SSEHub) Broadcast(event string, data interface{}) {
