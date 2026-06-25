@@ -164,8 +164,11 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 		},
 	}
 
-	if isSuggestMode {
-		// Remove order-placement tools, add create_suggestion
+	if !mode.AllowsExecution() {
+		// off (dry-run) and suggest (advisory) cannot place orders — strip the
+		// order-placement tools so the agent can't execute regardless of the
+		// kill-switch state. suggest then gets create_suggestion in its place;
+		// off is left with read/analysis tools only.
 		orderTools := map[string]bool{
 			"place_managed_position": true,
 			"place_options_order":    true,
@@ -177,7 +180,11 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 				filtered = append(filtered, t)
 			}
 		}
-		tools = append(filtered, interfaces.LLMTool{
+		tools = filtered
+	}
+
+	if isSuggestMode {
+		tools = append(tools, interfaces.LLMTool{
 			Name:        "create_suggestion",
 			Description: "Propose a trade suggestion for human review. Include your analysis rationale, confidence level (0-1), and timeframe. The suggestion is persisted and tracked for outcome accuracy.",
 			InputSchema: map[string]interface{}{
