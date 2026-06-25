@@ -1062,6 +1062,42 @@ func (s *IBKRTradingService) GetOptionsPosition(ctx context.Context, symbol stri
 }
 
 func (s *IBKRTradingService) ListOptionsPositions(ctx context.Context) ([]*interfaces.OptionsPosition, error) {
-	// Returning empty array instead of error to prevent frontend 502s
-	return []*interfaces.OptionsPosition{}, nil
+	// Build from the live position cache (same source as GetPositions), filtering
+	// to option legs and decoding strike/right/expiry from the symbol. Previously
+	// a stub returning empty, which left the get_options_positions tool blind.
+	positions, err := s.GetPositions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*interfaces.OptionsPosition, 0)
+	for _, p := range positions {
+		c, perr := tws.ParseSymbol(p.Symbol)
+		if perr != nil || c.SecType != tws.Option {
+			continue
+		}
+		optType := "call"
+		if strings.EqualFold(c.Right, "P") {
+			optType = "put"
+		}
+		var exp time.Time
+		if t, e := time.Parse("20060102", c.LastTradeDateOrContractMonth); e == nil {
+			exp = t
+		}
+		out = append(out, &interfaces.OptionsPosition{
+			Symbol:         p.Symbol,
+			Underlying:     c.Symbol,
+			Qty:            p.Qty,
+			AvgEntryPrice:  p.AvgEntryPrice,
+			MarketValue:    p.MarketValue,
+			CostBasis:      p.CostBasis,
+			UnrealizedPL:   p.UnrealizedPL,
+			UnrealizedPLPC: p.UnrealizedPLPC,
+			CurrentPrice:   p.CurrentPrice,
+			Side:           p.Side,
+			Expiration:     exp,
+			Strike:         c.Strike,
+			OptionType:     optType,
+		})
+	}
+	return out, nil
 }

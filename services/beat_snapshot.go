@@ -43,10 +43,12 @@ func (b *AutonomousBeat) buildVerifiedSnapshot(ctx context.Context) string {
 	}
 
 	if b.trading != nil {
+		var portfolioValue float64
 		actx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		acc, err := b.trading.GetAccount(actx)
 		cancel()
 		if err == nil && acc != nil {
+			portfolioValue = acc.PortfolioValue
 			sb.WriteString(fmt.Sprintf("Account: portfolioValue=€%.2f cash=€%.2f buyingPower=€%.2f\n",
 				acc.PortfolioValue, acc.Cash, acc.BuyingPower))
 		}
@@ -58,16 +60,34 @@ func (b *AutonomousBeat) buildVerifiedSnapshot(ctx context.Context) string {
 			if len(pos) == 0 {
 				sb.WriteString("Positions: FLAT (no open positions)\n")
 			} else {
-				sb.WriteString("Positions:\n")
+				// Premiums are index POINTS; cost basis and P&L are pre-computed
+				// in EUR (point × contract multiplier × qty). Hand the agents the
+				// EUR figures so they never multiply points by a guessed
+				// multiplier — the source of past 10x risk-math errors.
+				sb.WriteString("Positions (premiums in index POINTS; costBasis & P&L in EUR — USE the EUR figures, do NOT convert points yourself):\n")
+				var shortEUR, longEUR, totalUPnL float64
 				for _, p := range pos {
-					sb.WriteString(fmt.Sprintf("  - %s %s qty=%.0f avgEntry=€%.2f cur=€%.2f uPnL=€%.2f\n",
-						p.Side, p.Symbol, p.Qty, p.AvgEntryPrice, p.CurrentPrice, p.UnrealizedPL))
+					if p.Side == "short" {
+						shortEUR += p.CostBasis
+					} else {
+						longEUR += p.CostBasis
+					}
+					totalUPnL += p.UnrealizedPL
+					sb.WriteString(fmt.Sprintf("  - %-5s %s qty=%.0f  entry=%.2fpts cur=%.2fpts  costBasis=€%.0f  uPnL=€%+.2f\n",
+						p.Side, p.Symbol, p.Qty, p.AvgEntryPrice, p.CurrentPrice, p.CostBasis, p.UnrealizedPL))
+				}
+				netPremium := shortEUR - longEUR
+				sb.WriteString(fmt.Sprintf("Net option premium: €%+.0f (positive = net CREDIT collected at entry)  |  Total unrealized P&L: €%+.2f\n",
+					netPremium, totalUPnL))
+				if acctVal := portfolioValue; acctVal > 0 {
+					sb.WriteString(fmt.Sprintf("Net premium is %.1f%% of portfolio (€%.0f). Max loss of a defined-risk spread = (strike width in pts × multiplier × qty) − net credit; compute width from the strikes above.\n",
+						(netPremium/acctVal)*100, acctVal))
 				}
 			}
 		}
 	}
 
-	sb.WriteString("Rule: For any price, strike, IV, or Greek not shown above, call get_quote / get_options_chain — never guess.\n")
+	sb.WriteString("Rule: For any price, strike, IV, or Greek not shown above, call get_quote / get_options_chain — never guess. For P&L/credit/cost, use the EUR figures above — never recompute the multiplier.\n")
 	sb.WriteString("=== END VERIFIED LIVE DATA ===")
 	return sb.String()
 }

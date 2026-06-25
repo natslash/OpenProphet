@@ -314,6 +314,7 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 	b.mu.Lock()
 	b.currentSnapshot = snapshot
 	b.mu.Unlock()
+	b.logger.WithField("snapshot", snapshot).Info("[BEAT] verified live-data snapshot")
 
 	// Read the trading mode live so a Settings/.env change (supervised →
 	// autonomous, suggest, off) applies on this beat without a restart, rather
