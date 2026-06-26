@@ -103,6 +103,9 @@ func newIntentHarness(t *testing.T, adminToken string, tradingEnabled bool, quot
 		AdminToken:              adminToken,
 		RequireDoubleConfirm:    true,
 		MaxPriceSlippagePercent: 0.5,
+		// Execution now also requires the live mode to permit it (gate.CanTrade);
+		// these tests exercise the execution path, so set an executing mode.
+		TradingMode: config.TradingModeAutonomous,
 	}
 
 	logger := logrus.New()
