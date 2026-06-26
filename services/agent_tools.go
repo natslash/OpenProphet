@@ -85,18 +85,19 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 		},
 		{
 			Name:        "build_spread",
-			Description: "Construct a defined-risk options spread DETERMINISTICALLY. You give the strategy and criteria; the system selects the exact strikes from the live chain and computes credit, max-loss, breakevens, size (qty), and a risk-gate verdict — all in EUR. NEVER pick strikes or compute economics yourself: call this, then place the returned legs VERBATIM via place_combo_order using the suggested_limit_price. For premium selling (iron_condor / put_credit_spread / call_credit_spread).",
+			Description: "Construct a defined-risk options spread DETERMINISTICALLY. You give the strategy and criteria; the system selects the strikes by MONEYNESS from the live spot, prices every leg with live quotes, and computes credit, max-loss, breakevens, size (qty), and a risk-gate verdict — all in EUR. NEVER pick strikes or compute economics yourself: call this, then place the returned legs VERBATIM via place_combo_order using the suggested_limit_price. For premium selling (iron_condor / put_credit_spread / call_credit_spread).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"strategy":        map[string]interface{}{"type": "string", "enum": []string{"iron_condor", "put_credit_spread", "call_credit_spread"}},
 					"underlying":      map[string]interface{}{"type": "string", "description": "e.g. ESTX50 (default ESTX50)"},
 					"expiration":      map[string]interface{}{"type": "string", "description": "YYYYMMDD"},
-					"short_delta":     map[string]interface{}{"type": "number", "description": "Target absolute delta for the short strike(s), e.g. 0.16"},
+					"short_otm_pct":   map[string]interface{}{"type": "number", "description": "How far OUT-OF-THE-MONEY the short strike is, as a fraction of spot (e.g. 0.06 = 6%%; ~16-delta short at 45 DTE is roughly 0.05-0.07)"},
 					"width":           map[string]interface{}{"type": "number", "description": "Wing width in index points, e.g. 100"},
 					"risk_budget_pct": map[string]interface{}{"type": "number", "description": "Max acceptable loss as %% of portfolio; sizes the quantity, e.g. 2"},
+					"strike_step":     map[string]interface{}{"type": "number", "description": "Strike grid to snap to (default 50)"},
 				},
-				"required": []string{"strategy", "expiration", "short_delta", "width"},
+				"required": []string{"strategy", "expiration", "short_otm_pct", "width"},
 			},
 		},
 		{
@@ -518,28 +519,43 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			Strategy      string  `json:"strategy"`
 			Underlying    string  `json:"underlying"`
 			Expiration    string  `json:"expiration"`
-			ShortDelta    float64 `json:"short_delta"`
+			ShortOTMPct   float64 `json:"short_otm_pct"`
 			Width         float64 `json:"width"`
 			RiskBudgetPct float64 `json:"risk_budget_pct"`
+			StrikeStep    float64 `json:"strike_step"`
 		}
 		if err := json.Unmarshal(args, &req); err != nil {
 			return "", err
 		}
-		if tc.Trading == nil {
-			return "", fmt.Errorf("trading service not initialized")
+		if tc.Data == nil {
+			return "", fmt.Errorf("market data not initialized")
 		}
 		if req.Underlying == "" {
 			req.Underlying = "ESTX50"
 		}
-		exp, err := time.Parse("20060102", req.Expiration)
-		if err != nil {
+		if _, err := time.Parse("20060102", req.Expiration); err != nil {
 			return "", fmt.Errorf("build_spread: expiration must be YYYYMMDD: %v", err)
 		}
-		chain, err := tc.Trading.GetOptionsChain(ctx, req.Underlying, exp)
-		if err != nil {
-			return "", err
+		// Spot from a live quote (reliable), and a leg-pricing function that
+		// quotes each candidate strike with a short timeout so invalid/illiquid
+		// strikes fail fast during the nudge search.
+		spotQ, err := tc.Data.GetLatestQuote(ctx, req.Underlying)
+		if err != nil || spotQ == nil {
+			return "", fmt.Errorf("build_spread: could not get %s spot: %v", req.Underlying, err)
 		}
-		// Portfolio value drives risk-budget sizing and the allocation gate.
+		spot := spotQ.BidPrice
+		if spotQ.AskPrice > 0 && spotQ.BidPrice > 0 {
+			spot = (spotQ.BidPrice + spotQ.AskPrice) / 2
+		}
+		quote := func(sym string) (float64, bool) {
+			qctx, qcancel := context.WithTimeout(ctx, 3*time.Second)
+			defer qcancel()
+			q, qerr := tc.Data.GetLatestQuote(qctx, sym)
+			if qerr != nil || q == nil || q.BidPrice <= 0 || q.AskPrice <= 0 {
+				return 0, false
+			}
+			return (q.BidPrice + q.AskPrice) / 2, true
+		}
 		var portfolioValue float64
 		if acc, aerr := tc.Trading.GetAccount(ctx); aerr == nil && acc != nil {
 			portfolioValue = acc.PortfolioValue
@@ -552,9 +568,10 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 		if req.Underlying == "ESTX50" {
 			mult = 10 // OESX
 		}
-		plan, err := BuildSpread(chain, SpreadCriteria{
+		plan, err := BuildSpread(spot, quote, SpreadCriteria{
 			Strategy: req.Strategy, UnderlyingSym: req.Underlying, Expiry: req.Expiration,
-			ShortDelta: req.ShortDelta, WidthPts: req.Width, Multiplier: mult, RiskBudgetEUR: riskBudget,
+			ShortOTMPct: req.ShortOTMPct, WidthPts: req.Width, Multiplier: mult,
+			RiskBudgetEUR: riskBudget, StrikeStep: req.StrikeStep,
 		})
 		if err != nil {
 			return "", fmt.Errorf("build_spread: %w", err)
