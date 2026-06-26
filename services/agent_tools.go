@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"prophet-trader/config"
@@ -80,6 +81,22 @@ func BuildAgentTools(mode config.TradingMode) []interfaces.LLMTool {
 					"expiration": map[string]interface{}{"type": "string", "description": "e.g. '20260816' (YYYYMMDD)"},
 				},
 				"required": []string{"symbol", "expiration"},
+			},
+		},
+		{
+			Name:        "build_spread",
+			Description: "Construct a defined-risk options spread DETERMINISTICALLY. You give the strategy and criteria; the system selects the exact strikes from the live chain and computes credit, max-loss, breakevens, size (qty), and a risk-gate verdict — all in EUR. NEVER pick strikes or compute economics yourself: call this, then place the returned legs VERBATIM via place_combo_order using the suggested_limit_price. For premium selling (iron_condor / put_credit_spread / call_credit_spread).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"strategy":        map[string]interface{}{"type": "string", "enum": []string{"iron_condor", "put_credit_spread", "call_credit_spread"}},
+					"underlying":      map[string]interface{}{"type": "string", "description": "e.g. ESTX50 (default ESTX50)"},
+					"expiration":      map[string]interface{}{"type": "string", "description": "YYYYMMDD"},
+					"short_delta":     map[string]interface{}{"type": "number", "description": "Target absolute delta for the short strike(s), e.g. 0.16"},
+					"width":           map[string]interface{}{"type": "number", "description": "Wing width in index points, e.g. 100"},
+					"risk_budget_pct": map[string]interface{}{"type": "number", "description": "Max acceptable loss as %% of portfolio; sizes the quantity, e.g. 2"},
+				},
+				"required": []string{"strategy", "expiration", "short_delta", "width"},
 			},
 		},
 		{
@@ -495,6 +512,64 @@ func HandleToolCall(ctx context.Context, toolName string, args []byte, tc *ToolC
 			return "", err
 		}
 		return formatOptionsChain(ctx, tc.Data, req.Symbol, chain), nil
+
+	case "build_spread":
+		var req struct {
+			Strategy      string  `json:"strategy"`
+			Underlying    string  `json:"underlying"`
+			Expiration    string  `json:"expiration"`
+			ShortDelta    float64 `json:"short_delta"`
+			Width         float64 `json:"width"`
+			RiskBudgetPct float64 `json:"risk_budget_pct"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return "", err
+		}
+		if tc.Trading == nil {
+			return "", fmt.Errorf("trading service not initialized")
+		}
+		if req.Underlying == "" {
+			req.Underlying = "ESTX50"
+		}
+		exp, err := time.Parse("20060102", req.Expiration)
+		if err != nil {
+			return "", fmt.Errorf("build_spread: expiration must be YYYYMMDD: %v", err)
+		}
+		chain, err := tc.Trading.GetOptionsChain(ctx, req.Underlying, exp)
+		if err != nil {
+			return "", err
+		}
+		// Portfolio value drives risk-budget sizing and the allocation gate.
+		var portfolioValue float64
+		if acc, aerr := tc.Trading.GetAccount(ctx); aerr == nil && acc != nil {
+			portfolioValue = acc.PortfolioValue
+		}
+		riskBudget := 0.0
+		if req.RiskBudgetPct > 0 && portfolioValue > 0 {
+			riskBudget = portfolioValue * req.RiskBudgetPct / 100
+		}
+		mult := 100.0 // US options default
+		if req.Underlying == "ESTX50" {
+			mult = 10 // OESX
+		}
+		plan, err := BuildSpread(chain, SpreadCriteria{
+			Strategy: req.Strategy, UnderlyingSym: req.Underlying, Expiry: req.Expiration,
+			ShortDelta: req.ShortDelta, WidthPts: req.Width, Multiplier: mult, RiskBudgetEUR: riskBudget,
+		})
+		if err != nil {
+			return "", fmt.Errorf("build_spread: %w", err)
+		}
+		verdict := CheckSpreadRisk(plan, portfolioValue, configstore.Get().Permissions)
+		out := map[string]interface{}{
+			"plan":                  plan,
+			"risk_check":            verdict,
+			"suggested_limit_price": -plan.CreditPts, // negative = net credit (BUY-bag convention)
+			"how_to_execute":        "If you approve and risk_check.pass is true, call place_combo_order with these exact legs (each leg's action verbatim) and lmt_price = suggested_limit_price. Do NOT recompute any of these numbers.",
+		}
+		b, _ := json.Marshal(out)
+		log.Printf("[BUILD_SPREAD] %s qty=%d credit=€%.0f maxLoss=€%.0f pass=%v legs=%d",
+			plan.Strategy, plan.Qty, plan.CreditEUR, plan.MaxLossEUR, verdict.Pass, len(plan.Legs))
+		return string(b), nil
 
 	case "set_heartbeat":
 		var req struct {
