@@ -352,13 +352,18 @@ func (b *AutonomousBeat) tick(ctx context.Context) {
 		userText += "- " + msg.Text + "\n"
 	}
 
+	// Mode-specific execution directives — MUST be added before building the
+	// messages below (appending to systemPrompt afterwards has no effect).
+	switch mode {
+	case config.TradingModeSuggest:
+		systemPrompt += "\n\nYOU ARE IN SUGGEST MODE. You CANNOT place orders. Instead, analyze the portfolio and market conditions, then use the create_suggestion tool to propose trades for human review. Include detailed rationale and a confidence level. Your suggestions are tracked for accuracy."
+	case config.TradingModeAutonomous:
+		systemPrompt += "\n\nYOU ARE IN AUTONOMOUS MODE. When your analysis and risk checks approve a trade, EXECUTE IT DIRECTLY using the order tools (e.g. place_combo_order) within this same beat. Do NOT ask the user to confirm, and do NOT wait for human approval — 'autonomous' means you act on your own decisions. The deterministic risk gates and your risk sub-agent (Daedalus) are your safeguards. Never end a beat with 'please confirm if you wish for me to execute' for a trade you intend to make — place it. (Only a DIRECT user instruction can override your own decision.)"
+	}
+
 	messages := []interfaces.LLMMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userText},
-	}
-
-	if mode == config.TradingModeSuggest {
-		systemPrompt += "\n\nYOU ARE IN SUGGEST MODE. You CANNOT place orders. Instead, analyze the portfolio and market conditions, then use the create_suggestion tool to propose trades for human review. Include detailed rationale and a confidence level. Your suggestions are tracked for accuracy."
 	}
 
 	tools := BuildAgentTools(mode)
