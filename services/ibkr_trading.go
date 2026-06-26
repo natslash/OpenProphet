@@ -540,8 +540,14 @@ func (s *IBKRTradingService) GetPositions(ctx context.Context) ([]*interfaces.Po
 	}
 
 	if ready != nil {
+		// Bounded wait for the initial account download. If posReady never
+		// closes (e.g. a re-subscription after reconnect doesn't deliver
+		// AccountDownloadEnd), don't block forever — the cache is still kept
+		// live by UpdatePortfolio callbacks, so return what we have. This stops
+		// GetPositions (and the dashboard /positions endpoint) from hanging.
 		select {
 		case <-ready:
+		case <-time.After(4 * time.Second):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
